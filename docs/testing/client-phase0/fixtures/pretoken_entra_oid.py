@@ -2,9 +2,9 @@
 
 The trusted token issuer cannot map ``custom:`` claims (its claim path refuses a colon), and a mapped
 attribute is writable, so the claim is taken from the federated identity Cognito recorded at sign-in:
-the first ``identities`` entry's ``userId``, which is the SAML NameID or the OIDC ``sub``. It is the
-Entra object id only when the federation sends the object id as the subject, and check 5 says so when
-it is not.
+the first ``identities`` entry's ``userId``, which is the SAML NameID. The federation is SAML with a
+persistent NameID sourced from ``user.objectid``; over OIDC this would be Entra's pairwise ``sub``,
+never the object id, and check 5 says so when the subject is not the object id.
 """
 
 import json

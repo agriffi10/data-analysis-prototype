@@ -875,7 +875,10 @@ def cmd_mark(args: argparse.Namespace, evidence: Evidence) -> None:
     Raises:
       None.
     """
-    evidence.record(args.label, {"ok": True, "data": {"note": args.note}})
+    data: dict[str, Any] = {"note": args.note}
+    if args.sessions_ended is not None:
+        data["sessionsEnded"] = args.sessions_ended
+    evidence.record(args.label, {"ok": True, "data": data})
 
 
 def load(path: Path) -> list[Record]:
@@ -1428,6 +1431,17 @@ def verdict_c4(records: list[Record], obs: dict[str, Record]) -> tuple[str, str]
             "INCONCLUSIVE",
             "the deletion was never marked (phase0.py mark --label C4.deleted)",
         )
+    ended = data(deleted).get("sessionsEnded")
+    if ended is None:
+        return (
+            "INCONCLUSIVE",
+            "the deletion was marked without --sessions-ended, so whether any session was ended is not recorded",
+        )
+    if ended < 1:
+        return (
+            "INCONCLUSIVE",
+            "the admin ended no session: the exchange's session did not appear under Active sessions, so nothing was revoked to observe",
+        )
     after = [
         r
         for r in records
@@ -1688,6 +1702,11 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("mark", help="record a manual step as it happens")
     p.add_argument("--label", required=True)
     p.add_argument("--note", required=True)
+    p.add_argument(
+        "--sessions-ended",
+        type=int,
+        help="for C4.deleted: how many sessions the admin ended",
+    )
     p.set_defaults(run=cmd_mark)
     p = sub.add_parser("verdict", help="state each check's outcome from the evidence")
     p.add_argument("check", choices=["C1", "C2", "P", "C4", "C5", "all"])

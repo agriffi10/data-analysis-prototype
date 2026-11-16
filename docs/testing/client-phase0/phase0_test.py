@@ -602,7 +602,7 @@ def c4_records(
     """
     out = [
         rec("C4.refresh.before", ts=at(0).replace("10:00", "09:55")),
-        rec("C4.deleted", ts=at(0, node=False)),
+        rec("C4.deleted", data={"sessionsEnded": 1}, ts=at(0, node=False)),
     ]
     for i, (minutes, code) in enumerate(after):
         out.append(rec(f"C4.refresh.after.{i}.caller", ts=at(minutes)))
@@ -1192,6 +1192,30 @@ class ReviewedBranchesTest(unittest.TestCase):
             with self.subTest(name):
                 got, reason = phase0.verdict_c5(obs(*records))
                 self.assertEqual(got, verdict, reason)
+                self.assertIn(phrase, reason)
+
+
+class SessionCountTest(unittest.TestCase):
+    """C4 reads nothing into a deletion that ended no session."""
+
+    def test_count(self) -> None:
+        """A missing or zero count is inconclusive, whatever the refreshes did."""
+        for name, mark, phrase in (
+            (
+                "unrecorded",
+                rec("C4.deleted", ts=at(0, node=False)),
+                "without --sessions-ended",
+            ),
+            (
+                "none ended",
+                rec("C4.deleted", data={"sessionsEnded": 0}, ts=at(0, node=False)),
+                "ended no session",
+            ),
+        ):
+            records = replace(c4_records([(1, None), (35, None)]), mark)
+            with self.subTest(name):
+                got, reason = phase0.verdict_c4(records, obs(*records))
+                self.assertEqual(got, "INCONCLUSIVE", reason)
                 self.assertIn(phrase, reason)
 
 

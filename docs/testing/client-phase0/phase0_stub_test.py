@@ -129,6 +129,32 @@ def creds(n: int) -> dict[str, Any]:
     }
 
 
+def describe_user_response(client: Any, base: dict[str, Any]) -> dict[str, Any]:
+    """A DescribeUser response valid for whichever botocore is installed.
+
+    Newer models require ``UserArn`` and ``Revision``, and older ones refuse them, so add them only
+    where the installed model has them.
+
+    Args:
+      client: The stubbed identitystore client.
+      base: The fields every version accepts.
+
+    Returns:
+      The response.
+
+    Raises:
+      None.
+    """
+    members = client.meta.service_model.operation_model(
+        "DescribeUser"
+    ).output_shape.members
+    extra = {
+        "UserArn": "arn:aws:identitystore::111111111111:identitystore/d-1234567890/user/user-1",
+        "Revision": "1",
+    }
+    return {**base, **{k: v for k, v in extra.items() if k in members}}
+
+
 class StubbedRunTest(unittest.TestCase):
     """Each subcommand's AWS calls are well-formed, and a stubbed run reaches the intended verdict."""
 
@@ -487,12 +513,15 @@ class StubbedRunTest(unittest.TestCase):
         )
         store.add_response(
             "describe_user",
-            {
-                "IdentityStoreId": "d-1234567890",
-                "UserId": "user-1",
-                "UserName": "alice",
-                "ExternalIds": [{"Issuer": "entra", "Id": "oid-1"}],
-            },
+            describe_user_response(
+                store.client,
+                {
+                    "IdentityStoreId": "d-1234567890",
+                    "UserId": "user-1",
+                    "UserName": "alice",
+                    "ExternalIds": [{"Issuer": "entra", "Id": "oid-1"}],
+                },
+            ),
             {"IdentityStoreId": "d-1234567890", "UserId": "user-1"},
         )
         obs = self.run_cli("entra-hop", "--token", "alice-1", "--profile", "admin")

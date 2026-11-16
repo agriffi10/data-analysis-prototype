@@ -24,7 +24,9 @@ outcome changes. Do not read pass or fail from an exit code.
 
 You need Node 20 or later and Python 3.11 or later. If a launcher cannot run a version-manager shim,
 give it the absolute path to `node` (`command -v node`). Work in a copy of this folder outside any
-git checkout, because the scripts refuse to keep evidence or tokens inside one.
+git checkout: the installs below then stay out of the repository, and the scripts refuse to keep
+evidence or tokens inside a checkout anyway. Run the copy from the repository's root, or copy the
+`client-phase0` folder you were given to the same place.
 
 ```bash
 export WORK="$HOME/phase0-client" && mkdir -p "$WORK" && cp -R docs/testing/client-phase0 "$WORK/" && cd "$WORK/client-phase0"
@@ -44,9 +46,16 @@ Node exchanger calls `CreateTokenWithIAM`, and it also reads the Identity Center
 `sts:identity_context` claim, which carries the same value. So the context survives an SDK that
 drops the field, and the evidence records which source supplied it.
 
-Then fill in `config.example.env` as `$WORK/config.env`, and load it in every new shell with
-`set -a; . ~/phase0-client/config.env; set +a` (the file sets `WORK` itself). Prove the scripts work before touching AWS; both commands
-must exit 0:
+Then fill in `config.example.env` as `$WORK/config.env`. `AWS_REGION` must be the organization
+instance's home Region, and every member-account fixture must be in that same Region. **Every new
+shell**, including the one you return to during C4, starts with this line, because every command
+below runs from the copy, under its venv, with the config loaded:
+
+```bash
+cd ~/phase0-client/client-phase0 && . .venv/bin/activate && set -a && . ../config.env && set +a
+```
+
+Prove the scripts work before touching AWS; both commands must exit 0:
 
 ```bash
 python3 -m unittest phase0_test phase0_stub_test && node --test exchange_test.mjs
@@ -64,7 +73,7 @@ use `<PLACEHOLDER>` names.
 
 | Owner | Fixture | Settings that matter |
 |---|---|---|
-| Entra owner | The enterprise application the Cognito pool federates to | The subject (SAML NameID, persistent) is `user.objectid`. C5 fails, with that reason, if the subject is anything else |
+| Entra owner | The enterprise application the Cognito pool federates to, **over SAML only** | A persistent NameID whose source attribute is `user.objectid`, and the email-address claim released. Not OIDC: Cognito would record Entra's `sub`, which Microsoft documents as pairwise (unique to each application), not the object id, so `externalId` could never match. C5 fails, with that reason, if the subject is anything else |
 | Us, member account | Cognito test pool | Federated to Entra. The app client allows the code grant, PKCE and `http://localhost:8766/callback`, and has token revocation on. A pre-token-generation (V1) trigger runs [`fixtures/pretoken_entra_oid.py`](fixtures/pretoken_entra_oid.py), which emits `entra_oid` |
 | Identity Center admins | Trusted token issuer | The issuer is the test pool. Claim `entra_oid` maps to `externalIds.value`. AWS documents external ID as mappable but not this path string, so a refusal here is itself a finding |
 | Identity Center admins | Application **catalog** (`IDC_APPLICATION_ARN`) | Customer-managed, in the management or delegated-admin account. It has the JWT-bearer grant with the issuer, the refresh-token grant, and assignment not required. Its scopes are `lakeformation:query`, `athena:workgroup:read_write` and `s3:access_grants:read_write`. Its actor policy is [`fixtures/application-actor-policy.json`](fixtures/application-actor-policy.json) |
@@ -73,7 +82,8 @@ use `<PLACEHOLDER>` names.
 | Us, member account | Roles `phase0-exchanger`, `phase0-assumer` and `phase0-carrier` | Their policies are in `fixtures/` (the exchanger, the assumer, and the carrier's trust and permissions). **The exchanger and the assumer are different roles**: C1 is inconclusive otherwise |
 | Us, member account | Scratch bucket and queue | The bucket holds `phase0-probe/other-user/secret.txt`, `phase0-probe/p3/seed.txt`, `phase0-probe/abac/<alice>/probe.txt` and `phase0-probe/abac/<bob>/probe.txt`, and has **no bucket policy**, so only role policies decide. The queue is a standard SQS queue `phase0-scratch` |
 | Us, member account | Access Grants instance associated with the organization instance | One location for the bucket, and **one** READWRITE grant to alice on `phase0-probe/alice/*` |
-| Us, member account | IdC Athena workgroup `phase0-idc`, table `phase0_db.phase0_t` | Lake Formation `SELECT` granted to **alice's Identity Center user only**, not to any role |
+| Us, member account | Lake Formation's Identity Center configuration | Created in the member account against the organization instance, so Lake Formation can grant to an Identity Center user |
+| Us, member account | IdC Athena workgroup `phase0-idc`, table `phase0_db.phase0_t` | Created with Identity Center authentication, S3 Access Grants on and a service role. Its query results location is `s3://<PROBE_BUCKET>/phase0-probe/alice/athena-results/`, inside alice's one grant, or every query fails on the results location. Lake Formation `SELECT` on the table is granted to **alice's Identity Center user only**, not to any role |
 
 ## 3. Run order
 
@@ -90,13 +100,19 @@ python3 phase0.py entra-hop --token alice-c5 --profile "$IDSTORE_PROFILE"
 ```
 
 If the runner has no Identity Store read access, an admin runs the last line instead with
-`--user-id <the sub from C5.exchange>`.
+`--user-id <the sub from C5.exchange>`; the same holds for C1's `actor-policy`. **An admin's run
+writes to their own evidence file**, so they need this folder set up as in §1 (the venv, and a
+config with at least `PHASE0_EVIDENCE`, `PHASE0_SECRETS`, `AWS_REGION`, `IDENTITY_STORE_ID`,
+`TTI_ARN`, `IDC_APPLICATION_ARN`, `ENTRA_TEST_USER_OID`, `EXPECTED_IDC_USERNAME`, `ENTRA_IDP_NAME`
+and `OID_CLAIM`). They send the operator their evidence lines, which the operator appends before
+running `verdict`: `cat admin-evidence.jsonl >> "$PHASE0_EVIDENCE"`. A later line for a label
+supersedes an earlier one.
 
 | Label | Expect |
 |---|---|
 | `C5.login` | `idToken.federated.providerName` = `$ENTRA_IDP_NAME`, and `oidClaimValue` = `$ENTRA_TEST_USER_OID` |
 | `C5.tti` | `claimAttributePath` `entra_oid`, `identityStoreAttributePath` `externalIds.value`. `TTI_ARN` must be set: without the mapping read, C5 cannot pass |
-| `C5.exchange` | ok. `idTokenClaims.sub` is UUID-shaped |
+| `C5.exchange` | ok. `idTokenClaims.sub` has an Identity Store user id's shape: a UUID, usually prefixed with ten hex digits and a hyphen |
 | `C5.user` | `userName` = alice's, and `externalIds` includes the object id |
 
 **PASS** means the object id travelled from Entra to Identity Center and resolved to alice through
@@ -130,12 +146,12 @@ AWS_PROFILE=$CONTROL_PROFILE node exchange.mjs jwt --from alice --out alice-ctl 
 python3 phase0.py actor-policy --profile "$IDSTORE_PROFILE"
 ```
 
-| Label | Expect, from the 2026-11-15 run where one was measured |
+| Label | Expect. Values marked *measured* are from the 2026-11-15 account-instance run; the rest follow from this fixture |
 |---|---|
 | `C1.exchange.caller` | the member account and the `phase0-exchanger` role |
-| `C1.exchange` | ok, with `appAccount` different from the caller's account. `expiresIn` 3600. `scope` includes `athena:workgroup:read_write` and `s3:access_grants:read_write`. `context.present` true, about 1,600 characters long (1,588 and 1,668 were seen). `fieldMatchesClaim` true |
-| `C1.assume.with` | ok, and `expirationEqualsContextExp` true |
-| `C1.grants.with` / `.without` | 1 and 0 |
+| `C1.exchange` | ok, with `appAccount` different from the caller's account. `expiresIn` 3600 (*measured*). `scope` includes `athena:workgroup:read_write` and `s3:access_grants:read_write`. `context.present` true, about 1,600 characters long (*measured*: 1,588 and 1,668). `fieldMatchesClaim` true (*measured*: the field and the claim were byte-identical) |
+| `C1.assume.with` | ok, and `expirationEqualsContextExp` true (*measured*) |
+| `C1.grants.with` / `.without` | 1 and 0, from the fixture's one grant (the 2026-11-15 run had two grants and saw 2 and 0) |
 
 **PASS** means a member-account role exchanged on an application in another account, and a different
 role assumed the carrier with the context. The verdict names both principals and both accounts.
@@ -161,12 +177,12 @@ not discriminating rather than reading it. The probes run twice, on the carrier 
 on the carrier without it. The second run is the control: a probe it refuses is decided by the
 carrier's own policy.
 
-| Label | Expect on 2026-11-15's account-instance behaviour |
+| Label | Expect if the organization instance behaves as the account instance did. Only the three S3 results were *measured* on 2026-11-15; SQS was not probed then |
 |---|---|
-| `C2.allowlist.policy` | ok, with `exempt` false for all four probes. If the read is refused, every probe is INCONCLUSIVE: an unread list cannot show that a probe discriminates |
-| `C2.getobject_other`, `C2.putobject` and `C2.listobjects`, `.with` and `.without` | all ok |
+| `C2.allowlist.policy` | ok, with `exempt` false for all four probes (the 2026-11-15 read showed only the three Access Grants operations among S3 actions; SQS was not checked). If the read is refused, every probe is INCONCLUSIVE: an unread list cannot show that a probe discriminates |
+| `C2.getobject_other`, `C2.putobject` and `C2.listobjects`, `.with` and `.without` | all ok (*measured* with the context on 2026-11-15) |
 | `C2.sqs_send.with` and `.without` | ok |
-| `C2.grants.with` / `.without` | 1 and 0 |
+| `C2.grants.with` / `.without` | 1 and 0, from the fixture's one grant |
 
 | Outcome | What it means for the plan |
 |---|---|
@@ -208,16 +224,19 @@ AWS_PROFILE=$EXCHANGER_PROFILE node exchange.mjs refresh --from alice-c1 --out a
 ```
 
 The admin then opens IAM Identity Center, goes to Users, then alice, then **Active sessions**,
-selects them all, chooses **End sessions** and types `confirm`. Mark the moment as soon as they say
-it is done:
+selects them all, chooses **End sessions** and types `confirm`. Ask them **how many sessions were
+listed and ended**. AWS documents that tab as sign-in sessions, and nobody has checked that a session
+opened by a JWT-bearer exchange appears there. Mark the moment and the count as soon as they say it
+is done; a count of 0 makes C4 inconclusive, because nothing was revoked to observe:
 
 ```bash
-python3 phase0.py mark --label C4.deleted --note "sessions ended by the admin"
+python3 phase0.py mark --label C4.deleted --sessions-ended <N> --note "ended by the admin"
 ```
 
 Refresh at about 1, 10 and 35 minutes after the mark. AWS says application sessions end *"at their
-next refresh attempt, typically within 30 minutes"*, so the verdict needs a refusal or a refresh
-later than 30 minutes. Each refresh starts from the previous one's output, so the chain holds even
+next refresh attempt, typically within 30 minutes"*. It says that of AWS managed applications, so
+applying it to a customer-managed application is this runbook's assumption, and observing past 30
+minutes is what tests it: the verdict needs a refusal or a refresh later than 30 minutes. Each refresh starts from the previous one's output, so the chain holds even
 if the organization instance rotates refresh tokens (the account instance did not); a
 `refreshTokenRotated` of true in the evidence says it does. Once one refresh is refused, skip the
 rest, since there is no newer token to refresh from.
