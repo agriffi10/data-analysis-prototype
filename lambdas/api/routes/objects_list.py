@@ -64,7 +64,7 @@ def _rows(page: dict[str, Any], prefix: str) -> list[dict[str, Any]]:
     """Turns one S3 page into the wire's rows.
 
     The folder marker is filtered out by basename, which is the same rule the browser applies and
-    the same one both bucket policies encode — it is an implementation detail of a folder, not a
+    the same one the portal role's marker Denies encode — it is an implementation detail of a folder, not a
     file anybody put there.
 
     Args:

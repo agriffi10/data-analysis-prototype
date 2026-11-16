@@ -88,7 +88,7 @@ def write_content(context: RequestContext) -> dict[str, Any]:
     """Writes a body byte for byte.
 
     A marker is judged differently when it is replaced than when it is created. CREATING one is
-    how a space's prefix is held open, and both bucket policies permit it — they Deny only its
+    how a space's prefix is held open, and the portal role's policies permit it — they Deny only its
     deletion. Replacing one is refused here, where creating one is not, and that is the whole
     difference.
 

@@ -64,7 +64,7 @@ function isQueryResultsPrefix(prefix: string, rootPrefix: string, spaceKind: Fil
 }
 
 /**
- * Is this folder at or below an app-managed folder, as that bucket's Deny reaches it?
+ * Is this folder at or below an app-managed folder, as the portal role's Deny reaches it?
  *
  * Root-anchored for either kind — the personal Deny names the caller's own root — and, in a shared
  * space only, the folder's segments at any depth, because the wildcard there matches `/` too.

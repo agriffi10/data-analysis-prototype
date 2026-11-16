@@ -91,7 +91,7 @@ def handler(event, context) -> dict:
         was attempted, ``archive_timed_out`` when the timeout door recorded the verdict first, or
         ``forbidden`` /
         ``protected_marker`` from the pre-delete assertion, which fails the run BEFORE issuing
-        a delete the bucket policy would refuse mid-batch.
+        a delete the execution role's Deny would refuse mid-batch.
       TransientError: On a retryable S3 fault, so the state's Retry re-runs the verb — safe,
         because an already-absent key is not an error and a re-driven execution completes.
     """

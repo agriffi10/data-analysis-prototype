@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "Every `DO_NOT_DELETE.txt` is hidden by BASENAME, and the whole arc needs no IaC change (SPEC-173)"
-description: "Any object whose last segment is `DO_NOT_DELETE.txt` is hidden at any depth in either bucket, because both bucket policies deny deleting that basename anywhere; that Deny is why the saved-queries arc needs no IaC change, and a live refused delete is still owed."
+description: "Any object whose last segment is `DO_NOT_DELETE.txt` is hidden at any depth in either bucket, because the portal role's policy for each bucket denies deleting that basename anywhere; that Deny is why the saved-queries arc needs no IaC change, and a live refused delete is still owed."
 ---
 
 **Decision (2026-08-11).** `useFileBrowser` hid one exact key, supplied by its caller. It now hides
@@ -11,11 +11,15 @@ any object whose last path segment is `DO_NOT_DELETE.txt`, at any depth, in eith
 source sweep asserts no caller passes one; `DestinationPicker`'s props stopped being a union as a
 result.
 
-**The reasoning generalises further than this folder.** Both bucket policies deny
-`s3:DeleteObject` on a wildcard resource ending in the marker's own basename, and `*` in an S3
-resource ARN matches `/` — so *any* object with that name, anywhere in either bucket, is already
-undeletable. Showing one offers an action this application's own IAM refuses, which is the
-SPEC-150 FR-007 mistake waiting to happen. That same reading is what lets the whole
+**The reasoning generalises further than this folder.** The portal role's identity policy for
+each bucket (`ProtectPrefixMarker`, `SharedMarkerNoDelete`) denies `s3:DeleteObject` on a wildcard
+resource ending in the marker's own basename, and `*` in an S3 resource ARN matches `/` — so *any*
+object with that name, anywhere in either bucket, is undeletable by every browser and API request.
+Neither bucket policy carries this Deny: the user-space one is a principal allowlist and the
+shared-space bucket has none, so a plane's execution role carries its own marker Deny or none at
+all — the shared-spaces teardown deletes a space's markers with the rest of its objects. Showing
+one offers an action this application's own IAM refuses, which is the SPEC-150 FR-007 mistake
+waiting to happen. That same reading is what lets the whole
 saved-queries-in-spaces arc ship **no `.tf` or `.tftpl` change**: the marker at
 `{root}saved_queries/DO_NOT_DELETE.txt` is covered at that depth and any other, and every read,
 write, list and delete the store needs is already granted by `UserPrefixObjects` /
@@ -35,6 +39,11 @@ is. It reuses `PREFIX_MARKER_FILENAME` exactly, and a test says so, because the 
 on that basename.
 
 ## History
+
+### 2026-11-16
+
+- **Corrected:** the marker Deny was attributed to "both bucket policies"; it lives in the portal
+  role's per-bucket identity policies, which the API's S3 calls and the URLs it presigns run as.
 
 ### 2026-08-11
 

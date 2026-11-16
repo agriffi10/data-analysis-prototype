@@ -93,8 +93,8 @@ Attributes:
     Deliberately not ``RESULTS_FOLDER``: an archive and a restore of it are two different runs
     with two different request ids, so they could not collide, but naming them apart means an
     operator reading the admin bucket can tell which direction a run was going.
-  _UNDELETABLE_FOLDERS: Folders this plane may not delete AT ANY DEPTH, because the two
-    bucket policies and the execution role's own Deny refuse ``s3:DeleteObject`` beneath them
+  _UNDELETABLE_FOLDERS: Folders this plane may not delete AT ANY DEPTH, because the
+    execution role's own Deny refuses ``s3:DeleteObject`` beneath them, in both data buckets,
     with a wildcard that matches ``/``. They are NOT the same rule as
     ``config.RESERVED_SOURCE_ROOTS``, which is anchored at the space root and answers a
     different question — see ``_assert_deletable_folder``. **The scan asks

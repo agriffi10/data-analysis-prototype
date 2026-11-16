@@ -3,7 +3,7 @@
 The rules it has to hold are SPEC-151's, and each of them has a failure this plane would suffer
 uniquely: a per-item ``Errors`` array read only as a status code reports a completed archive over
 a half-deleted source; a batch abandoned on the first failure strands the rest; a delete issued
-against a key the bucket policy refuses stops HALF WAY THROUGH, after some of the user's data has
+against a key the execution role is denied stops HALF WAY THROUGH, after some of the user's data has
 already gone.
 """
 
@@ -61,7 +61,7 @@ def test_a_key_outside_the_allowed_prefix_is_refused_before_anything_is_issued()
 
 
 def test_a_prefix_marker_is_refused_for_the_whole_list():
-    """Both bucket policies deny DeleteObject on it at any depth, so issuing one would be
+    """The execution role is denied DeleteObject on it at any depth, so issuing one would be
     refused mid-batch. Reaching this means an upstream guarantee has already broken, which is
     why it fails loudly rather than filtering: a silent filter would delete a source the archive
     is missing objects from."""

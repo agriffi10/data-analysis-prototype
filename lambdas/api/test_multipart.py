@@ -601,7 +601,7 @@ class TestNothingIsCreatedForAnOccupiedKey:
 
         Driven on the part route as well as on create, and the part route is the one that needed
         saying: it cannot be reached without an ``uploadId`` that create refuses to issue for
-        these keys, and the bucket Denies the write underneath — so a mint here is not redeemable
+        these keys — so a mint here is not redeemable
         and the omission was invisible to every other assertion. The rule is about where the mint
         happens, not about whether this particular mint could be spent.
 

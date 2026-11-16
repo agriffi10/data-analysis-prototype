@@ -85,9 +85,9 @@ describe('useFileBrowser', () => {
   });
 
   it('hides EVERY prefix marker, at any depth, with nothing passed in (SPEC-173 FR-003)', async () => {
-    // The rule is the BASENAME, because that is what both bucket policies deny
-    // deletion on. Showing one at `saved_queries/` would offer an action this
-    // application's own IAM refuses — the SPEC-150 FR-007 mistake.
+    // The rule is the BASENAME, because that is what the portal role's policy for
+    // each bucket denies deletion on. Showing one at `saved_queries/` would offer
+    // an action this application's own IAM refuses.
     const file = (key: string) => ({
       type: 'file' as const,
       key,

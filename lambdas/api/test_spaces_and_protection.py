@@ -133,7 +133,7 @@ class TestTheArchiveWriteLockMirrorsEachBucket:
     """FR-009 AC4 — each bucket's own Deny, never the average of the two."""
 
     def test_personal_locks_the_root_receipt_folder(self) -> None:
-        """Root-anchored, matching the user-space bucket's Deny."""
+        """Root-anchored, matching the portal role's user-space Deny."""
         assert (
             protected.is_write_locked(PERSONAL, "alice/system_settings/archive/receipt.json")
             is True
@@ -189,7 +189,7 @@ class TestTheArchiveWriteLockMirrorsEachBucket:
         assert protected.is_write_locked(PERSONAL, "alice/system_settings/notes.txt") is False
 
     def test_a_marker_key_may_not_be_REMOVED_or_replaced_at_any_depth(self) -> None:
-        """By basename — the rule both bucket policies encode as `*/DO_NOT_DELETE.txt`."""
+        """By basename — the rule the portal role's marker Denies encode as `*/DO_NOT_DELETE.txt`."""
         with pytest.raises(ApiError) as raised:
             protected.assert_replaceable(PERSONAL, "alice/reports/DO_NOT_DELETE.txt")
         assert raised.value.code == "AccessDenied"
@@ -197,7 +197,7 @@ class TestTheArchiveWriteLockMirrorsEachBucket:
     def test_a_marker_key_IS_creatable_because_that_is_how_a_prefix_is_held_open(self) -> None:
         """The half the two rules exist to keep apart, and the one that shipped broken.
 
-        Both bucket policies Deny ``s3:DeleteObject`` on the marker and nothing else. A guard that
+        The portal role Denies ``s3:DeleteObject`` on the marker and no other action on it. A guard that
         refused the WRITE too was stricter than the policy it mirrors, and it refused
         ``ensurePrefixMarker`` and ``ensureSavedQueriesFolder`` — a brand-new user's prefix would
         never be created, and a saved-queries folder would vanish once emptied. Both are best-effort
@@ -236,7 +236,7 @@ class TestTheArchiveWriteLockMirrorsEachBucket:
 
 
 class TestTheReportsFolderIsTheDataQualityPlanes:
-    """No bucket policy names this folder, so the rule mirrors nothing and must not widen."""
+    """No portal-role policy names this folder, so the rule mirrors nothing and must not widen."""
 
     @pytest.mark.parametrize(
         ("space", "key"),

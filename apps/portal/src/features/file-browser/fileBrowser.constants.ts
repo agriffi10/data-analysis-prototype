@@ -21,10 +21,11 @@ export function prefixMarkerKey(username: string): string {
 
 /**
  * Is this key a prefix marker, wherever it sits? Matched by BASENAME, not by an
- * exact key: both bucket policies deny `s3:DeleteObject` on a wildcard resource
- * ending in the marker's own basename, and `*` in an S3 resource ARN matches `/`,
- * so an object with that name at ANY depth in either bucket is already undeletable. Showing one offers an action this
- * application's own IAM refuses, so the listing hides them all.
+ * exact key: the portal role's policy for each bucket denies `s3:DeleteObject` on
+ * a wildcard resource ending in the marker's own basename, and `*` in an S3
+ * resource ARN matches `/`, so the portal cannot delete an object with that name at
+ * ANY depth in either bucket. Showing one offers an action this application's own
+ * IAM refuses, so the listing hides them all.
  *
  * Exact and case-sensitive, as S3 keys are: `DO_NOT_DELETE.txt.bak` and
  * `do_not_delete.txt` are ordinary files.

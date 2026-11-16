@@ -39,7 +39,7 @@ def authorize_source(username: str, space) -> dict:
     the space's existing write model exactly: every member already holds ``DeleteObject`` across
     the whole space prefix, so a member who wanted to destroy the folder can do it today, one
     object at a time, with no receipt. Restricting archiving to an owner would add a rule the
-    bucket policy does not have and would not prevent anything.
+    portal role's shared-space policy does not have and would not prevent anything.
 
     **A member whose join chip still reads pending is authorized**, matching file-send and
     The chip is display and bookkeeping only, and access is granted at add time.
@@ -143,8 +143,8 @@ def assert_not_reserved(root: str, key: str) -> str:
 def assert_not_protected_marker(key: str) -> str:
     """Refuses a selection naming a prefix marker, for the WHOLE request.
 
-    **Both bucket policies deny ``s3:DeleteObject`` on ``*/DO_NOT_DELETE.txt`` and ``*`` matches
-    ``/``, so a marker at any depth is already undeletable.** Archiving deletes the source, so
+    **The execution role is denied ``s3:DeleteObject`` on ``*DO_NOT_DELETE.txt``, and ``*``
+    matches ``/``, so this plane cannot delete a marker at any depth.** Archiving deletes the source, so
     the run would copy the object into Glacier and then fail on the delete — after some of the
     user's data had already moved. Refusing the whole request up front is the only outcome that
     leaves nothing behind.
