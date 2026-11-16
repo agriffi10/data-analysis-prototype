@@ -32,12 +32,13 @@ server holds the session (§2 item 11, §4.7). The work is the **Next.js arc** i
 
 **2026-11-15: the end state is settled around that server, and there is no BFF Lambda.** The
 portal's Next.js server **is** the backend-for-frontend: it holds the session and, in Phase 5,
-performs the Identity Center exchange; gate G10 confirmed that placement on 2026-11-15. The API Lambda stays the resource server: it verifies the
-caller and, in Phase 5, assumes the carrier role from the identity context the server forwards. Two
-pieces of compute, each doing what it already does, so Phase 5 adds one call to each rather than a
-component (§4.7 carries the split and the alternatives it beat). The work that bridges the gap is
-named where it lands: gate G10 — the exchange split, tested — in Phase 0, the Variant B items in
-Phase 1, and Phase 5's two exchange specs, written after G10.
+performs the Identity Center exchange; gate G10 confirmed that placement on 2026-11-15. The API
+Lambda stays the resource server: it verifies the caller and, in Phase 5, assumes the carrier role
+from the identity context the server forwards. Two pieces of compute, each doing what it already
+does, so Phase 5 adds one call to each rather than a component (§4.7 carries the split and the
+alternatives it beat). The work that bridges the gap is named where it lands: gate G10 — the
+exchange split, tested — in Phase 0, the Variant B items in Phase 1, and Phase 5's two exchange
+specs, written after G10.
 
 **2026-11-15, later the same day: Variant B is chosen.** The client already has an established
 pattern of Cognito federated to Entra ID, and building on it is simpler than registering the
@@ -302,12 +303,12 @@ Treated as inputs. Do not re-litigate without new information.
     SETTLED 2026-11-15.** The server holds the opaque cookie, the provider's code exchange and the
     token store, and is the only writer of the session; the API stays a **Lambda behind API
     Gateway** that verifies the bearer the server's `/api/` pass-through forwards and assumes the
-    role. **The server calls `CreateTokenWithIAM`**: gate G10 passed on 2026-11-15, so the
-    fallback that would have moved it to the API is not needed (§5.5's measurements). §4.7 carries the split and why it beat the alternatives, and
-    every state rule there stands. *History,
-    kept because each placement had a reason: the backend was first to share the SPA's container;
-    Arc B moved it into the API Lambda, because no server sat beside a static SPA; the Next.js arc
-    put a server there again on 2026-11-13, and the session went to it.*
+    role. **The server calls `CreateTokenWithIAM`**: gate G10 passed on 2026-11-15, so the fallback
+    that would have moved it to the API is not needed (§5.5's measurements). §4.7 carries the split
+    and why it beat the alternatives, and every state rule there stands. *History, kept because each
+    placement had a reason: the backend was first to share the SPA's container; Arc B moved it into
+    the API Lambda, because no server sat beside a static SPA; the Next.js arc put a server there
+    again on 2026-11-13, and the session went to it.*
 12. **Users and groups must exist in Identity Center BEFORE use, and nothing in this architecture
     creates them.** The token exchange maps a claim to an existing Identity Center user and populates
     nothing; **Identity Center performs no just-in-time provisioning**, so an unprovisioned user's
@@ -320,11 +321,12 @@ Treated as inputs. Do not re-litigate without new information.
     Center administrators either way.
 13. **There is ONE credential plane in the end state, not two.** Supersedes §3.4. The
     identity-enhanced session is the only plane, and because
-    `AWSIAMIdentityCenterAllowListForIdentityContext` denies plain S3 *(not as measured 2026-11-15 — §3.6's amendment)*, **S3 Access Grants** governs
-    storage — personal prefixes included. `${aws:PrincipalTag/username}` and the
-    `custom:shared_space_k` slots **do not survive Phase 5** — they carry through the interim plane
-    (Phase 1) and retire with it. New §3.9 carries what replaces them, and
-    the largest downstream consequence lands on **shared spaces**, not on the file browser.
+    `AWSIAMIdentityCenterAllowListForIdentityContext` denies plain S3 *(not as measured 2026-11-15 —
+    §3.6's amendment)*, **S3 Access Grants** governs storage — personal prefixes included.
+    `${aws:PrincipalTag/username}` and the `custom:shared_space_k` slots **do not survive Phase 5**
+    — they carry through the interim plane (Phase 1) and retire with it. New §3.9 carries what
+    replaces them, and the largest downstream consequence lands on **shared spaces**, not on the
+    file browser.
 14. **The app must be fully functional on Cognito until the successor account is live.** Arc B
     (SPEC-192 → 202) moves every AWS call behind an API without touching sign-in, and the product is
     complete on Cognito when it lands. Nothing in this plan may create a window where the current
@@ -594,19 +596,19 @@ new identity context or only an access token — together with what the applicat
 propagation and the server re-exchanges the freshly refreshed Cognito ID token instead, and the
 JWT-bearer quota then has to be sized against active users per hour rather than sign-ins.
 
-**Measured 2026-11-15 (G10): a refresh DOES return a new identity context, so step 1r stands and
-the quota stays a sign-in limit.** The context a refresh returns is good for a fresh hour and
-carries the same Identity Center session. The refresh token is **not rotated**: one token refreshed
-seven times over three hours, including after its first access token had expired. Its lifetime is at
-least three hours and four minutes, as far as Phase 0 observed (§5.5); AWS still documents none.
-Phase 0 found no API or documentation behind the *"Automatically refresh user authentication…"*
-option for a customer-managed application (the console was not checked). Its nearest API, user
-background sessions, refuses one outright. So
-"with and without" was measured on the refresh-token grant itself: **removing the grant stops new
-refresh tokens being issued, but tokens already issued kept refreshing** through the 15 minutes the
-grant stayed off before it was restored. The grant is therefore no revocation lever. The alternative also works, for whoever revisits this: a refreshed Cognito ID
-token carries a new `jti` beside the old `origin_jti`, and it exchanges successfully, so re-exchanging
-hourly is viable under [B]. It loses on the quota alone, as above.
+**Measured 2026-11-15 (G10): a refresh DOES return a new identity context, so step 1r stands and the
+quota stays a sign-in limit.** The context a refresh returns is good for a fresh hour and carries
+the same Identity Center session. The refresh token is **not rotated**: one token refreshed seven
+times over three hours, including after its first access token had expired. Its lifetime is at least
+three hours and four minutes, as far as Phase 0 observed (§5.5); AWS still documents none. Phase 0
+found no API or documentation behind the *"Automatically refresh user authentication…"* option for a
+customer-managed application (the console was not checked). Its nearest API, user background
+sessions, refuses one outright. So "with and without" was measured on the refresh-token grant
+itself: **removing the grant stops new refresh tokens being issued, but tokens already issued kept
+refreshing** through the 15 minutes the grant stayed off before it was restored. The grant is
+therefore no revocation lever. The alternative also works, for whoever revisits this: a refreshed
+Cognito ID token carries a new `jti` beside the old `origin_jti`, and it exchanges successfully, so
+re-exchanging hourly is viable under [B]. It loses on the quota alone, as above.
 
 **Steps 1 and 2 are the same in both variants; only the assertion differs.** That is the whole reason
 this is one plan: the trusted token issuer registration and the claim mapping point at Entra **[A]**
@@ -1237,15 +1239,15 @@ expands `$${aws:PrincipalTag/shared_space_k}` into the S3 prefix, the `ListBucke
 Glue ARNs. One attribute write grants everything.
 
 On an identity-enhanced session there are no principal tags, and §3.6's allow-list denies plain S3
-outright. *(Phase 0 measured on 2026-11-15 that the allow-list was not in effect — §3.6's
-amendment. The two-grant design below still holds only while the carrier role has no direct S3
-grant on the shared-space bucket; that grant, not the allow-list, is what would otherwise let any
-identity-enhanced session reach every space.)* So a membership becomes **two grants** — an S3 Access Grant on the space prefix and a Lake
-Formation grant on the space database, per (member, space) — and something has to issue and revoke
-them at the six moments a membership changes. This section is that design. It was specified as
-SPEC-204 and moved here on 2026-09-01: it cannot be built or tested until the Access Grants instance
-exists, and a spec that cannot be built is a spec that silently rots (which it had begun to do — see
-*What the code already does*, below).
+outright. *(Phase 0 measured on 2026-11-15 that the allow-list was not in effect — §3.6's amendment.
+The two-grant design below still holds only while the carrier role has no direct S3 grant on the
+shared-space bucket; that grant, not the allow-list, is what would otherwise let any
+identity-enhanced session reach every space.)* So a membership becomes **two grants** — an S3 Access
+Grant on the space prefix and a Lake Formation grant on the space database, per (member, space) —
+and something has to issue and revoke them at the six moments a membership changes. This section is
+that design. It was specified as SPEC-204 and moved here on 2026-09-01: it cannot be built or tested
+until the Access Grants instance exists, and a spec that cannot be built is a spec that silently
+rots (which it had begun to do — see *What the code already does*, below).
 
 **The registry stays the source of truth and the verbs stay unchanged in what they decide.** What
 changes is that a membership decision now has to be *projected* into two external systems that can
@@ -2102,12 +2104,12 @@ less.**
   the same way would ignore a refreshed context with narrower entitlements for up to an hour, so the
   key is a digest of the context and an entry never outlives the context.
 - **Sign-out has nothing to revoke at Identity Center.** The OIDC API has no revocation operation,
-  so deleting the session item is the whole revocation, and a context that leaked lives out its
-  own lifetime. **Measured 2026-11-15:** that is one hour from the mint or refresh that produced
-  it, after which STS refuses it with `InvalidContextAssertion`, and **a carrier session never
-  outlives its context**, because STS sets the session's expiry to the context's. A leaked Identity
-  Center **refresh token** is the longer exposure: it was not rotated on use, and it lived at least
-  three hours and four minutes (§5.5). Removing the application's refresh grant does not stop one already
+  so deleting the session item is the whole revocation, and a context that leaked lives out its own
+  lifetime. **Measured 2026-11-15:** that is one hour from the mint or refresh that produced it,
+  after which STS refuses it with `InvalidContextAssertion`, and **a carrier session never outlives
+  its context**, because STS sets the session's expiry to the context's. A leaked Identity Center
+  **refresh token** is the longer exposure: it was not rotated on use, and it lived at least three
+  hours and four minutes (§5.5). Removing the application's refresh grant does not stop one already
   issued, at least within the 15 minutes observed (§3.5).
 - **What the trail sees.** Measured 2026-11-15, from the account's event history rather than an
   organization trail. STS's `AssumeRole` event records the context provider and, in
@@ -2120,9 +2122,9 @@ less.**
 **Credentials come from the task role**, rotating, with no static secrets and no IAM Roles Anywhere
 trust anchor to stand up. Calling `CreateTokenWithIAM` takes two grants, both documented: the
 caller's own policy allows `sso-oauth:CreateTokenWithIAM` on the application's ARN, and the
-application's `IAM` authentication method (`PutApplicationAuthenticationMethod`) names the caller
-in its actor policy — the task role (G10 settled it on 2026-11-15; the API's role only under the fallback). Scope it narrowly — it is a privileged identity that mints sessions on
-behalf of users.
+application's `IAM` authentication method (`PutApplicationAuthenticationMethod`) names the caller in
+its actor policy — the task role (G10 settled it on 2026-11-15; the API's role only under the
+fallback). Scope it narrowly — it is a privileged identity that mints sessions on behalf of users.
 
 **Three clocks govern a session:** the provider session (Cognito **[B]**, Entra **[A]**), the
 Identity Center refresh token, and the session's absolute expiry. Decide deliberately what the user
@@ -2196,10 +2198,10 @@ identity-enhanced, which implies a P3 *failure*, because the allow-list denies p
 session (§3.6's amendment), so that implication no longer holds as measured. Read the two outcomes
 below by the S3 result alone: plain S3 can now work on an identity-enhanced session too.*
 
-- **P3 passes** (plain S3 works, whether or not the session is identity-enhanced): a base plane survives after
-  all, fed by permission sets rather than the Identity Pool, and §3.9 is not needed for user storage
-  — though it is **still needed for the IdC-enabled Athena workgroup**, which requires the Access
-  Grants association regardless.
+- **P3 passes** (plain S3 works, whether or not the session is identity-enhanced): a base plane
+  survives after all, fed by permission sets rather than the Identity Pool, and §3.9 is not needed
+  for user storage — though it is **still needed for the IdC-enabled Athena workgroup**, which
+  requires the Access Grants association regardless.
 - **P3 fails:** §3.9 stands as written and this section is history.
 
 Either way §3.9's Access Grants instance gets built, so nothing in Phase 5 waits on this. And
@@ -2351,17 +2353,19 @@ grants.
   separately issued session of the same role assumed with that context at 22:21:48 and queried
   successfully.
 - **Reuse and lifetime.** One context served 15 consecutive `AssumeRole` calls, and every context
-  was reused across many separate sessions. **A context lives one hour from the mint or refresh
-  that produced it** — its `exp`, which the carrier session's `Expiration` matched to the second.
-  At 23:12, between four and a half and seven and a half minutes before their expiry, five
-  contexts all assumed. At 23:21, 98 to 266 seconds after it, all five were refused with `InvalidContextAssertion: Provided context has
-  expired.` **The carrier session's `Expiration` is the context's expiry, not the assume time plus
-  an hour**, so a context assumed in its last minutes yields a session lasting only those minutes.
+  was reused across many separate sessions. **A context lives one hour from the mint or refresh that
+  produced it** — its `exp`, which the carrier session's `Expiration` matched to the second. At
+  23:12, between four and a half and seven and a half minutes before their expiry, five contexts all
+  assumed. At 23:21, 98 to 266 seconds after it, all five were refused with
+  `InvalidContextAssertion: Provided context has expired.` **The carrier session's `Expiration` is
+  the context's expiry, not the assume time plus an hour**, so a context assumed in its last minutes
+  yields a session lasting only those minutes.
 - **Refresh: a `refresh_token` grant returns a NEW identity context**, with a fresh hour, the same
   Identity Center session id and the original `auth_time`. **The refresh token is not rotated**: the
   22:18 refresh returned the same value it was given, and that one value refreshed seven times
   (22:18, 22:19, 22:20, 22:35, 23:21, 00:21 and 01:21), from 23:21 on after its first access token
-  had expired. Its lifetime is therefore at least three hours and four minutes (its last refresh before teardown, at 01:21 UTC the next day, still succeeded).
+  had expired. Its lifetime is therefore at least three hours and four minutes (its last refresh
+  before teardown, at 01:21 UTC the next day, still succeeded).
 - **The "automatically refresh" option was not found for this application type.** G10's row names
   an option worded *"Automatically refresh user authentication for active application sessions"*.
   No AWS page Phase 0 read carries that wording, and the console was not checked. The nearest API,
@@ -2388,37 +2392,38 @@ grants.
   own, record every assertion, refresh token, access token and ID token as
   `HIDDEN_DUE_TO_SECURITY_REASONS`, and carry no `awsAdditionalDetails`. So the trail names the
   person and the session, and holds no token or context a reader could replay.
-- **Scopes are load-bearing.** The exchange returns the application's scopes, and AWS documents
-  the set for an IdC workgroup on the driver page §3.10 quotes. Both arms ran `SELECT count(*)` on
-  the Lake Formation-governed table from a freshly minted context. **`athena:workgroup:read_write` is required**: with only
-  `s3:access_grants:read_write` on the application, the workgroup refused the session with *"You
-  do not have access to p0x-wg"*. With `athena:workgroup:read_write` added back and
-  `lakeformation:query` still absent, the query succeeded, so `lakeformation:query` was not needed
-  for it. The documented set includes it anyway, and Phase 5 configures the documented set rather
-  than the measured minimum (Phase 5's application item).
+- **Scopes are load-bearing.** The exchange returns the application's scopes, and AWS documents the
+  set for an IdC workgroup on the driver page §3.10 quotes. Both arms ran `SELECT count(*)` on the
+  Lake Formation-governed table from a freshly minted context. **`athena:workgroup:read_write` is
+  required**: with only `s3:access_grants:read_write` on the application, the workgroup refused the
+  session with *"You do not have access to p0x-wg"*. With `athena:workgroup:read_write` added back
+  and `lakeformation:query` still absent, the query succeeded, so `lakeformation:query` was not
+  needed for it. The documented set includes it anyway, and Phase 5 configures the documented set
+  rather than the measured minimum (Phase 5's application item).
 - **G7: PASS.** A plain `StartQueryExecution` from the identity-enhanced carrier session ran on the
   IdC workgroup at 22:17:05 and returned the table's rows. The same role assumed without a context
-  was refused by the workgroup. Enforcement was shown **per grant on one Identity Center user**,
-  not across two users, because the
-  second test user never signed in. Revoking that user's Lake Formation `SELECT` at 01:21:50 (on
-  2026-11-16) made the next query fail with *"Relation contains no accessible columns"*. Re-granting
-  it made the same context's query succeed again at 01:22:04. So Lake Formation evaluates the
-  propagated user's own grants, and both changes took effect within seconds, although AWS allows up
-  to an hour. **One asymmetry:** the revoke was tested on a context refreshed just after it, and
-  the re-grant on that existing context. Whether a revoke reaches a context minted before it was
-  not measured; de-provisioning should not assume it does. The two-user contrast is G4's to run in Phase 5.
-- **G9: PASS.** At 22:20:44, `GetDataAccess` (READWRITE on `p0x-alice/*`) on the first test user's session returned credentials, from which the API stand-in presigned a `PUT` and a `GET`, with the session
-  token in the query string. From the browser origin `http://localhost:8766` the `PUT` returned 200
-  and the `GET` returned 200 with the same body. URLs presigned from the same credentials for another
-  user's key (`GET` and `PUT`) were refused with 403 at redemption. So S3 evaluates the grant's scope
-  when the URL is redeemed.
-- **The allow-list's Deny was not in effect, which contradicts §3.6.** In the same identity-enhanced session,
-  a plain `GetObject` on **another user's object**, `PutObject` and `ListObjectsV2` all succeeded on
-  the carrier role's own S3 grant. They behaved exactly as they did without a context, although
-  `AWSIAMIdentityCenterAllowListForIdentityContext` (v12, read the same day) denies every S3 action
-  except the three Access Grants operations. The session was identity-enhanced: the workgroup
-  accepted it, and `ListCallerAccessGrants` returned the user's two grants against none without the
-  context. §3.6 carries what this changes and what it does not.
+  was refused by the workgroup. Enforcement was shown **per grant on one Identity Center user**, not
+  across two users, because the second test user never signed in. Revoking that user's Lake
+  Formation `SELECT` at 01:21:50 (on 2026-11-16) made the next query fail with *"Relation contains
+  no accessible columns"*. Re-granting it made the same context's query succeed again at 01:22:04.
+  So Lake Formation evaluates the propagated user's own grants, and both changes took effect within
+  seconds, although AWS allows up to an hour. **One asymmetry:** the revoke was tested on a context
+  refreshed just after it, and the re-grant on that existing context. Whether a revoke reaches a
+  context minted before it was not measured; de-provisioning should not assume it does. The two-user
+  contrast is G4's to run in Phase 5.
+- **G9: PASS.** At 22:20:44, `GetDataAccess` (READWRITE on `p0x-alice/*`) on the first test user's
+  session returned credentials, from which the API stand-in presigned a `PUT` and a `GET`, with the
+  session token in the query string. From the browser origin `http://localhost:8766` the `PUT`
+  returned 200 and the `GET` returned 200 with the same body. URLs presigned from the same
+  credentials for another user's key (`GET` and `PUT`) were refused with 403 at redemption. So S3
+  evaluates the grant's scope when the URL is redeemed.
+- **The allow-list's Deny was not in effect, which contradicts §3.6.** In the same identity-enhanced
+  session, a plain `GetObject` on **another user's object**, `PutObject` and `ListObjectsV2` all
+  succeeded on the carrier role's own S3 grant. They behaved exactly as they did without a context,
+  although `AWSIAMIdentityCenterAllowListForIdentityContext` (v12, read the same day) denies every
+  S3 action except the three Access Grants operations. The session was identity-enhanced: the
+  workgroup accepted it, and `ListCallerAccessGrants` returned the user's two grants against none
+  without the context. §3.6 carries what this changes and what it does not.
 - **The workgroup was CREATED with `EnforceWorkGroupConfiguration` false**, with IdC and Access
   Grants on and no user prefix, and stored it as false (§3.5's open sub-question). Whether queries
   then honour a client-side result location was not tested.
@@ -2530,29 +2535,29 @@ it updates mapped attributes only when their values change at the IdP, and a ref
 re-federates.
 
 A test over the IaC holding both rules for every client is cheap, and it is the only thing that
-would catch a third client added carelessly. **It must assert presence, not absence:** a client
-that omits `explicit_auth_flows` gets `ALLOW_REFRESH_TOKEN_AUTH`, `ALLOW_USER_SRP_AUTH` and
+would catch a third client added carelessly. **It must assert presence, not absence:** a client that
+omits `explicit_auth_flows` gets `ALLOW_REFRESH_TOKEN_AUTH`, `ALLOW_USER_SRP_AUTH` and
 `ALLOW_CUSTOM_AUTH` by default, so the test requires the attribute to be present and exactly
 `["ALLOW_REFRESH_TOKEN_AUTH"]`, `allowed_oauth_scopes` to be present, and `enable_token_revocation`
 to be true, because Identity Center's replay protection was confirmed only on assertions carrying
-the `jti` that revocation makes Cognito emit (§3.5). The same test holds what
-makes "no local identities" true rather than intended: every client's `supported_identity_providers`
-is exactly the Entra provider (all three carry `["COGNITO"]` today), the pool has that one identity
-provider and no other — a second could assert any email — `allow_admin_create_user_only` is true,
-the pool has no pre-sign-up trigger (an imported "established pattern" can carry one that links
-users by email).
-**~~One gap stays open for Phase 0~~ — CLOSED 2026-11-15, measured:** `ALLOW_REFRESH_TOKEN_AUTH` also enables a refresh through `InitiateAuth`, and AWS does not
-say which scope an access token refreshed that way carries. The server's refresh token never leaves
-the server, but the driver path's public client hands one to a desktop user (§3.10). Phase 0
-refreshes through `InitiateAuth` and decodes the `scope` claim. If it is the admin scope, a desktop
-user can write their own mapped attributes, so neither the username nor the Identity Center key
-may rest on one — both come from the federated subject, as above and in Phase 5. **It is not.**
-Phase 0 refreshed a hosted-UI code-flow session through `InitiateAuth` `REFRESH_TOKEN_AUTH`, on a
-public client shaped like the driver path's and on a confidential one shaped like the server's.
-Each client allowed `openid`, `email` and `profile` and only `ALLOW_REFRESH_TOKEN_AUTH`. Both
-refreshed access tokens carried `scope` `openid profile email`, the scope of the sign-in, with no
-`aws.cognito.signin.user.admin`. So the two rules above are sufficient as written. The
-federated-subject rule stands on its own reasons (the reassignment attack), not on this gap.
+the `jti` that revocation makes Cognito emit (§3.5). The same test holds what makes "no local
+identities" true rather than intended: every client's `supported_identity_providers` is exactly the
+Entra provider (all three carry `["COGNITO"]` today), the pool has that one identity provider and no
+other — a second could assert any email — `allow_admin_create_user_only` is true, the pool has no
+pre-sign-up trigger (an imported "established pattern" can carry one that links users by email).
+**~~One gap stays open for Phase 0~~ — CLOSED 2026-11-15, measured:** `ALLOW_REFRESH_TOKEN_AUTH`
+also enables a refresh through `InitiateAuth`, and AWS does not say which scope an access token
+refreshed that way carries. The server's refresh token never leaves the server, but the driver
+path's public client hands one to a desktop user (§3.10). Phase 0 refreshes through `InitiateAuth`
+and decodes the `scope` claim. If it is the admin scope, a desktop user can write their own mapped
+attributes, so neither the username nor the Identity Center key may rest on one — both come from the
+federated subject, as above and in Phase 5. **It is not.** Phase 0 refreshed a hosted-UI code-flow
+session through `InitiateAuth` `REFRESH_TOKEN_AUTH`, on a public client shaped like the driver
+path's and on a confidential one shaped like the server's. Each client allowed `openid`, `email` and
+`profile` and only `ALLOW_REFRESH_TOKEN_AUTH`. Both refreshed access tokens carried `scope` `openid
+profile email`, the scope of the sign-in, with no `aws.cognito.signin.user.admin`. So the two rules
+above are sufficient as written. The federated-subject rule stands on its own reasons (the
+reassignment attack), not on this gap.
 
 ### 6.2 First-tenant singleton ownership (was: the Lake Formation IaC overwrite)
 
@@ -2829,11 +2834,12 @@ they already were.
   username as the prefix and making a grant a provisioning step — or **one broad grant narrowed by
   `${identitystore:UserId}` in the location role's own policy**, which is standing but replaces the
   username with an Identity Store id. There is no variable grant scope; the two mechanisms are a
-  grant and a policy. It may split, because the workgroup's user-identity result prefix (`${user_id}`)
-  may move **results** regardless. §3.5 now records that the **prefix** is optional; what is still
-  open — and what to establish here — is whether *Override client-side settings* can be left off on an
-  IdC workgroup that declines it. *(narrowed again 2026-11-15: an IdC workgroup was created with it off — §3.5)* What remains is whether a query then honours a
-  client-side result location.
+  grant and a policy. It may split, because the workgroup's user-identity result prefix
+  (`${user_id}`) may move **results** regardless. §3.5 now records that the **prefix** is optional;
+  what is still open — and what to establish here — is whether *Override client-side settings* can
+  be left off on an IdC workgroup that declines it. *(narrowed again 2026-11-15: an IdC workgroup
+  was created with it off — §3.5)* What remains is whether a query then honours a client-side result
+  location.
 - Inventory the old account: buckets and data volumes, prefix conventions, per-user Glue
   databases, shared workspaces and per-user membership counts (§6.4's ceiling check), core
   datasets and the existing grant matrix.
@@ -3219,12 +3225,14 @@ freeze. This is the whole reason the old account survives the quiet period.
   workgroup. Irrelevant while the two paths sit in two accounts; decisive for the dual-key fallback,
   which is the only plan that needs both in the successor account.
 - **The Access Grants prefix identity** (§3.9): one literal grant per user, or one broad grant
-  narrowed by `${identitystore:UserId}` in the **location role's policy**? It decides whether a grant
-  is a provisioning step and whether the username survives as the prefix, and it may split between
-  the file browser and query results. **Sub-question — narrowed 2026-08-19, because §3.5 answers half of it:** the `${user_id}` prefix is
-  optional; what is still open is whether *Override client-side settings* can be left off. *(narrowed again 2026-11-15: an IdC workgroup was created with it off — §3.5)*
-  What remains is whether a query then honours a client-side result location. *(The 2026-08-19
-  wording asked whether the user-identity result prefix could be turned off, §3.5.)*
+  narrowed by `${identitystore:UserId}` in the **location role's policy**? It decides whether a
+  grant is a provisioning step and whether the username survives as the prefix, and it may split
+  between the file browser and query results. **Sub-question — narrowed 2026-08-19, because §3.5
+  answers half of it:** the `${user_id}` prefix is optional; what is still open is whether *Override
+  client-side settings* can be left off. *(narrowed again 2026-11-15: an IdC workgroup was created
+  with it off — §3.5)* What remains is whether a query then honours a client-side result location.
+  *(The 2026-08-19 wording asked whether the user-identity result prefix could be turned off,
+  §3.5.)*
 - Gates P1, P2 and P3 (§5.4). P3 now decides whether §3.9's Access Grants or a permission-set-fed
   base plane serves user storage (§5). *Not runnable on the 2026-11-15 account instance.*
 - **Does the allow-list apply on the organization instance?** It was not in effect on the account
@@ -3293,9 +3301,10 @@ freeze. This is the whole reason the old account survives the quiet period.
 - ~~Where does the container run?~~ **Settled — ECS Fargate**, task role supplies credentials.
 - ~~Does the backend co-locate or stay a Lambda?~~ ~~Is there a BFF Lambda in the end state?~~
   **Settled 2026-11-15 — no BFF Lambda.** The Next.js server is the backend-for-frontend and
-  performs the Identity Center exchange (G10 confirmed it, 2026-11-15); the API Lambda verifies the caller and
-  assumes the carrier role (§4.7). *The answer moved twice before this: co-located in the SPA's container first, then a
-  Lambda behind API Gateway through Arc B, then the session in the Next.js server on 2026-11-13.*
+  performs the Identity Center exchange (G10 confirmed it, 2026-11-15); the API Lambda verifies the
+  caller and assumes the carrier role (§4.7). *The answer moved twice before this: co-located in the
+  SPA's container first, then a Lambda behind API Gateway through Arc B, then the session in the
+  Next.js server on 2026-11-13.*
 - ~~**One image promoted across environments, or a build per environment?**~~ **Settled and built —
   one image**, with configuration fetched at runtime from `/config.json` (SPEC-192) and its values
   read from Terraform state (SPEC-215). §4.6 carries the one argument worth keeping.
@@ -3475,17 +3484,18 @@ The exchange's split, checked 2026-11-15 (§3.5, §4.7):
 recorded *in place* in the section it belongs to, which is where a reader should meet it — this list
 exists so the chronology is recoverable, not so anyone works from it.
 
-- **2026-11-15, last — the Phase 0 identity experiments.** G7, G9 and G10
-  ran and passed; **§5.5** carries every measurement. **§3.5** records that a refresh returns a new
-  context, the refresh token does not rotate, and replay is refused per token. **§4.7** settles the
-  exchange on the server, bounds a context and its carrier session at one hour, and records what
-  CloudTrail keeps. **§6.1**'s scope gap is closed. **§3.6** is amended because the allow-list's Deny was
-  not in effect, with markers at every site that stated it (§2, §3.6, §3.9, §3.11, §5). P1 to P3 are recorded as not runnable on an account
-  instance. §2 item 11, §3.10, Phase 0, Phase 5 and §8 are updated in place.
-- **2026-11-15, later still — the server's two settings.** The username claim the Next.js server reads and
-  the provider its sign-in redirect names became configuration (`OIDC_USERNAME_CLAIM` from the same
-  root local as the API's verifier, and an optional `OIDC_IDENTITY_PROVIDER`), so §6.1 and Phase 1
-  [B] describe values to set rather than code to change.
+- **2026-11-15, last — the Phase 0 identity experiments.** G7, G9 and G10 ran and passed; **§5.5**
+  carries every measurement. **§3.5** records that a refresh returns a new context, the refresh
+  token does not rotate, and replay is refused per token. **§4.7** settles the exchange on the
+  server, bounds a context and its carrier session at one hour, and records what CloudTrail keeps.
+  **§6.1**'s scope gap is closed. **§3.6** is amended because the allow-list's Deny was not in
+  effect, with markers at every site that stated it (§2, §3.4, §3.6, §3.9, §3.11, §5, and in
+  `docs/specs/ARCS.md` and `docs/target-architecture-variants.md`). P1 to P3 are recorded as not
+  runnable on an account instance. §2 item 11, §3.10, Phase 0, Phase 5 and §8 are updated in place.
+- **2026-11-15, later still — the server's two settings.** The username claim the Next.js server
+  reads and the provider its sign-in redirect names became configuration (`OIDC_USERNAME_CLAIM` from
+  the same root local as the API's verifier, and an optional `OIDC_IDENTITY_PROVIDER`), so §6.1 and
+  Phase 1 [B] describe values to set rather than code to change.
 - **2026-11-15, later — Variant B chosen.** The client's established pattern of Cognito federated
   to Entra makes [B] the plan and [A] the alternative not taken; G8 becomes the Entra side of that
   federation. **§6.1**'s guardrail is rewritten, because AWS requires mapped attributes to be
