@@ -38,11 +38,15 @@ clause of it that kept existence checks on `admin_get_user`.
   re-running the backfill.
 - **This is not a product change.** The three outcomes, the reasons a sender sees and the
   notifications are unchanged. The population a "yes" covers moves from "has a Cognito account" to
-  "has a provisioned space". In the current environment, once FR-004 lands and the backfill has run,
-  those are the same people except for one case: a sign-up whose marker write itself fails reads as
-  unknown until the backfill re-runs or the user opens the file browser. Today such a user reads as
-  existing. The failure is recorded as a provisioning failure, which already sends the operator to
-  the backfill.
+  "has a provisioned space". In the current environment, once FR-004 lands and the reconciliation has
+  run, those are the same people except in two cases. A sign-up whose marker write itself fails reads
+  as unknown until the backfill re-runs or the user opens the file browser; today it reads as
+  existing, and the failure is recorded as a provisioning failure, which already sends the operator
+  to the backfill. And an account deleted from the pool by hand keeps its marker, so it stays a valid
+  recipient where today it reads as unknown. That second case is an exposure, not an inconvenience:
+  self-sign-up is open in this account, so whoever re-registers the name inherits everything sent to
+  it after the deletion. FR-004 therefore makes the reconciliation two-way and makes deleting a pool
+  user by hand include deleting their marker.
 
 ## Overview
 
@@ -81,8 +85,19 @@ misreported as "no such user".
 - **The provisioner itself** (§3.12): its trigger, its list reader and its refusals. FR-004 puts the
   marker write into `provision_user`, which the provisioner reuses, and nothing more.
 - **De-provisioning.** A leaver keeps a marker, so they stay a valid recipient, as they keep a
-  directory entry and a prefix. §3.12 records that nothing owns de-provisioning yet; the recipient
-  check inherits whatever that owner decides and needs no change of its own.
+  directory entry and a prefix. §3.12 records that nothing owns de-provisioning yet. This spec gives
+  that gap a data-flow consequence it did not have: if the client later gives a leaver's username to
+  a new hire, the new hire inherits every send made since the leaver left. So Phase 3 adds the marker
+  to §3.12's residue list and to its Phase 0 question, stating that de-provisioning must delete it.
+  The recipient check itself needs no change: it answers "unknown" the moment the marker is gone.
+- **An IAM fence on the marker.** Three control-plane roles hold writes across the whole bucket
+  (file-ops `WriteSpaceObjects`, archive `SpaceDataWrite`, results-conversion
+  `WriteConvertedFiles`), and what keeps each inside the actor's own prefix is its validate-authorize
+  containment check, not IAM. A defect there could write a top-level `X/DO_NOT_DELETE.txt` and make
+  `X` a valid recipient. That is not a new exposure, because the same defect already lets a user
+  write anything into another person's prefix, which is worse; and SPEC-265's identity guardrail does
+  not cover the marker for the same reason. The portal role itself is held to
+  `${aws:PrincipalTag/username}/*`, so no user can mint a marker for another name.
 - **The browser's `ensurePrefixMarker`.** It keeps writing the same constant on a first visit until
   the cutover removes it (§6.3). Two writers of one key are safe because both write the same bytes,
   which FR-004's mirror test holds.
@@ -248,9 +263,13 @@ records it as the provisioning failure it already records.
 - **The timeout goes from 3 to 5 seconds.** One more request on a cold start is unmeasured at 3, and
   a trigger that times out fails the user's confirmation, which the handler's `except` cannot catch.
   Five seconds is the most Cognito waits for a trigger, so there is nothing to gain above it.
-- **The backfill.** `backfill.py`'s docstring gains the reconciliation: list the pool's confirmed
-  users, list the bucket's top-level prefixes that hold a marker, and run the backfill over the
-  difference with `USER_SPACE_BUCKET` exported. It runs as the deploy role, which is both on the
+- **The reconciliation, both ways.** `backfill.py`'s docstring gains it: list the pool's confirmed
+  users and the bucket's top-level prefixes that hold a marker. Run the backfill, with
+  `USER_SPACE_BUCKET` exported, over the users with no marker. Report the markers with no pool account
+  (SPEC-009's live check deletes its test users with `admin-delete-user`, so this account may hold
+  some), and delete each such `{name}/DO_NOT_DELETE.txt`. The same docstring, and the cleanup step of
+  any live check in `docs/testing/` that runs `admin-delete-user`, say that deleting a pool user by
+  hand also deletes their marker. It runs as the deploy role, which is both on the
   bucket's allowlist and a Lake Formation admin; an operator's own credentials are on neither. That
   run writes to the production bucket, so the build hands Andrew the exact commands rather than
   running them, and the PR records the run as owed until it is done.
@@ -268,8 +287,9 @@ records it as the provisioning failure it already records.
       environment contains `USER_SPACE_BUCKET` and its timeout is 5.
 - [ ] A live sign-up in this account leaves a marker under the new user's prefix before they open
       the file browser, and the function's `REPORT` line for that cold start is recorded.
-- [ ] After the backfill run, every confirmed user in the pool has a marker, by the two listings
-      above showing no difference. Owed until Andrew runs it.
+- [ ] After the reconciliation, the two listings above agree in both directions: every confirmed
+      user has a marker, and every top-level marker belongs to a confirmed user. Owed until Andrew
+      runs it.
 
 ---
 
@@ -363,5 +383,7 @@ infra/
   `lambdas/info/planes/standalone.md`, `lambdas/info/planes/shared-spaces.md`,
   `infra/planes/file-send/README.md`, and the docstrings of `membership.py` and the file-send verb.
   Mark §3.12's item 1 and the Phase 1 provisioner bullet in `docs/transition_plan.md` as carrying the
-  marker write in `provision_user` already, and strike the recipient-check bullet in SPEC-265's Out of
+  marker write in `provision_user` already, add the marker to §3.12's de-provisioning residue list and
+  its Phase 0 question (de-provisioning must delete it, because it keeps a leaver a valid recipient),
+  and strike the recipient-check bullet in SPEC-265's Out of
   Scope as done.
