@@ -170,7 +170,7 @@ exactly five things move:
 
 | | Variant A | Variant B |
 |---|---|---|
-| Sign-in hop | Browser → Entra | Browser → **Cognito** → Entra, over SAML or OIDC per the established pattern |
+| Sign-in hop | Browser → Entra | Browser → **Cognito** → Entra, over SAML (chosen 2026-11-16: Entra's OIDC `sub` is pairwise, so only SAML keys on the object id) |
 | Trusted token issuer | Entra | **Cognito** |
 | Assertion exchanged | The Entra ID token | The **Cognito** ID token |
 | Bearer the server forwards to the API | An Entra access token for the portal's own scope | The **Cognito** ID token, as today |
@@ -189,7 +189,7 @@ flowchart TB
     COG["Cognito user pool<br/>bridge to Entra<br/>TRUSTED TOKEN ISSUER<br/>self-signup OFF, local identities impossible"]
     ENTRA["Microsoft Entra ID<br/>authenticates the human<br/>Conditional Access and MFA at federation"]
     IDC["IAM Identity Center<br/>identity store · propagation<br/>no just-in-time provisioning"]
-    COG -->|"federation · SAML or OIDC"| ENTRA
+    COG -->|"federation · SAML"| ENTRA
     ENTRA -->|"SCIM · users + groups"| IDC
   end
 
