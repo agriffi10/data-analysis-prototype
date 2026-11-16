@@ -16,6 +16,9 @@ Attributes:
   SIGN_IN_SETTINGS: The sign-in settings both clients carry, whitespace and trailing commas removed. A
     scope or flow beyond these widens what a token allows, and `LEGACY` user-existence errors let a
     caller enumerate accounts.
+  CLIENT_FLOOR: The number of app clients the IaC declares today. The revocation sweep must find at
+    least this many, so a sweep that reads the wrong tree, or a parser that stops recognising a
+    header, fails instead of passing over nothing.
 """
 
 import fnmatch
@@ -24,6 +27,7 @@ import pathlib
 import re
 
 import yaml
+from tf_blocks import argument as top_level_argument
 from tf_blocks import blocks, module_calls, output_blocks
 
 INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
@@ -43,6 +47,8 @@ SIGN_IN_SETTINGS = {
     "prevent_user_existence_errors": '"ENABLED"',
     "explicit_auth_flows": '["ALLOW_USER_SRP_AUTH","ALLOW_REFRESH_TOKEN_AUTH"]',
 }
+
+CLIENT_FLOOR = 2
 
 
 def _argument(body: str, name: str) -> str | None:
@@ -255,6 +261,38 @@ def test_every_rotation_block_states_its_grace_period() -> None:
     stated = re.compile(r"^[ \t]*retry_grace_period_seconds[ \t]*=[ \t]*\d+[ \t]*$", re.MULTILINE)
     missing = [str(path) for path, body in rotations if not stated.search(body)]
     assert missing == [], f"refresh_token_rotation without a numeric retry_grace_period_seconds in {missing}"
+
+
+def test_every_app_client_in_the_tree_turns_token_revocation_on() -> None:
+    """A client without revocation applies green and silently loses replay protection.
+
+    Cognito puts a ``jti`` on its tokens only while revocation is on, and Identity Center's replay
+    protection was confirmed only on assertions carrying one. ``false`` plans and applies green, and
+    an omitted line leaves the client on whatever default it was created with, so the test requires
+    the line to say ``true`` rather than trusting either. The sweep covers every ``.tf`` file in
+    root and every module rather than a named list, so a client added anywhere is held too.
+    """
+    json_sources = [str(p.relative_to(INFRA)) for p in INFRA.rglob("*.tf.json") if ".terraform" not in p.parts]
+    assert json_sources == [], f"a client in JSON syntax escapes this sweep: {json_sources}"
+    files = sorted(path for path in INFRA.rglob("*.tf") if ".terraform" not in path.parts)
+    clients: dict[str, str] = {}
+    for path in files:
+        for name, body in blocks(path.read_text(), "aws_cognito_user_pool_client").items():
+            clients[f"{path.relative_to(INFRA)}:{name}"] = body
+
+    assert len(clients) >= CLIENT_FLOOR, (
+        f"the sweep found only {sorted(clients)}; the tree, the parser or CLIENT_FLOOR is wrong"
+    )
+
+    def revocation(body: str) -> str | None:
+        try:
+            return "".join(top_level_argument(body, "enable_token_revocation").split())
+        except ValueError:
+            return None
+
+    read = {client: revocation(body) for client, body in clients.items()}
+    off = {client: value for client, value in read.items() if value != "true"}
+    assert off == {}, f"clients without enable_token_revocation = true (value read: None is absent): {off}"
 
 
 def test_the_session_ceiling_and_the_refresh_token_come_from_one_local() -> None:
