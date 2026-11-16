@@ -155,7 +155,8 @@ following configuration.
 - **Refresh token** lets our server renew the Identity Center token each hour without repeating the
   exchange. That matters because the exchange has a limit of 10 requests per second, shared by every
   application on your instance, while refreshes have a separate and larger limit. Without the
-  refresh grant, every active user would spend that shared limit once an hour.
+  refresh grant, our server does not repeat the exchange to make up for it, so every user would be
+  asked to sign in again each hour to keep reaching their data.
 - **The three scopes** are the set AWS documents for an Identity Center enabled Athena workgroup.
   In our own test, Athena refused the user's session when `athena:workgroup:read_write` was missing,
   so that one is required, not optional.
