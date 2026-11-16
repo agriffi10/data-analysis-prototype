@@ -326,6 +326,43 @@ def test_a_building_block_resolves_through_the_root_call(tmp_path: pathlib.Path)
     assert "reader" in fleet.function_names(direct)
 
 
+def test_an_assignment_inside_a_block_comment_or_a_heredoc_is_neither_a_key_nor_an_argument(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The silence case for the two readers here that list names rather than look one up.
+
+    A bare key in a block comment or a heredoc refused the whole fleet as an unquoted verb, and an
+    argument line in either was listed for the root call and then not found by the reader that
+    looked it up, which raised. Both now read through the shared blanker, so all three lines are
+    noise and the plane resolves.
+
+    Args:
+      tmp_path: Pytest's temporary directory.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the plane does not resolve to its two quoted verbs.
+    """
+    verbs = 'verbs = {\n    "a" = 1\n    /* bare = 2\n    */\n    "b" = <<-EOT\n      hidden = 3\n    EOT\n  }'
+    repo = _repo(
+        tmp_path,
+        {
+            "ROOT": _root(
+                locals_=verbs,
+                name='"p"',
+                functions="local.verbs\n  /* memory = 10240\n  */",
+                note="<<-EOT\n    timeout = 900\n  EOT",
+            ),
+            "block": _MAPPED_BLOCK,
+        },
+        pad=True,
+    )
+
+    assert {"p-a", "p-b"} <= set(fleet.function_names(repo))
+
+
 @pytest.mark.parametrize("label, files, phrase", CASES, ids=[case[0] for case in CASES])
 def test_the_refusal_names_its_reason(
     tmp_path: pathlib.Path, label: str, files: dict[str, str], phrase: str

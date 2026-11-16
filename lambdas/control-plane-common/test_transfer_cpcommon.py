@@ -29,6 +29,7 @@ from cpcommon.transfer import config as transfer_config
 from cpcommon.transfer import copy as copy_mod
 from cpcommon.transfer import manifest as manifest_mod
 from cpcommon.transfer import results as results_mod
+from tf_blocks import strip_comments
 
 GIB = 1024**3
 
@@ -416,13 +417,10 @@ def _planes_deploying_a_copy_verb() -> dict:
     unparsable: list[str] = []
     for plane_tf in sorted((_REPO / "infra").glob("plane-*.tf")):
         plane = plane_tf.stem.removeprefix("plane-")
-        # Comment lines come off first: `re.search` takes the FIRST match in the file, so a
-        # commented-out row left above a live one is the row this guard reads — and the live one
+        # Comments come off first, in every form: `re.search` takes the FIRST match in the file, so
+        # a commented-out row left above a live one is the row this guard reads — and the live one
         # can then say anything. Measured: a ghost row let a 600s timeout pass.
-        live = "\n".join(
-            line for line in plane_tf.read_text().split("\n")
-            if not line.lstrip().startswith(("#", "//"))
-        )
+        live = strip_comments(plane_tf.read_text())
         row = re.search(r'"copy-objects"\s*=\s*\{([^}]*)\}', live)
         if not row:
             continue
