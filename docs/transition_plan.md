@@ -57,8 +57,8 @@ plain `StartQueryExecution` runs from our own identity-enhanced session. Presign
 Access-Grants credentials redeem from a browser. One role's exchange is assumed by another role,
 so the Next.js server exchanges as drawn. A refresh returns a new identity context, so §3.5's
 refresh strategy stands. §6.1's open scope question closed clean too. **One finding cuts the other
-way**: STS did not apply the allow-list policy §3.6 relies on to deny plain S3, so the carrier
-role's own policy is the only control there. P1 to P3 need an organization instance and are still
+way**: the allow-list policy §3.6 relies on to deny plain S3 was not in effect on the
+identity-enhanced session, so the carrier role's own policy is the only control there. P1 to P3 need an organization instance and are still
 owed. §5.5 carries the measurements.
 
 ## Two variants of the identity plane — and B is the one being built
@@ -239,7 +239,7 @@ reading them as one is the mistake §3.3 exists to prevent — and the arrival o
 | Who creates the user's S3 prefix | The browser, via `ensurePrefixMarker` | A **portal-owned provisioner**, over the client's known username list, **before anyone signs in** (§3.12). **Sign-in provisions nothing** |
 | Who creates the user's Glue database | `post_confirmation.py` | The same provisioner, running `provision_user`'s existing sequence on a new trigger — database, portal-role grant, `portal-managed` tag (§3.12) |
 | Per-user IAM identity | One shared role plus a `username` principal tag, stamped by the API from the verified claim (the Identity Pool did this until SPEC-202 retired it, 2026-08-31) | **Interim (Phases 1–4):** the same shared role and tag, assumed by the API from the verified claim — no Identity Pool. **End state (Phase 5):** one identity-enhanced session, no principal tags, storage on S3 Access Grants (§3.4, §3.9). **Bespoke per-user roles are never created** |
-| Per-user storage isolation | `${aws:PrincipalTag/username}` in the bucket and Glue policies | Same in the interim; **S3 Access Grants** in the end state — plain S3 is denied on an identity-enhanced session (§3.6) |
+| Per-user storage isolation | `${aws:PrincipalTag/username}` in the bucket and Glue policies | Same in the interim; **S3 Access Grants** in the end state — plain S3 is denied on an identity-enhanced session (§3.6) *(not as measured 2026-11-15 — §3.6's amendment)* |
 | Third-party BI / ODBC clients (Excel, Access, Power BI) | Not consumers of this repo at all — they reach Athena directly from the **client's** environment, over SAML federation with Lake Formation, under a **parallel** grant set keyed on SAML principals | The **same** grants that govern the portal, keyed on the same Identity Center principals, carried by the drivers' own trusted-identity-propagation plugins. One entitlement model instead of two (§3.10) |
 | Lake Formation grants | Issued by this app, keyed on the shared role | Same for personal and workspace scopes; core datasets keyed on Identity Center principals (§3), issued by a config-driven reconciler |
 | Shared workspaces | Created and managed by this app's control plane | Same — created by this app in the successor account, contents synced from the old account's workspaces |
@@ -319,7 +319,7 @@ Treated as inputs. Do not re-litigate without new information.
     Center administrators either way.
 13. **There is ONE credential plane in the end state, not two.** Supersedes §3.4. The
     identity-enhanced session is the only plane, and because
-    `AWSIAMIdentityCenterAllowListForIdentityContext` denies plain S3, **S3 Access Grants** governs
+    `AWSIAMIdentityCenterAllowListForIdentityContext` denies plain S3 *(not as measured 2026-11-15 — §3.6's amendment)*, **S3 Access Grants** governs
     storage — personal prefixes included. `${aws:PrincipalTag/username}` and the
     `custom:shared_space_k` slots **do not survive Phase 5** — they carry through the interim plane
     (Phase 1) and retire with it. New §3.9 carries what replaces them, and
@@ -589,14 +589,14 @@ JWT-bearer quota then has to be sized against active users per hour rather than 
 **Measured 2026-11-15 (G10): a refresh DOES return a new identity context, so step 1r stands and
 the quota stays a sign-in limit.** The context a refresh returns is good for a fresh hour and
 carries the same Identity Center session. The refresh token is **not rotated**: one token refreshed
-six times over three hours, including after its first access token had expired. Its lifetime is at
+seven times over three hours, including after its first access token had expired. Its lifetime is at
 least three hours and four minutes (its last refresh before teardown, at 01:21 UTC the next day, still succeeded), which is what Phase 0 could observe; AWS still documents none.
 Phase 0 found no API or documentation behind the *"Automatically refresh user authentication…"*
 option for a customer-managed application (the console was not checked). Its nearest API, user
 background sessions, refuses one outright. So
 "with and without" was measured on the refresh-token grant itself: **removing the grant stops new
-refresh tokens being issued, but tokens already issued keep refreshing**. The grant is therefore no
-revocation lever. The alternative also works, for whoever revisits this: a refreshed Cognito ID
+refresh tokens being issued, but tokens already issued kept refreshing** for the 16 minutes the
+grant stayed off. The grant is therefore no revocation lever. The alternative also works, for whoever revisits this: a refreshed Cognito ID
 token carries a new `jti` beside the old `origin_jti`, and it exchanges successfully, so re-exchanging
 hourly is viable under [B]. It loses on the quota alone, as above.
 
@@ -782,7 +782,8 @@ Two further consequences worth designing for:
 - **Permissions:** Athena start/get/results on the Identity Center workgroup, Glue catalog read
   on the core-dataset databases, `lakeformation:GetDataAccess`, and the three S3 Access Grants
   operations (§3.9). Deliberately **no direct S3 read** on dataset data — Lake Formation vends it,
-  and the allow-list below denies it anyway.
+  and the allow-list below denies it anyway — *as written; Phase 0 found it did not (the amendment
+  below), so this "deliberately" is the whole control.*
 - **One role for everyone.** All differentiation is in Lake Formation via the propagated identity.
 
 Note that the identity-enhanced session is restricted by the
@@ -801,19 +802,28 @@ says. It is NOT what Phase 0 measured on 2026-11-15; see the amendment below.)*
 > whether the permission-set path can serve any storage access at all rather than whether it can
 > serve a second plane.
 
-> **MEASURED 2026-11-15: STS did not apply the allow-list.** Phase 0's carrier session was
+> **MEASURED 2026-11-15: the allow-list's Deny was not in effect.** Phase 0's carrier session was
 > provably identity-enhanced: the IdC workgroup accepted it and refused the same role without a
 > context, and Access Grants listed the user's grants. Yet a plain `GetObject` on **another
 > user's** object, `PutObject` and `ListObjectsV2` all succeeded on the carrier role's own S3 grant,
 > exactly as without a context. Version 12 of the policy, read the same day, would deny all three
-> (§5.5's measurements). This was one run, on an Identity Center **account** instance, so re-run it
-> on the successor account's organization instance before anything leans on either answer.
+> (§5.5's measurements). The mechanism is not visible. STS did pack something into the session:
+> CloudTrail reports `packedPolicySize` 29 against 8 without a context, though the caller passed
+> no policy. Whatever it packed did not deny those three calls. This was one run, on an Identity
+> Center **account** instance, so re-run it on the successor account's organization instance before
+> anything leans on either answer.
+>
 > **What it changes:** nothing in the chosen design breaks, because Access Grants is still needed
-> for the IdC workgroup and for per-user scoping. But the backstop is gone. **The carrier role's
-> own policy is the only thing denying it direct S3**, so "deliberately no direct S3 read" above is
-> the control, not a redundancy, and a Phase 5 IAM test should assert that the carrier role holds no
-> `s3:GetObject`, `s3:PutObject` or `s3:ListBucket`. It also unsettles the reason §3.9 gives for
-> Access Grants and the P1-implies-P3 tension in §5. Neither is decided here.
+> for the IdC workgroup and for per-user scoping. But the backstop is gone, and it was never
+> S3-only. The policy is a single `Deny` on everything outside its list, so **assume nothing outside
+> the carrier role's own policy limits an identity-enhanced session**: KMS, DynamoDB, IAM and S3
+> alike. Two controls replace it. Neither is built yet; the Phase 5 carrier-role spec chooses. The
+> first is an IAM test asserting that the carrier role's allowed actions are a **subset of the
+> allow-list's own list**, an allow set, not three named absences, which `s3:Get*` would slip past.
+> The second is a bucket-policy `Deny` on direct object access for any principal but the service
+> roles that must read the bucket (the Access Grants location role, Lake Formation's registration
+> role and the control planes). It also unsettles the reason §3.9 gives for Access
+> Grants and the P1-implies-P3 tension in §5. Neither is decided here.
 
 ### 3.7 How Lake Formation enforces
 
@@ -876,7 +886,7 @@ hand-rolled column security is the right trade.
 
 §3.4 collapsed the two credential planes into one, and the allow-list in §3.6 is why: on an
 identity-enhanced session, plain S3 is denied. *(Phase 0 measured otherwise on 2026-11-15: the
-allow-list was not applied, and only the carrier role's own policy withholds plain S3 — §3.6's
+allow-list's Deny was not in effect, and only the carrier role's own policy withholds plain S3 — §3.6's
 amendment. Access Grants is still what this section builds; that reason for it is unsettled.)*
 **S3 Access Grants is what replaces
 `${aws:PrincipalTag/username}`**, and it is new infrastructure — it appears nowhere in this
@@ -1213,7 +1223,10 @@ expands `$${aws:PrincipalTag/shared_space_k}` into the S3 prefix, the `ListBucke
 Glue ARNs. One attribute write grants everything.
 
 On an identity-enhanced session there are no principal tags, and §3.6's allow-list denies plain S3
-outright. So a membership becomes **two grants** — an S3 Access Grant on the space prefix and a Lake
+outright. *(Phase 0 measured on 2026-11-15 that the allow-list was not in effect — §3.6's
+amendment. The two-grant design below still holds only while the carrier role has no direct S3
+grant on the shared-space bucket; that grant, not the allow-list, is what would otherwise let any
+identity-enhanced session reach every space.)* So a membership becomes **two grants** — an S3 Access Grant on the space prefix and a Lake
 Formation grant on the space database, per (member, space) — and something has to issue and revoke
 them at the six moments a membership changes. This section is that design. It was specified as
 SPEC-204 and moved here on 2026-09-01: it cannot be built or tested until the Access Grants instance
@@ -1998,7 +2011,8 @@ that obtained it — its documented bindings are the application, the instance, 
 the user — but nothing says a second principal may present it either. Phase 0 tests exactly this.
 **MEASURED 2026-11-15: G10 PASSED, so the server calls `CreateTokenWithIAM` and the split stands
 as drawn** (§5.5's measurements). A context minted by one role was assumed by a different role in
-its own session, and G7's query and G9's presign both ran on the resulting session. The fallback below
+its own session. G7's query and G9's presign each ran on sessions assumed that way, G9's from a
+context the exchanger had refreshed. The fallback below
 is not needed. Its premise passed too: one role minted in one session and a separately issued
 session assumed minutes later. So it stays a working fallback, kept for the record. One correction
 to its wording: a single context lives an hour and no longer, so "hours later" holds only across
@@ -2073,11 +2087,14 @@ less.**
   outlives its context**, because STS sets the session's expiry to the context's. A leaked Identity
   Center **refresh token** is the longer exposure: it was not rotated on use, and it lived at least
   three hours and four minutes (its last refresh before teardown, at 01:21 UTC the next day, still succeeded). Removing the application's refresh grant does not stop one already
-  issued (§3.5).
-- **What the organization trail sees.** Measured 2026-11-15: STS's `AssumeRole` event records the
-  context provider and, in `additionalEventData.sessionContext`, the Identity Store user id, the
-  Identity Center session and credential ids. It never records the `ContextAssertion`, so the trail
-  identifies whose context was used but holds nothing replayable.
+  issued, at least within the 16 minutes observed (§3.5).
+- **What the trail sees.** Measured 2026-11-15, from the account's event history rather than an
+  organization trail. STS's `AssumeRole` event records the context provider and, in
+  `additionalEventData.sessionContext`, the Identity Store user id and the Identity Center session
+  and credential ids, but never the `ContextAssertion`. `CreateTokenWithIAM` events record every
+  token as `HIDDEN_DUE_TO_SECURITY_REASONS`. So the trail identifies whose context was used and
+  holds nothing replayable. Re-check on the organization trail itself, whose audience is the
+  broad one.
 
 **Credentials come from the task role**, rotating, with no static secrets and no IAM Roles Anywhere
 trust anchor to stand up. Calling `CreateTokenWithIAM` takes two grants, both documented: the
@@ -2154,7 +2171,7 @@ that fed it. The base plane is gone, so Path A's role changes rather than disapp
 the alternative to **§3.9's S3 Access Grants** for the storage plane, and **gate P3 decides it**.
 §5.4 records the tension that makes it interesting — a P1 *pass* implies the session is
 identity-enhanced, which implies a P3 *failure*, because the allow-list denies plain S3 (§3.6).
-*Phase 0 found on 2026-11-15 that STS did not apply the allow-list to an identity-enhanced session
+*Phase 0 found on 2026-11-15 that the allow-list's Deny was not in effect on an identity-enhanced session
 (§3.6's amendment), so that implication no longer holds as measured:*
 
 - **P3 passes** (plain S3 works, the session is not identity-enhanced): a base plane survives after
@@ -2244,7 +2261,7 @@ In a non-production account:
    `AWSIAMIdentityCenterAllowListForIdentityContext` (§3.6), whose only S3 actions are the three
    S3 Access Grants operations — which would deny the file browser's calls outright. A P1 *pass*
    could therefore imply a P3 *failure*. *(As measured on 2026-11-15, the allow-list was not
-   applied to an identity-enhanced session at all — §3.6's amendment — so a P1 pass no longer
+   in effect on an identity-enhanced session at all — §3.6's amendment — so a P1 pass no longer
    predicts a P3 failure.)*
 
 **Not run in Phase 0 (2026-11-15).** The only account available is standalone, and AWS states that
@@ -2308,15 +2325,17 @@ grants.
   separately issued session of the same role assumed with that context at 22:21:48 and queried
   successfully.
 - **Reuse and lifetime.** One context served 15 consecutive `AssumeRole` calls, and every context
-  was reused across many separate sessions. **A context lives exactly one hour from the mint or
-  refresh that produced it.** At 23:12, five minutes before their expiry, five contexts all assumed.
-  At 23:21, after it, all five were refused with `InvalidContextAssertion: Provided context has
+  was reused across many separate sessions. **A context lives one hour from the mint or refresh
+  that produced it** — its `exp`, which the carrier session's `Expiration` matched to the second.
+  At 23:12, between four and a half and seven and a half minutes before their expiry, five
+  contexts all assumed. At 23:21, 98 to 266 seconds after it, all five were refused with `InvalidContextAssertion: Provided context has
   expired.` **The carrier session's `Expiration` is the context's expiry, not the assume time plus
   an hour**, so a context assumed in its last minutes yields a session lasting only those minutes.
 - **Refresh: a `refresh_token` grant returns a NEW identity context**, with a fresh hour, the same
   Identity Center session id and the original `auth_time`. **The refresh token is not rotated**: the
-  same one refreshed at 22:18, 22:20, 22:35, 23:21, 00:21 and 01:21, from 23:21 on after its
-  first access token had expired. Its lifetime is therefore at least three hours and four minutes (its last refresh before teardown, at 01:21 UTC the next day, still succeeded).
+  22:18 refresh returned the same value it was given, and that one value refreshed seven times
+  (22:18, 22:19, 22:20, 22:35, 23:21, 00:21 and 01:21), from 23:21 on after its first access token
+  had expired. Its lifetime is therefore at least three hours and four minutes (its last refresh before teardown, at 01:21 UTC the next day, still succeeded).
 - **The "automatically refresh" option was not found for this application type.** G10's row names
   an option worded *"Automatically refresh user authentication for active application sessions"*.
   No AWS page Phase 0 read carries that wording, and the console was not checked. The nearest API,
@@ -2325,22 +2344,31 @@ grants.
   for AWS-managed applications only. The control a customer-managed application does have is the
   refresh-token grant, so it was measured instead. With the grant deleted, a new exchange returns no
   `refreshToken`, but refresh tokens issued earlier kept refreshing, with a context, 15 minutes
-  later. **Removing the grant stops issuance; it does not revoke.**
+  later. The grant was restored at 22:36, so that is the whole window observed. **Removing the
+  grant stops issuance; it did not revoke within 16 minutes.**
 - **Replay: refused.** A second exchange of one Cognito ID token was refused with
   `InvalidGrantException`, from the exchanger and from the API stand-in alike. A different fresh
   assertion exchanged normally. **A Cognito ID token from a refresh, carrying a new `jti` but the
   same `origin_jti` as an already-exchanged one, exchanged successfully** and opened a new Identity
   Center session. So the protection is per token, not per Cognito session, and re-exchanging hourly
   remains a working alternative to step 1r under [B].
-- **CloudTrail does not record the `ContextAssertion`.** The `AssumeRole` event's
-  `requestParameters.providedContexts` keeps only the `providerArn`. `additionalEventData.sessionContext`
-  records `identitystore:UserId`, `identitycenter:CredentialId`, `aws:IdentityCenterSessionId`, the
-  identity store ARN and the instance account. So the trail names the person, but holds nothing a
-  reader could replay.
+- **CloudTrail records neither the `ContextAssertion` nor any token.** This was read from the
+  account's event history, since the account has no organization trail. STS's `AssumeRole` events
+  for the carrier keep only the `providerArn` in `requestParameters.providedContexts`.
+  `additionalEventData.sessionContext` records `identitystore:UserId`,
+  `identitycenter:CredentialId`, `aws:IdentityCenterSessionId`, the identity store ARN and the
+  instance account. As for every `AssumeRole`, the response records the access key id and session
+  token but never the secret key. `CreateTokenWithIAM` events, the exchanger's and the services'
+  own, record every assertion, refresh token, access token and ID token as
+  `HIDDEN_DUE_TO_SECURITY_REASONS`, and carry no `awsAdditionalDetails`. So the trail names the
+  person and the session, and holds no token or context a reader could replay.
 - **Scopes are load-bearing, and two are undocumented.** The exchange returns the application's
-  scopes. **`athena:workgroup:read_write` is required**: with only `s3:access_grants:read_write` on
-  the application, the workgroup refused the session with *"You do not have access to p0x-wg"*.
-  `lakeformation:query` is not needed for an Athena query. Neither string appears in the AWS pages
+  scopes. Both arms ran `SELECT count(*)` on the Lake Formation-governed table from a freshly
+  minted context. **`athena:workgroup:read_write` is required**: with only
+  `s3:access_grants:read_write` on the application, the workgroup refused the session with *"You
+  do not have access to p0x-wg"*. With `athena:workgroup:read_write` added back and
+  `lakeformation:query` still absent, the query succeeded. So `lakeformation:query` is not needed
+  for an Athena query. Neither string appears in the AWS pages
   Phase 0 read, but `PutApplicationAccessScope` accepted both.
 - **G7: PASS.** A plain `StartQueryExecution` from the identity-enhanced carrier session ran on the
   IdC workgroup at 22:17:05 and returned the table's rows. The same role assumed without a context
@@ -2349,14 +2377,16 @@ grants.
   2026-11-16) made the next query fail with *"Relation contains no accessible columns"*. Re-granting
   it made the same context's query succeed again at 01:22:04. So Lake Formation evaluates the
   propagated user's own grants, and both changes took effect within seconds, although AWS allows up
-  to an hour. The two-user contrast is G4's to run in Phase 5.
+  to an hour. **One asymmetry:** the revoke was tested on a context refreshed just after it, and
+  the re-grant on that existing context. Whether a revoke reaches a context minted before it was
+  not measured; de-provisioning should not assume it does. The two-user contrast is G4's to run in Phase 5.
 - **G9: PASS.** At 22:20:44, `GetDataAccess` (READWRITE on `p0x-alice/*`) on the first test user's (alice's)
   session returned credentials, from which the API stand-in presigned a `PUT` and a `GET`, with the session
   token in the query string. From the browser origin `http://localhost:8766` the `PUT` returned 200
   and the `GET` returned 200 with the same body. URLs presigned from the same credentials for another
   user's key (`GET` and `PUT`) were refused with 403 at redemption. So S3 evaluates the grant's scope
   when the URL is redeemed.
-- **The allow-list did not apply, which contradicts §3.6.** In the same identity-enhanced session,
+- **The allow-list's Deny was not in effect, which contradicts §3.6.** In the same identity-enhanced session,
   a plain `GetObject` on **another user's object**, `PutObject` and `ListObjectsV2` all succeeded on
   the carrier role's own S3 grant. They behaved exactly as they did without a context, although
   `AWSIAMIdentityCenterAllowListForIdentityContext` (v12, read the same day) denies every S3 action
@@ -3405,8 +3435,8 @@ exists so the chronology is recoverable, not so anyone works from it.
   ran and passed; **§5.5** carries every measurement. **§3.5** records that a refresh returns a new
   context, the refresh token does not rotate, and replay is refused per token. **§4.7** settles the
   exchange on the server, bounds a context and its carrier session at one hour, and records what
-  CloudTrail keeps. **§6.1**'s scope gap is closed. **§3.6** is amended because the allow-list was
-  not applied, with markers in §3.9 and §5. P1 to P3 are recorded as not runnable on an account
+  CloudTrail keeps. **§6.1**'s scope gap is closed. **§3.6** is amended because the allow-list's Deny was
+  not in effect, with markers at every site that stated it (§2, §3.6, §3.9, §3.11, §5). P1 to P3 are recorded as not runnable on an account
   instance. §2 item 11, §3.10, Phase 0, Phase 5 and §8 are updated in place.
 - **2026-11-15, earlier — the server's two settings.** The username claim the Next.js server reads and
   the provider its sign-in redirect names became configuration (`OIDC_USERNAME_CLAIM` from the same
