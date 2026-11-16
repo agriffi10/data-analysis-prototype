@@ -44,8 +44,8 @@ Node exchanger calls `CreateTokenWithIAM`, and it also reads the Identity Center
 `sts:identity_context` claim, which carries the same value. So the context survives an SDK that
 drops the field, and the evidence records which source supplied it.
 
-Then fill in `config.example.env` as `$WORK/config.env`. Load it before every command with
-`set -a; . "$WORK/config.env"; set +a`. Prove the scripts work before touching AWS; both commands
+Then fill in `config.example.env` as `$WORK/config.env`, and load it in every new shell with
+`set -a; . ~/phase0-client/config.env; set +a` (the file sets `WORK` itself). Prove the scripts work before touching AWS; both commands
 must exit 0:
 
 ```bash
@@ -95,18 +95,22 @@ If the runner has no Identity Store read access, an admin runs the last line ins
 | Label | Expect |
 |---|---|
 | `C5.login` | `idToken.federated.providerName` = `$ENTRA_IDP_NAME`, and `oidClaimValue` = `$ENTRA_TEST_USER_OID` |
-| `C5.tti` | `claimAttributePath` `entra_oid`, `identityStoreAttributePath` `externalIds.value` |
+| `C5.tti` | `claimAttributePath` `entra_oid`, `identityStoreAttributePath` `externalIds.value`. `TTI_ARN` must be set: without the mapping read, C5 cannot pass |
 | `C5.exchange` | ok. `idTokenClaims.sub` is UUID-shaped |
 | `C5.user` | `userName` = alice's, and `externalIds` includes the object id |
 
-**PASS** means the object id travelled from Entra to Identity Center and resolved to alice: the
-`sub` described as alice, with the object id among her `externalIds`. AWS does not document that `sub` is
+**PASS** means the object id travelled from Entra to Identity Center and resolved to alice through
+the `externalIds.value` mapping: the issuer was read mapping `entra_oid` there, and the `sub`
+described as alice, with the object id among her `externalIds`. AWS does not document that `sub` is
 the Identity Store user id, and this check is what shows it. **FAIL** names the broken link: the
-token did not come through Entra, the trigger did not run, the subject is not the object id, the
-exchange was refused, or the exchange resolved to another user. **INCONCLUSIVE** means the issuer
-maps something other than `externalIds.value`, or `sub` was not a user id. In the second case, read
-`identitystore:UserId` from the carrier's `AssumeRole` event in CloudTrail and rerun with
-`--user-id`.
+token carries no federated identity, the trigger did not run, the claim is not an object id at all
+(so the federation's subject is not keyed on it), Identity Center refused the assertion
+(`InvalidGrantException`) with the mapping read, or the exchange resolved to another user.
+**INCONCLUSIVE** covers what looks like setup rather than a finding: another provider name (check
+`ENTRA_IDP_NAME`), a different object id (check `ENTRA_TEST_USER_OID`), a mapping other than the one
+under test or not read, an exchanger refused outright (C1 settles that), or an Identity Store read
+that was refused. If `sub` is not a user id, read `identitystore:UserId` from the carrier's
+`AssumeRole` event in CloudTrail and rerun with `--user-id`.
 
 ### C1: the cross-account exchange
 
@@ -116,11 +120,14 @@ AWS_PROFILE=$EXCHANGER_PROFILE node exchange.mjs jwt --from alice --out alice-c1
 python3 phase0.py assume --context alice-c1
 ```
 
-Only if `C1.exchange` was refused, run the control from the application's own account:
+Only if `C1.exchange` was refused, run the control from the application's own account, and have an
+Identity Center admin (or `IDSTORE_PROFILE`, if it may call `sso:GetApplicationAuthenticationMethod`)
+record which principals the application's actor policy names:
 
 ```bash
 node signin.mjs refresh --user alice --label C1.control.cognito
 AWS_PROFILE=$CONTROL_PROFILE node exchange.mjs jwt --from alice --out alice-ctl --label C1.control.exchange
+python3 phase0.py actor-policy --profile "$IDSTORE_PROFILE"
 ```
 
 | Label | Expect, from the 2026-11-15 run where one was measured |
@@ -132,12 +139,15 @@ AWS_PROFILE=$CONTROL_PROFILE node exchange.mjs jwt --from alice --out alice-ctl 
 
 **PASS** means a member-account role exchanged on an application in another account, and a different
 role assumed the carrier with the context. The verdict names both principals and both accounts.
-**FAIL** comes in two forms. The member-account exchange can be refused while the control exchange
-from the application's own account succeeds: then the account boundary is the cause, and §4.7 must
-move the exchange. Or STS can refuse the context although the same assumer reaches the carrier
-without one. **INCONCLUSIVE** covers four cases: the exchanger and the application share an account
-(that repeats G10), the two roles are one principal, a refusal has no control, or the trust policy
-lacks `sts:SetContext`.
+**FAIL** comes in two forms. The member-account exchange can be refused although the exchanger's own
+IAM policy allows it, the actor policy names it, and the control exchange from the application's own
+account succeeds: then the account boundary is the cause, and §4.7 must move the exchange. Or STS
+can refuse the context although the same assumer reaches the carrier without one. **INCONCLUSIVE**
+covers the cases where a refusal could be the fixture's: the exchanger's own policy refuses
+(*"no identity-based policy allows"*), the actor policy omits the exchanger or was not read, or no
+control ran. It also covers an exchanger in the application's own account (that repeats G10), one
+principal playing both roles, and a trust policy without `sts:SetContext`. A refusal's message is
+the service's `error_description`, so read the reason, not the code alone.
 
 ### C2: the allow-list re-run
 
@@ -153,7 +163,7 @@ carrier's own policy.
 
 | Label | Expect on 2026-11-15's account-instance behaviour |
 |---|---|
-| `C2.allowlist.policy` | `exempt` false for all four probes |
+| `C2.allowlist.policy` | ok, with `exempt` false for all four probes. If the read is refused, every probe is INCONCLUSIVE: an unread list cannot show that a probe discriminates |
 | `C2.getobject_other`, `C2.putobject` and `C2.listobjects`, `.with` and `.without` | all ok |
 | `C2.sqs_send.with` and `.without` | ok |
 | `C2.grants.with` / `.without` | 1 and 0 |
@@ -181,8 +191,8 @@ python3 phase0.py pgates --token alice-p
 
 | Gate | PASS | FAIL |
 |---|---|---|
-| P1 | The probe query succeeded on the IdC workgroup, which refuses a session without a context, under a grant made only to the Identity Center user | The workgroup refused the session (no identity context), or the query failed under Lake Formation |
-| P2 | alice's own tagged key was readable and bob's was denied, so `${aws:PrincipalTag/username}` resolved | alice's own key was denied too: no tag arrived |
+| P1 | The probe query succeeded on the IdC workgroup under a grant made only to the Identity Center user. That the workgroup refuses a session without a context was measured on 2026-11-15 and is not repeated | The workgroup refused the session (no identity context), or Lake Formation refused the query. A query that failed for another reason, such as a missing table, is INCONCLUSIVE |
+| P2 | alice's own tagged key was readable and bob's was denied, so `${aws:PrincipalTag/username}` resolved | Both keys were denied with 403. The permission set may list `abac/`, so a missing object reads `NoSuchKey` and is INCONCLUSIVE, not a failure |
 | P3 | Plain `GetObject`, `PutObject` and `ListObjectsV2` all succeeded | One was denied; the reason carries the code and message |
 
 The gates read on through §5's outcomes. If P3 passes, a permission-set-fed base plane survives. If
@@ -207,12 +217,15 @@ python3 phase0.py mark --label C4.deleted --note "sessions ended by the admin"
 
 Refresh at about 1, 10 and 35 minutes after the mark. AWS says application sessions end *"at their
 next refresh attempt, typically within 30 minutes"*, so the verdict needs a refusal or a refresh
-later than 30 minutes.
+later than 30 minutes. Each refresh starts from the previous one's output, so the chain holds even
+if the organization instance rotates refresh tokens (the account instance did not); a
+`refreshTokenRotated` of true in the evidence says it does. Once one refresh is refused, skip the
+rest, since there is no newer token to refresh from.
 
 ```bash
-AWS_PROFILE=$EXCHANGER_PROFILE node exchange.mjs refresh --from alice-c1 --out alice-c4r1 --label C4.refresh.after.1
-AWS_PROFILE=$EXCHANGER_PROFILE node exchange.mjs refresh --from alice-c1 --out alice-c4r2 --label C4.refresh.after.10
-AWS_PROFILE=$EXCHANGER_PROFILE node exchange.mjs refresh --from alice-c1 --out alice-c4r3 --label C4.refresh.after.35
+AWS_PROFILE=$EXCHANGER_PROFILE node exchange.mjs refresh --from alice-c4r0 --out alice-c4r1 --label C4.refresh.after.1
+AWS_PROFILE=$EXCHANGER_PROFILE node exchange.mjs refresh --from alice-c4r1 --out alice-c4r2 --label C4.refresh.after.10
+AWS_PROFILE=$EXCHANGER_PROFILE node exchange.mjs refresh --from alice-c4r2 --out alice-c4r3 --label C4.refresh.after.35
 ```
 
 After the last refresh, try the old context, then a fresh Cognito token:

@@ -171,6 +171,8 @@ export function writeSecret(name, body) {
 /**
  * Reduce an SDK or fetch error to the fields the verdicts read: the service's own error code, or a
  * `Local:` code when the failure never reached AWS, so a verdict can tell a refusal from a broken run.
+ * SSO-OIDC puts its reason in `error_description` and leaves `message` as `UnknownError`, so the
+ * description is read first.
  * @param {unknown} err What was thrown.
  * @returns {{ok: false, code: string, message: string, data: Record<string, unknown>}} The outcome.
  */
@@ -178,7 +180,8 @@ export function errorOutcome(err) {
   const e = /** @type {{name?: string, message?: string, $metadata?: {httpStatusCode?: number}, error?: string, error_description?: string}} */ (err ?? {});
   const status = e.$metadata?.httpStatusCode;
   if (status !== undefined) {
-    return { ok: false, code: e.name ?? 'Unknown', message: e.message ?? '', data: { httpStatus: status } };
+    const message = e.error_description || (e.message && e.message !== 'UnknownError' ? e.message : '') || e.error || '';
+    return { ok: false, code: e.name ?? 'Unknown', message, data: { httpStatus: status, oauthError: e.error ?? null } };
   }
   return { ok: false, code: `Local:${e.name ?? 'Error'}`, message: e.message ?? String(err), data: {} };
 }

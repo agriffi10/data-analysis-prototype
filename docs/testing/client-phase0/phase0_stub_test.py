@@ -504,6 +504,63 @@ class StubbedRunTest(unittest.TestCase):
         )
         self.assertEqual(obs["C5.expected"]["data"]["userId"], "user-1")
 
+    def test_actor_policy_lists_the_named_principals(self) -> None:
+        """Check 1's attribution reads the IAM authentication method and keeps every named principal."""
+        admin = self.fake.stub("sso-admin")
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {
+                        "AWS": ["arn:aws:iam::222222222222:role/phase0-exchanger"]
+                    },
+                    "Action": "sso-oauth:CreateTokenWithIAM",
+                    "Resource": "*",
+                },
+                {
+                    "Effect": "Deny",
+                    "Principal": {"AWS": "arn:aws:iam::333333333333:role/x"},
+                    "Action": "*",
+                    "Resource": "*",
+                },
+            ],
+        }
+        app = "arn:aws:sso::111111111111:application/ssoins-aaaa/apl-bbbb"
+        admin.add_response(
+            "get_application_authentication_method",
+            {"AuthenticationMethod": {"Iam": {"ActorPolicy": policy}}},
+            {"ApplicationArn": app, "AuthenticationMethodType": "IAM"},
+        )
+        obs = self.run_cli("actor-policy", "--profile", "admin", "--app-arn", app)
+        self.assertEqual(
+            obs["C1.actor"]["data"]["principals"],
+            ["arn:aws:iam::222222222222:role/phase0-exchanger"],
+        )
+
+    def test_entra_hop_without_a_kept_exchange_still_records_what_was_expected(
+        self,
+    ) -> None:
+        """A refused C5 exchange keeps no token file; entra-hop still records the expectation and the mapping."""
+        admin = self.fake.stub("sso-admin")
+        admin.add_response(
+            "describe_trusted_token_issuer",
+            {
+                "TrustedTokenIssuerConfiguration": {
+                    "OidcJwtConfiguration": {
+                        "IssuerUrl": "https://issuer",
+                        "ClaimAttributePath": "entra_oid",
+                        "IdentityStoreAttributePath": "externalIds.value",
+                        "JwksRetrievalOption": "OPEN_ID_DISCOVERY",
+                    }
+                }
+            },
+            {"TrustedTokenIssuerArn": os.environ["TTI_ARN"]},
+        )
+        obs = self.run_cli("entra-hop", "--token", "never-kept", "--profile", "admin")
+        self.assertIsNone(obs["C5.expected"]["data"]["userId"])
+        self.assertEqual(obs["C5.user"]["code"], "Local:NoUserId")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -83,14 +83,20 @@ test('an SDK that drops awsAdditionalDetails still yields the context from the i
 
 test('a refusal records the service code, and a failure that never reached AWS is marked Local', async () => {
   const { evidence, lines } = freshLog();
-  const refused = Object.assign(new Error('not authorized'), { name: 'AccessDeniedException', $metadata: { httpStatusCode: 400 } });
+  const refused = Object.assign(new Error('UnknownError'), {
+    name: 'InvalidGrantException',
+    error: 'invalid_grant',
+    error_description: 'Assertion has already been used',
+    $metadata: { httpStatusCode: 400 },
+  });
   const local = Object.assign(new Error('Could not load credentials'), { name: 'CredentialsProviderError' });
   for (const err of [refused, local]) {
     const kept = await runExchange({ oidc: { send: async () => { throw err; } }, sts, commands, evidence, mode: 'jwt', appArn: APP, credential: 'x'.repeat(20), label: 'C1.exchange' });
     assert.equal(kept, null);
   }
   const exchanges = lines().filter((l) => l.label === 'C1.exchange');
-  assert.equal(exchanges[0].code, 'AccessDeniedException');
+  assert.equal(exchanges[0].code, 'InvalidGrantException');
+  assert.equal(exchanges[0].message, 'Assertion has already been used');
   assert.equal(exchanges[0].data.caller.account, '222222222222');
   assert.equal(exchanges[1].code, 'Local:CredentialsProviderError');
 });

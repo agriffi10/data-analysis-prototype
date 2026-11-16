@@ -14,9 +14,23 @@
       "Resource": "arn:aws:s3:::<PROBE_BUCKET>/phase0-probe/abac/${aws:PrincipalTag/username}/*"
     },
     {
+      "Sid": "P2ListingSoAMissingObjectReadsNoSuchKey",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::<PROBE_BUCKET>",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "phase0-probe/abac/*"
+        }
+      }
+    },
+    {
       "Sid": "P3PlainObjects",
       "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
       "Resource": "arn:aws:s3:::<PROBE_BUCKET>/phase0-probe/p3/*"
     },
     {
@@ -24,7 +38,11 @@
       "Effect": "Allow",
       "Action": "s3:ListBucket",
       "Resource": "arn:aws:s3:::<PROBE_BUCKET>",
-      "Condition": { "StringLike": { "s3:prefix": "phase0-probe/p3/*" } }
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "phase0-probe/p3/*"
+        }
+      }
     },
     {
       "Sid": "P1Query",

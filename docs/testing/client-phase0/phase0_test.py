@@ -200,8 +200,8 @@ class VerdictC1Test(unittest.TestCase):
                         data={"appAccount": "111111111111", "caller": same_caller},
                     ),
                 ],
-                "FAIL",
-                "the account boundary is the cause",
+                "INCONCLUSIVE",
+                "actor policy was not read",
             ),
             (
                 "control from the member account is no control",
@@ -785,10 +785,10 @@ class VerdictC5Test(unittest.TestCase):
         cases = [
             ("pass", c5_records(), "PASS", "whose externalIds include it"),
             (
-                "not via Entra",
-                c5_records(l=login(federated={"providerName": "COGNITO"})),
-                "FAIL",
-                "did not come through the Entra provider",
+                "another provider",
+                c5_records(l=login(federated={"providerName": "Other"})),
+                "INCONCLUSIVE",
+                "check ENTRA_IDP_NAME",
             ),
             (
                 "no claim",
@@ -867,8 +867,8 @@ class VerdictC5Test(unittest.TestCase):
             (
                 "tti unread",
                 [r for r in c5_records() if r["label"] != "C5.tti"],
-                "PASS",
-                "mapping itself was not read",
+                "INCONCLUSIVE",
+                "mapping was not read (TTI_ARN unset)",
             ),
         ]
         for name, records, verdict, phrase in cases:
@@ -919,6 +919,280 @@ class EvidenceGuardTest(unittest.TestCase):
             with self.assertRaises(SystemExit) as caught:
                 phase0.Evidence(Path(tmp) / "inside" / "e.jsonl")
             self.assertIn("inside the git checkout", str(caught.exception))
+
+
+class ReviewedBranchesTest(unittest.TestCase):
+    """Branches and guards added after review: attribution, unread inputs, fixture errors and timing."""
+
+    def test_c1_attribution(self) -> None:
+        """A refusal fails C1 only when the exchanger's grant, the control and the actor policy are all shown sound."""
+        refused = rec(
+            "C1.exchange",
+            ok=False,
+            code="AccessDeniedException",
+            message="denied",
+            data={"appAccount": "111111111111"},
+        )
+        control = rec(
+            "C1.control.exchange",
+            data={"appAccount": "111111111111", "caller": {"account": "111111111111"}},
+        )
+        base = [*replace(c1_pass(), refused), control]
+
+        def names(*principals: str) -> dict[str, Any]:
+            return rec("C1.actor", data={"principals": list(principals)})
+
+        cases = [
+            (
+                "actor names the role, path dropped",
+                [*base, names("arn:aws:iam::222222222222:role/team/task-role")],
+                "FAIL",
+                "the account boundary is the cause",
+            ),
+            (
+                "actor names everyone",
+                [*base, names("*")],
+                "FAIL",
+                "the account boundary is the cause",
+            ),
+            (
+                "actor omits the role",
+                [*base, names("arn:aws:iam::222222222222:role/other")],
+                "INCONCLUSIVE",
+                "is the fixture's",
+            ),
+            (
+                "actor unread",
+                [
+                    *base,
+                    rec(
+                        "C1.actor", ok=False, code="AccessDeniedException", message="m"
+                    ),
+                ],
+                "INCONCLUSIVE",
+                "actor policy was not read",
+            ),
+            (
+                "exchanger lacks its own grant",
+                [
+                    *replace(
+                        c1_pass(),
+                        rec(
+                            "C1.exchange",
+                            ok=False,
+                            code="AccessDeniedException",
+                            message="because no identity-based policy allows the action",
+                            data={"appAccount": "111111111111"},
+                        ),
+                    ),
+                    control,
+                ],
+                "INCONCLUSIVE",
+                "own IAM policy",
+            ),
+            (
+                "unparsable application",
+                replace(
+                    c1_pass(),
+                    rec(
+                        "C1.exchange",
+                        data={"appAccount": None, "context": {"present": True}},
+                    ),
+                ),
+                "INCONCLUSIVE",
+                "did not parse",
+            ),
+            (
+                "a re-run supersedes a refusal",
+                [refused, *c1_pass()],
+                "PASS",
+                "exchanged on the application",
+            ),
+        ]
+        for name, records, verdict, phrase in cases:
+            with self.subTest(name):
+                got, reason = phase0.verdict_c1(obs(*records))
+                self.assertEqual(got, verdict, reason)
+                self.assertIn(phrase, reason)
+
+    def test_c2_unread_allow_list(self) -> None:
+        """Probes that all succeed say nothing about the Deny when the allow-list was never read."""
+        records = replace(
+            c2_records(dict.fromkeys(phase0.PROBES)),
+            rec("C2.allowlist.policy", ok=False, code="AccessDenied", message="scp"),
+        )
+        got, reason = phase0.verdict_c2(obs(*records))
+        self.assertEqual(got, "INCONCLUSIVE", reason)
+        self.assertIn("allow-list was not read", reason)
+
+    def test_p_fixture_errors(self) -> None:
+        """A missing table or object is inconclusive, never a failed gate."""
+        missing = {"code": "NoSuchKey", "message": "m", "ok": False}
+        cases = [
+            (
+                p_records(
+                    q=rec(
+                        "P1.query",
+                        data={
+                            "state": "FAILED",
+                            "stateChangeReason": "TABLE_NOT_FOUND",
+                        },
+                    )
+                ),
+                "P1",
+                "not an authorization refusal",
+            ),
+            (p_records(o=rec("P2.own", **missing)), "P2", "own NoSuchKey"),
+            (p_records(o=rec("P2.other", **missing)), "P2", "other NoSuchKey"),
+            (
+                p_records(
+                    o=rec("P2.own", ok=False, code="AccessDenied", message="m"),
+                    x=rec("P2.other", **missing),
+                ),
+                "P2",
+                "other NoSuchKey",
+            ),
+            (p_records(p=rec("P3.get", **missing)), "P3", "get NoSuchKey"),
+        ]
+        for records, gate, phrase in cases:
+            with self.subTest(phrase):
+                got = {g: (v, r) for g, v, r in phase0.verdict_p(obs(*records))}
+                self.assertEqual(got[gate][0], "INCONCLUSIVE", got[gate][1])
+                self.assertIn(phrase, got[gate][1])
+
+    def test_c4_timing_guards(self) -> None:
+        """A refresh before the deletion, one that never reached AWS, and a re-exchange before its token are all ignored."""
+        early = c4_records([(5, "InvalidGrantException")])
+        early = [
+            *early[:1],
+            rec(
+                "C4.refresh.after.0",
+                ok=False,
+                code="InvalidGrantException",
+                message="m",
+                ts="2026-12-01T09:58:00.000Z",
+            ),
+            *early[1:2],
+        ]
+        local = [r for r in c4_records([(5, "Local:Fetch")]) if True]
+        backwards = [
+            r if r["label"] != "C4.reexchange.after" else {**r, "ts": at(1)}
+            for r in c4_records([(5, "InvalidGrantException")], minted_at=3)
+        ]
+        cases = [
+            ("refresh before deletion", early, "no refresh was recorded"),
+            ("local refresh", local, "no refresh was recorded"),
+            ("re-exchange before its token", backwards, "no re-exchange"),
+        ]
+        for name, records, phrase in cases:
+            with self.subTest(name):
+                got, reason = phase0.verdict_c4(records, obs(*records))
+                self.assertEqual(got, "INCONCLUSIVE", reason)
+                self.assertIn(phrase, reason)
+
+    def test_c5_attribution(self) -> None:
+        """C5 fails only on a link it can attribute, and calls config or permission errors what they are."""
+        guid = "0f8fad5b-d9cb-469f-a165-70867728950e"
+
+        def token(**t: Any) -> dict[str, Any]:
+            return rec(
+                "C5.login",
+                data={
+                    "idToken": {
+                        "federated": {"providerName": "Entra", "userId": "oid-1"},
+                        "oidClaim": "entra_oid",
+                        "oidClaimValue": "oid-1",
+                        **t,
+                    }
+                },
+            )
+
+        cases = [
+            (
+                "no federated identity",
+                c5_records(l=token(federated=None)),
+                "FAIL",
+                "did not go through Entra",
+            ),
+            (
+                "another user's object id",
+                c5_records(l=token(oidClaimValue=guid)),
+                "INCONCLUSIVE",
+                "check the config",
+            ),
+            (
+                "exchanger refused",
+                c5_records(
+                    e=rec(
+                        "C5.exchange",
+                        ok=False,
+                        code="AccessDeniedException",
+                        message="m",
+                    )
+                ),
+                "INCONCLUSIVE",
+                "C1 settles",
+            ),
+            (
+                "local exchange",
+                c5_records(
+                    e=rec(
+                        "C5.exchange",
+                        ok=False,
+                        code="Local:CredentialsProviderError",
+                        message="m",
+                    )
+                ),
+                "INCONCLUSIVE",
+                "did not run",
+            ),
+            (
+                "refused, mapping unread",
+                [
+                    r
+                    for r in c5_records(
+                        e=rec(
+                            "C5.exchange",
+                            ok=False,
+                            code="InvalidGrantException",
+                            message="m",
+                        )
+                    )
+                    if r["label"] != "C5.tti"
+                ],
+                "INCONCLUSIVE",
+                "mapping unread",
+            ),
+            (
+                "store read refused",
+                c5_records(
+                    u=rec(
+                        "C5.user", ok=False, code="AccessDeniedException", message="m"
+                    )
+                ),
+                "INCONCLUSIVE",
+                "needs identitystore:DescribeUser",
+            ),
+            (
+                "claim path differs",
+                c5_records(
+                    t=rec(
+                        "C5.tti",
+                        data={
+                            "claimAttributePath": "email",
+                            "identityStoreAttributePath": "externalIds.value",
+                        },
+                    )
+                ),
+                "INCONCLUSIVE",
+                "not the externalId mapping",
+            ),
+        ]
+        for name, records, verdict, phrase in cases:
+            with self.subTest(name):
+                got, reason = phase0.verdict_c5(obs(*records))
+                self.assertEqual(got, verdict, reason)
+                self.assertIn(phrase, reason)
 
 
 if __name__ == "__main__":

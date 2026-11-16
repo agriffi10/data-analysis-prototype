@@ -151,8 +151,10 @@ async function refresh(user, label) {
   }
   const idToken = result.body.id_token;
   evidence.addSecrets(idToken, result.body.access_token);
-  writeSecret(`cognito-${user}.json`, { idToken, refreshToken: kept.refreshToken, obtainedAt: new Date().toISOString() });
-  evidence.record(label, { ok: true, data: { user, idToken: describeIdToken(idToken) } });
+  const refreshToken = result.body.refresh_token ?? kept.refreshToken;
+  evidence.addSecrets(refreshToken);
+  writeSecret(`cognito-${user}.json`, { idToken, refreshToken, obtainedAt: new Date().toISOString() });
+  evidence.record(label, { ok: true, data: { user, idToken: describeIdToken(idToken), refreshTokenRotated: refreshToken !== kept.refreshToken } });
 }
 
 const { positionals, values } = parseArgs({

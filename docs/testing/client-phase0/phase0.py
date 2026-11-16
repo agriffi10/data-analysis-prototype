@@ -9,6 +9,7 @@ reached AWS, or a control that failed, makes a check INCONCLUSIVE rather than a 
 Attributes:
   PROVIDER_ARN: The context provider STS expects for an Identity Center identity context.
   ALLOW_LIST_ARN: The AWS managed policy whose Deny check 2 asks about.
+  GUID_SHAPE: The shape of an Entra object id.
   JWT_SHAPE: A pattern no evidence line may match.
   DENIED: Error codes that mean an authorization refusal rather than a broken request.
   PROBES: Check 2's probes, each with the IAM action the allow-list would have to deny.
@@ -35,6 +36,7 @@ PROVIDER_ARN = "arn:aws:iam::aws:contextProvider/IdentityCenter"
 ALLOW_LIST_ARN = (
     "arn:aws:iam::aws:policy/AWSIAMIdentityCenterAllowListForIdentityContext"
 )
+GUID_SHAPE = re.compile(r"^[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$")
 JWT_SHAPE = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
 DENIED = {"AccessDenied", "AccessDeniedException", "AuthorizationError"}
 PROBES = {
@@ -283,13 +285,15 @@ def session(profile: str | None = None, creds: dict[str, str] | None = None) -> 
 
 
 def principal_of(arn: str | None) -> str | None:
-    """The role behind a caller ARN, so two sessions of one role compare equal.
+    """The role behind a caller or policy ARN, so two sessions of one role, and the role a policy names, compare equal.
+
+    An assumed-role ARN carries the role's name but not its path, so a role ARN's path is dropped too.
 
     Args:
-      arn: A ``GetCallerIdentity`` ARN.
+      arn: A ``GetCallerIdentity`` ARN, or a principal from a policy.
 
     Returns:
-      ``<account>:<role or user>``, or None.
+      ``<account>:role/<name>`` for a role, ``<account>:<rest>`` otherwise, or None.
 
     Raises:
       None.
@@ -297,6 +301,9 @@ def principal_of(arn: str | None) -> str | None:
     if not arn:
         return None
     match = re.match(r"arn:aws[a-z-]*:sts::(\d{12}):assumed-role/([^/]+)/", arn)
+    if match:
+        return f"{match.group(1)}:role/{match.group(2)}"
+    match = re.match(r"arn:aws[a-z-]*:iam::(\d{12}):role/(?:.*/)?([^/]+)$", arn)
     if match:
         return f"{match.group(1)}:role/{match.group(2)}"
     match = re.match(r"arn:aws[a-z-]*:iam::(\d{12}):(.+)$", arn)
@@ -739,7 +746,8 @@ def cmd_entra_hop(args: argparse.Namespace, evidence: Evidence) -> None:
 
     Run with a profile allowed ``identitystore:DescribeUser`` and ``sso:DescribeTrustedTokenIssuer``
     on the organization instance; an Identity Center admin can run this subcommand alone, passing
-    ``--user-id`` instead of a kept exchange.
+    ``--user-id`` instead of a kept exchange. It records what is expected first, so a refused
+    exchange, which keeps nothing, still reaches its verdict.
 
     Args:
       args: ``--token`` or ``--user-id``, and ``--profile``.
@@ -749,16 +757,13 @@ def cmd_entra_hop(args: argparse.Namespace, evidence: Evidence) -> None:
       None.
 
     Raises:
-      SystemExit: When neither ``--token`` nor ``--user-id`` is given.
+      None.
     """
-    if args.user_id:
-        user_id = args.user_id
-    elif args.token:
-        user_id = read_kept(args.token).get("identityStoreUserId")
-    else:
-        raise SystemExit(
-            "pass --token <kept exchange> or --user-id <Identity Store user id>"
-        )
+    user_id = args.user_id
+    if not user_id and args.token:
+        path = secrets_dir() / f"idc-{args.token}.json"
+        if path.exists():
+            user_id = json.loads(path.read_text()).get("identityStoreUserId")
     evidence.record(
         "C5.expected",
         {
@@ -790,6 +795,17 @@ def cmd_entra_hop(args: argparse.Namespace, evidence: Evidence) -> None:
                 "identityStoreAttributePath": jwt.get("IdentityStoreAttributePath"),
             }
         evidence.record("C5.tti", outcome)
+    if not user_id:
+        evidence.record(
+            "C5.user",
+            {
+                "ok": False,
+                "code": "Local:NoUserId",
+                "message": "no exchange was kept and no --user-id was given",
+                "data": {},
+            },
+        )
+        return
     outcome, res = attempt(
         lambda: admin.client("identitystore").describe_user(
             IdentityStoreId=env("IDENTITY_STORE_ID"), UserId=user_id
@@ -802,6 +818,48 @@ def cmd_entra_hop(args: argparse.Namespace, evidence: Evidence) -> None:
             "externalIds": res.get("ExternalIds", []),
         }
     evidence.record("C5.user", outcome)
+
+
+def cmd_actor_policy(args: argparse.Namespace, evidence: Evidence) -> None:
+    """Record which principals the application's actor policy names, so a refused exchange can be attributed.
+
+    Without it, a member-account refusal beside a successful same-account control could be the
+    account boundary or a policy that simply omits the member role; this tells the two apart.
+
+    Args:
+      args: ``--profile`` (allowed ``sso:GetApplicationAuthenticationMethod``) and ``--app-arn``.
+      evidence: The log.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    app = args.app_arn or env("IDC_APPLICATION_ARN")
+    admin = session(profile=args.profile)
+    outcome, res = attempt(
+        lambda: admin.client("sso-admin").get_application_authentication_method(
+            ApplicationArn=app, AuthenticationMethodType="IAM"
+        )
+    )
+    if res is not None:
+        policy = (
+            res.get("AuthenticationMethod", {}).get("Iam", {}).get("ActorPolicy", {})
+        )
+        if isinstance(policy, str):
+            policy = json.loads(policy)
+        principals: list[str] = []
+        for statement in policy.get("Statement", []):
+            if statement.get("Effect") != "Allow":
+                continue
+            principal = statement.get("Principal")
+            named = (
+                principal.get("AWS", []) if isinstance(principal, dict) else [principal]
+            )
+            principals.extend([named] if isinstance(named, str) else named)
+        outcome["data"] = {"appArn": app, "principals": principals}
+    evidence.record("C1.actor", outcome)
 
 
 def cmd_mark(args: argparse.Namespace, evidence: Evidence) -> None:
@@ -995,17 +1053,37 @@ def verdict_c1(obs: dict[str, Record]) -> tuple[str, str]:
             "the exchanger is in the application's own account, so this repeats G10 and does not test the cross-account premise",
         )
     if is_refused(exchange):
-        control = obs.get("C1.control.exchange")
-        if is_ok(control) and data(control).get("appAccount") == data(control).get(
-            "caller", {}
-        ).get("account"):
+        exchanger = principal_of(data(caller).get("arn"))
+        if "identity-based policy" in str(exchange.get("message")):
             return (
-                "FAIL",
-                f"the member-account exchange was refused ({why(exchange)}) while the same application accepted an exchange from its own account, so the account boundary is the cause",
+                "INCONCLUSIVE",
+                f"the exchanger's own IAM policy does not allow the call ({why(exchange)}); grant sso-oauth:CreateTokenWithIAM on the application and rerun",
+            )
+        control = obs.get("C1.control.exchange")
+        if not (
+            is_ok(control)
+            and data(control).get("appAccount")
+            == data(control).get("caller", {}).get("account")
+        ):
+            return (
+                "INCONCLUSIVE",
+                f"the member-account exchange was refused ({why(exchange)}), and no same-account control exchange succeeded, so the refusal cannot be laid on the account boundary",
+            )
+        actor = obs.get("C1.actor")
+        if not is_ok(actor):
+            return (
+                "INCONCLUSIVE",
+                f"the member-account exchange was refused ({why(exchange)}) while the application's own account exchanged, but the actor policy was not read, so a policy that omits the member role is not ruled out (run phase0.py actor-policy)",
+            )
+        named = data(actor).get("principals", [])
+        if "*" not in named and exchanger not in {principal_of(p) for p in named}:
+            return (
+                "INCONCLUSIVE",
+                f"the application's actor policy does not name the member-account exchanger {exchanger}, so the refusal ({why(exchange)}) is the fixture's, not the account boundary's",
             )
         return (
-            "INCONCLUSIVE",
-            f"the member-account exchange was refused ({why(exchange)}), and no same-account control exchange succeeded, so the refusal cannot be laid on the account boundary",
+            "FAIL",
+            f"the member-account exchange was refused ({why(exchange)}) although the actor policy names {exchanger}, while the same application accepted an exchange from its own account, so the account boundary is the cause",
         )
     if not data(exchange).get("context", {}).get("present"):
         return (
@@ -1060,6 +1138,9 @@ def verdict_c1(obs: dict[str, Record]) -> tuple[str, str]:
 def probe_status(obs: dict[str, Record], name: str) -> str:
     """One check 2 probe's reading, with the control and the allow-list's own exemptions applied.
 
+    A probe is read only once the allow-list has been read and does not exempt its action: an
+    unread list cannot show that a probe discriminates at all.
+
     Args:
       obs: The latest record per label.
       name: A key of ``PROBES``.
@@ -1077,7 +1158,10 @@ def probe_status(obs: dict[str, Record], name: str) -> str:
         return (
             f"control refused ({why(without_r)}), so the carrier's own policy decides"
         )
-    if data(obs.get("C2.allowlist.policy")).get("exempt", {}).get(name):
+    policy = obs.get("C2.allowlist.policy")
+    if not is_ok(policy):
+        return f"not shown to discriminate: the allow-list was not read ({why(policy)})"
+    if data(policy).get("exempt", {}).get(name):
         return f"not discriminating: the allow-list exempts {PROBES[name]}"
     if is_ok(with_r):
         return "allowed"
@@ -1150,6 +1234,9 @@ def verdict_c2(obs: dict[str, Record]) -> tuple[str, str]:
 def verdict_p(obs: dict[str, Record]) -> list[tuple[str, str, str]]:
     """Check 3: gates P1, P2 and P3 on permission-set credentials.
 
+    Only an authorization refusal fails a gate; a missing table or object, which the fixture's
+    ``ListBucket`` grants make read as ``NoSuchKey`` rather than 403, is inconclusive.
+
     Args:
       obs: The latest record per label.
 
@@ -1161,17 +1248,19 @@ def verdict_p(obs: dict[str, Record]) -> list[tuple[str, str, str]]:
     """
     creds = obs.get("P.creds")
     if not is_ok(creds):
-        reason = f"no permission-set credentials: {why(creds)}; P.accounts {why(obs.get('P.accounts')) if not is_ok(obs.get('P.accounts')) else data(obs.get('P.accounts'))}"
+        accounts = obs.get("P.accounts")
+        reason = f"no permission-set credentials: {why(creds)}; P.accounts {data(accounts) if is_ok(accounts) else why(accounts)}"
         return [(g, "INCONCLUSIVE", reason) for g in ("P1", "P2", "P3")]
     out: list[tuple[str, str, str]] = []
     query = obs.get("P1.query")
     q = data(query)
+    failure = str(q.get("stateChangeReason") or "").lower()
     if is_ok(query) and q.get("state") == "SUCCEEDED":
         out.append(
             (
                 "P1",
                 "PASS",
-                "the permission-set session ran the probe query on the Identity Center workgroup, which refuses a session without an identity context, and Lake Formation honoured the grant made to the Identity Center user",
+                "the permission-set session ran the probe query on the Identity Center workgroup under a Lake Formation grant made only to the Identity Center user (that the workgroup refuses a session without a context was measured on 2026-11-15, not repeated here)",
             )
         )
     elif is_refused(query) and "do not have access" in str(query.get("message")):
@@ -1182,12 +1271,24 @@ def verdict_p(obs: dict[str, Record]) -> list[tuple[str, str, str]]:
                 f"the Identity Center workgroup refused the permission-set session, so it carries no identity context: {why(query)}",
             )
         )
-    elif is_ok(query) and q.get("state") == "FAILED":
+    elif (
+        is_ok(query)
+        and q.get("state") == "FAILED"
+        and any(s in failure for s in ("no accessible columns", "lake formation"))
+    ):
         out.append(
             (
                 "P1",
                 "FAIL",
-                f"the workgroup accepted the session but the query failed: {q.get('stateChangeReason')}",
+                f"the workgroup accepted the session but Lake Formation refused the query: {q.get('stateChangeReason')}",
+            )
+        )
+    elif is_ok(query) and q.get("state") == "FAILED":
+        out.append(
+            (
+                "P1",
+                "INCONCLUSIVE",
+                f"the query failed for a reason that is not an authorization refusal ({q.get('stateChangeReason')}); check the table, the workgroup's result location and PROBE_QUERY",
             )
         )
     else:
@@ -1195,7 +1296,7 @@ def verdict_p(obs: dict[str, Record]) -> list[tuple[str, str, str]]:
             (
                 "P1",
                 "INCONCLUSIVE",
-                f"the probe query did not settle: {why(query) if not is_ok(query) else q}",
+                f"the probe query did not settle: {q if is_ok(query) else why(query)}",
             )
         )
     own, other = obs.get("P2.own"), obs.get("P2.other")
@@ -1207,12 +1308,17 @@ def verdict_p(obs: dict[str, Record]) -> list[tuple[str, str, str]]:
                 "the key named by the user's own tag was readable and another user's was denied, so ${aws:PrincipalTag/username} resolved from Identity Center",
             )
         )
-    elif is_refused(own) and own.get("code") in DENIED and is_refused(other):
+    elif (
+        is_refused(own)
+        and own.get("code") in DENIED
+        and is_refused(other)
+        and other.get("code") in DENIED
+    ):
         out.append(
             (
                 "P2",
                 "FAIL",
-                f"the user's own tagged key was denied too ({why(own)}): the session carries no username tag",
+                f"the user's own tagged key was denied too ({why(own)}), where a missing object would read NoSuchKey: the session carries no username tag",
             )
         )
     elif is_ok(own) and is_ok(other):
@@ -1228,7 +1334,7 @@ def verdict_p(obs: dict[str, Record]) -> list[tuple[str, str, str]]:
             (
                 "P2",
                 "INCONCLUSIVE",
-                f"own {why(own) if not is_ok(own) else 'ok'}; other {why(other) if not is_ok(other) else 'ok'}",
+                f"own {'ok' if is_ok(own) else why(own)}; other {'ok' if is_ok(other) else why(other)}",
             )
         )
     p3 = {name: obs.get(f"P3.{name}") for name in ("get", "put", "list")}
@@ -1241,7 +1347,11 @@ def verdict_p(obs: dict[str, Record]) -> list[tuple[str, str, str]]:
             )
         )
     elif any(is_refused(r) and r.get("code") in DENIED for r in p3.values()):
-        denied = ", ".join(f"{n} ({why(r)})" for n, r in p3.items() if is_refused(r))
+        denied = ", ".join(
+            f"{n} ({why(r)})"
+            for n, r in p3.items()
+            if is_refused(r) and r.get("code") in DENIED
+        )
         out.append(
             (
                 "P3",
@@ -1254,9 +1364,7 @@ def verdict_p(obs: dict[str, Record]) -> list[tuple[str, str, str]]:
             (
                 "P3",
                 "INCONCLUSIVE",
-                "; ".join(
-                    f"{n} {why(r) if not is_ok(r) else 'ok'}" for n, r in p3.items()
-                ),
+                "; ".join(f"{n} {'ok' if is_ok(r) else why(r)}" for n, r in p3.items()),
             )
         )
     return out
@@ -1385,6 +1493,9 @@ def verdict_c4(records: list[Record], obs: dict[str, Record]) -> tuple[str, str]
 def verdict_c5(obs: dict[str, Record]) -> tuple[str, str]:
     """Check 5: Entra to Cognito to Identity Center, resolved on ``externalId`` to the right user.
 
+    A PASS needs the mapping itself read: resolving to the right user on some other attribute
+    would look the same from the user record alone.
+
     Args:
       obs: The latest record per label.
 
@@ -1403,48 +1514,75 @@ def verdict_c5(obs: dict[str, Record]) -> tuple[str, str]:
     if not is_ok(login):
         return "INCONCLUSIVE", f"the Entra sign-in did not complete: {why(login)}"
     token = data(login).get("idToken", {})
-    federated = token.get("federated") or {}
+    federated = token.get("federated")
+    claim, value, oid = (
+        token.get("oidClaim"),
+        token.get("oidClaimValue"),
+        expected.get("oid"),
+    )
+    if not federated:
+        return (
+            "FAIL",
+            "the Cognito ID token carries no federated identity, so the sign-in did not go through Entra",
+        )
     if federated.get("providerName") != expected.get("idpName"):
         return (
-            "FAIL",
-            f"the Cognito ID token did not come through the Entra provider {expected.get('idpName')!r}: identities names {federated.get('providerName')!r}",
+            "INCONCLUSIVE",
+            f"the sign-in came through provider {federated.get('providerName')!r}, not {expected.get('idpName')!r}; check ENTRA_IDP_NAME",
         )
-    oid = expected.get("oid")
-    if token.get("oidClaimValue") is None:
+    if value is None:
         return (
             "FAIL",
-            f"the Cognito ID token carries no {token.get('oidClaim')!r} claim, so the trigger that emits the object id did not run",
+            f"the Cognito ID token carries no {claim!r} claim, so the trigger that emits the object id did not run",
         )
-    if token.get("oidClaimValue") != oid:
-        return (
-            "FAIL",
-            f"the {token.get('oidClaim')!r} claim is not the test user's Entra object id (federated subject {federated.get('userId')!r}); the subject is not keyed on the object id",
-        )
-    tti = obs.get("C5.tti")
-    if is_ok(tti):
-        mapping = data(tti)
-        if mapping.get(
-            "identityStoreAttributePath"
-        ) != "externalIds.value" or mapping.get("claimAttributePath") != token.get(
-            "oidClaim"
-        ):
+    if value != oid:
+        if GUID_SHAPE.match(str(value)):
             return (
                 "INCONCLUSIVE",
-                f"the trusted token issuer maps {mapping.get('claimAttributePath')!r} to {mapping.get('identityStoreAttributePath')!r}, not the externalId mapping under test",
+                f"the {claim!r} claim is an object id but not ENTRA_TEST_USER_OID; check the config, or whether the sign-in was as another user",
             )
-    exchange = obs.get("C5.exchange")
-    if is_refused(exchange):
         return (
             "FAIL",
-            f"Identity Center refused the Entra-federated assertion ({why(exchange)}); with the mapping on externalIds.value, no user matched the object id or the path is not accepted",
+            f"the {claim!r} claim is not an object id (federated subject {federated.get('userId')!r}), so the federation's subject is not keyed on the object id",
+        )
+    tti = obs.get("C5.tti")
+    mapping = data(tti)
+    if is_ok(tti) and (
+        mapping.get("identityStoreAttributePath") != "externalIds.value"
+        or mapping.get("claimAttributePath") != claim
+    ):
+        return (
+            "INCONCLUSIVE",
+            f"the trusted token issuer maps {mapping.get('claimAttributePath')!r} to {mapping.get('identityStoreAttributePath')!r}, not the externalId mapping under test",
+        )
+    exchange = obs.get("C5.exchange")
+    if is_refused(exchange):
+        if exchange.get("code") in DENIED:
+            return (
+                "INCONCLUSIVE",
+                f"the exchanger itself was refused ({why(exchange)}); C1 settles the cross-account exchange, and C5 needs one that succeeds",
+            )
+        if exchange.get("code") == "InvalidGrantException" and is_ok(tti):
+            return (
+                "FAIL",
+                f"Identity Center refused the Entra-federated assertion ({why(exchange)}) with the mapping on externalIds.value: no user has this object id as an externalId, or the path is not accepted",
+            )
+        return (
+            "INCONCLUSIVE",
+            f"the exchange was refused ({why(exchange)}), and with the mapping {'unread' if not is_ok(tti) else 'as configured'} the cause is not shown",
         )
     if not is_ok(exchange):
         return "INCONCLUSIVE", f"the exchange did not run: {why(exchange)}"
     user = obs.get("C5.user")
     if is_refused(user):
+        if user.get("code") == "ResourceNotFoundException":
+            return (
+                "INCONCLUSIVE",
+                f"the idToken's sub did not resolve as an Identity Store user id ({why(user)}); read identitystore:UserId from the carrier's AssumeRole CloudTrail event and rerun entra-hop with --user-id",
+            )
         return (
             "INCONCLUSIVE",
-            f"the idToken's sub did not resolve as an Identity Store user id ({why(user)}); read identitystore:UserId from the carrier's AssumeRole CloudTrail event and rerun entra-hop with --user-id",
+            f"the Identity Store read was refused ({why(user)}); IDSTORE_PROFILE needs identitystore:DescribeUser",
         )
     if not is_ok(user):
         return "INCONCLUSIVE", f"the Identity Store user was not read: {why(user)}"
@@ -1459,14 +1597,14 @@ def verdict_c5(obs: dict[str, Record]) -> tuple[str, str]:
             "FAIL",
             f"the exchange resolved to {data(user).get('userName')!r}, not {expected.get('userName')!r}",
         )
-    tti_phrase = (
-        "the mapping was read as configured"
-        if is_ok(tti)
-        else "the mapping itself was not read (TTI_ARN unset)"
-    )
+    if not is_ok(tti):
+        return (
+            "INCONCLUSIVE",
+            f"the exchange resolved to {expected.get('userName')!r}, whose externalIds include the object id, but the mapping was not read ({why(tti) if tti else 'TTI_ARN unset'}), so that it resolved on externalId is not shown",
+        )
     return (
         "PASS",
-        f"the Entra sign-in carried the object id in {token.get('oidClaim')!r}, the exchange resolved it to {expected.get('userName')!r}, whose externalIds include it; {tti_phrase}",
+        f"the Entra sign-in carried the object id in {claim!r}, the issuer maps it to externalIds.value, and the exchange resolved it to {expected.get('userName')!r}, whose externalIds include it",
     )
 
 
@@ -1540,6 +1678,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--user-id")
     p.add_argument("--profile", default=os.environ.get("IDSTORE_PROFILE"))
     p.set_defaults(run=cmd_entra_hop)
+    p = sub.add_parser(
+        "actor-policy",
+        help="check 1: which principals the application's actor policy names",
+    )
+    p.add_argument("--profile", default=os.environ.get("IDSTORE_PROFILE"))
+    p.add_argument("--app-arn")
+    p.set_defaults(run=cmd_actor_policy)
     p = sub.add_parser("mark", help="record a manual step as it happens")
     p.add_argument("--label", required=True)
     p.add_argument("--note", required=True)
