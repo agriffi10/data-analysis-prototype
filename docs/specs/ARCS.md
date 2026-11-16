@@ -49,6 +49,7 @@ always leaves an arc entry here holding the pair's build order, even when nothin
 - [Tester-feedback arc (SPEC-238 → 244)](#tester-feedback-arc-spec-238--244)
 - [Infra building-blocks arc (SPEC-252 → 253, 254)](#infra-building-blocks-arc-spec-252--253-254)
 - [Next.js arc (SPEC-255 → 263)](#nextjs-arc-spec-255--263)
+- [Carrier arc (SPEC-266 → 267)](#carrier-arc-spec-266--267)
 
 ---
 
@@ -3677,3 +3678,47 @@ an unmatched address answers **404**, so a removed root-level file and the not-f
 the status. Every live check ran on `724c2713`. The decisions are
 `browser/react-router-in-the-catch-all-is-a-matcher-the-navigation-seam-feeds.md`, rewritten in place,
 and `infrastructure/the-nginx-configuration-reproduces-cloudfronts-jobs-and-three-are.md`.
+
+## Carrier arc (SPEC-266 → 267)
+
+**Why it exists.** Phase 5 of `transition_plan.md` moves data access onto the user's Identity Center
+identity. The client runs one organization Identity Center under LZA, and its admins own every piece
+of it. So OUR side is the member-account consumers and the API's half of the token flow. The server's
+half (the exchange, the refresh and the sealing) is the sibling Phase 5 server-exchange spec. Phase
+0's run (§5.5) settled the shape: G10 kept `CreateTokenWithIAM` on the server, and G7 and G9 passed.
+The `AWSIAMIdentityCenterAllowListForIdentityContext` Deny was not in effect, so the carrier role's
+own policy is the whole fence on an identity-enhanced session.
+
+**Why two specs.** The first draft carried eight FRs across HCL and Python. The seam the system
+already has is the one between the IaC and the API's code, so the split falls there.
+- **266** creates everything in the account behind one switch, from four inputs the admins supply:
+  the Access Grants instance and location, Lake Formation's Identity Center configuration, the
+  Identity Center workgroup, the carrier role with its allow-set gate, and the sealing key. Its
+  deploy-role grant lands in its own PR first.
+- **267** is the API's third credential plane: unseal, assume, cache, and three codes that are
+  never 401.
+
+**Build order and what each waits on.**
+- 266 waits on the AWS provider moving to 6.19 or later, which is its own spec.
+- 267 waits on 266's second PR.
+- The server-exchange spec (SPEC-268) and 267 can land in either order, because both are inert until a route
+  declares the carrier plane.
+
+**What the arc deliberately leaves to later specs.** Each of these has its own premise to clear
+first:
+- Moving queries onto the Identity Center workgroup. It is gated by the owed client-side
+  result-location probe (266 FR-003), which decided `EnforceWorkGroupConfiguration` false to keep the
+  execution-id proof keyed on the username.
+- Moving storage onto Access Grants presigning. A carrier session can be minutes long, because STS
+  ends it with its context, and the presign fence clamps a URL to its signing credential.
+- The per-user grants, under the fence 266 records: directory grantees only, never an IAM
+  principal, because a grant to the carrier role would apply to every user's session.
+- Retiring the interim plane.
+
+**What only a live run can prove**, and so is owed rather than assumed:
+- the cross-account calls against an organization instance;
+- whether STS populates `identitycenter:InstanceArn` and `identitycenter:ApplicationArn` for the
+  carrier's trust conditions (both are on AWS's key list, and no AWS page shows them in a trust
+  policy);
+- the end-to-end request, which gates the first route that declares the plane.
+
