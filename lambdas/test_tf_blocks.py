@@ -37,6 +37,7 @@ from tf_blocks import (
     argument,
     argument_names,
     blocks,
+    join_list_items,
     lambda_declaration,
     lambda_environment,
     lambda_input,
@@ -335,6 +336,12 @@ def test_a_heredoc_is_a_string_so_nothing_in_its_body_declares_or_assigns() -> N
         "# an example: description = <<EOT\n",
         'locals {\n  note = <<-EOT\n    a line ending in EOT\n    EOTX\n    a " quote, a /* and a # that do nothing\n  EOT\n}\n',
         'locals {\r\n  note = <<-END-OF-NOTE\r\n    a " quote\r\n  END-OF-NOTE\r\n}\r\n',
+        'locals {\n  objects = ["${format("%s/*", aws_s3_bucket.b.arn)}"]\n}\n',
+        'locals {\n  text = "%{if var.on == "}"}a /* b%{endif}"\n}\n',
+        'locals {\n  text = "%{if var.on == "a /* b"}x%{endif}"\n}\n',
+        'locals {\n  pick = "x-${merge({ a = 1 }, { b = "/*" })["b"]}"\n}\n',
+        'locals {\n  quoted = "a \\" /* b"\n}\n',
+        'locals {\n  literal = "$${ /* "\n}\n',
     ],
     ids=[
         "comment-opener-in-a-string",
@@ -342,13 +349,21 @@ def test_a_heredoc_is_a_string_so_nothing_in_its_body_declares_or_assigns() -> N
         "heredoc-opener-in-a-comment",
         "noise-in-a-heredoc",
         "crlf-heredoc-with-a-hyphenated-marker",
+        "comment-opener-after-quotes-nested-in-an-interpolation",
+        "brace-in-a-string-nested-in-a-directive",
+        "comment-opener-after-quotes-nested-in-a-directive",
+        "comment-opener-after-a-map-nested-in-an-interpolation",
+        "comment-opener-after-an-escaped-quote",
+        "escaped-template-opener",
     ],
 )
 def test_a_lookalike_opener_opens_nothing_and_the_next_client_is_read_whole(lookalike: str) -> None:
     """The silence cases, and the half a new lexer form gets wrong: an opener that is not one.
 
     Each lookalike, taken as real, runs to the end of the file and swallows the client after it.
-    The first two are shapes the tree carries today, an ARN wildcard and a comment naming one. In
+    The first two are shapes the tree carries today, an ARN wildcard and a comment naming one; so
+    are quotes nested in an interpolation, which end a string early for a scanner that does not
+    follow ``${…}`` and expose whatever follows them, here a ``/*`` that blanked the file. In
     the heredoc, the lines that merely contain its marker come BEFORE the quote and the `/*`, so a
     marker matched mid-line closes the heredoc early and exposes them as code.
     """
@@ -418,3 +433,30 @@ def test_an_unterminated_form_runs_to_the_end_of_the_text(unterminated: str) -> 
 
     assert span(source, 0) == source
     assert "}" not in strip_noise(source) and "never" not in strip_noise(source)
+
+
+def test_a_commented_out_copy_of_a_joined_list_is_not_the_one_read() -> None:
+    """`join_list_items` finds the FIRST `<name> = join(`, so a ghost copy above the live one wins.
+
+    Measured before it read over `strip_comments`: a `/* */` copy above the live connect-src list
+    returned the ghost's terms and none of the live ones, and the Cognito check passed on it.
+    """
+    source = (
+        "locals {\n  /*\n  csp_connect_src = join(\" \", [\n    \"https://ghost.example\",\n  ])\n  */\n"
+        "  csp_connect_src = join(\" \", [\n    \"https://live.example\", # the live term\n"
+        "    local.term,\n  ])\n}\n"
+    )
+
+    assert join_list_items(source, "csp_connect_src") == (" ", ("https://live.example", "local.term"))
+
+
+def test_a_commented_out_environment_block_is_not_the_one_read() -> None:
+    """The nested-block arm of `lambda_environment` finds the first `environment {` line."""
+    resource = (
+        'resource "aws_lambda_function" "f" {\n  /*\n  environment {\n    variables = { GHOST = 1 }\n'
+        "  }\n  */\n  environment {\n    variables = { LIVE = 1 }\n  }\n}\n"
+    )
+
+    environment = lambda_environment(lambda_declaration(resource, "f"))
+
+    assert "LIVE" in environment and "GHOST" not in environment

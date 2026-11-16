@@ -169,6 +169,11 @@ def _noise(text: str, index: int = 0) -> Iterator[tuple[int, int, int, int, str]
     came to be invisible to all of them at once: a client commented out with ``/* */`` was read as
     deployed, and a header quoted in a variable's heredoc description was read as a resource.
 
+    A string ends at its own closing quote, not the first one after it: a ``${…}`` or ``%{…}``
+    inside it is followed to its matching brace, strings nested in that included, so the quotes in
+    ``"${format("%s/*", arn)}"`` neither close the string early nor expose its ``/*`` as a block
+    comment that would blank the rest of the file. ``$${`` and ``%%{`` are literal text.
+
     A heredoc's closing marker is accepted with any whitespace around it in both forms, which is
     what HCL's own scanner does, and its marker may be any identifier HCL accepts, hyphens and
     non-ASCII letters included. An unterminated form runs to the end of the text.
@@ -198,12 +203,8 @@ def _noise(text: str, index: int = 0) -> Iterator[tuple[int, int, int, int, str]
             end = length if end == -1 else end + 2
             yield index, end, index, end, "comment"
         elif char == '"':
-            inner = index + 1
-            while inner < length and text[inner] != '"':
-                inner += 2 if text[inner] == "\\" else 1
-            inner = min(inner, length)
-            end = min(inner + 1, length)
-            yield index, end, index + 1, inner, "string"
+            inner_end, end = _string_end(text, index)
+            yield index, end, index + 1, inner_end, "string"
         elif opener := _HEREDOC_OPENER.match(text, index):
             marker = opener.group(1)
             closing = re.compile(rf"(?m)^[^\S\n]*({re.escape(marker)})[^\S\n]*$").search(text, opener.end())
@@ -213,6 +214,62 @@ def _noise(text: str, index: int = 0) -> Iterator[tuple[int, int, int, int, str]
             index += 1
             continue
         index = end
+
+
+def _string_end(text: str, index: int) -> tuple[int, int]:
+    """Finds where the quoted string opening at ``index`` ends, template sequences included.
+
+    Args:
+      text: The Terraform source being read.
+      index: The offset of the opening quote.
+
+    Returns:
+      The offset of the closing quote and the offset just past it, or the end of the text twice
+      when the string never closes.
+
+    Raises:
+      None.
+    """
+    length = len(text)
+    index += 1
+    while index < length:
+        if text[index] == '"':
+            return index, index + 1
+        if text[index] == "\\":
+            index += 2
+        elif text.startswith(("$${", "%%{"), index):
+            index += 3
+        elif text.startswith(("${", "%{"), index):
+            index = _template_end(text, index + 2)
+        else:
+            index += 1
+    return length, length
+
+
+def _template_end(text: str, index: int) -> int:
+    """Finds the brace closing a ``${`` or ``%{`` sequence, skipping the strings nested inside it.
+
+    Args:
+      text: The Terraform source being read.
+      index: The offset just after the sequence's opening brace.
+
+    Returns:
+      The offset just past the closing brace, or the end of the text when it never closes.
+
+    Raises:
+      None.
+    """
+    depth, length = 1, len(text)
+    while index < length:
+        char = text[index]
+        if char == '"':
+            index = _string_end(text, index)[1]
+            continue
+        depth += _BRACES.get(char, 0)
+        index += 1
+        if depth == 0:
+            return index
+    return length
 
 
 def _blank(out: list[str], start: int, end: int, keep_newlines: bool) -> None:
@@ -306,6 +363,9 @@ def join_list_items(text: str, local_name: str) -> tuple[str, tuple[str, ...]]:
     Order is preserved, because a CSP is a sequence and a set comparison would accept a
     reordering.
 
+    **Read over ``strip_comments``**, so a commented-out copy of the local above the live one, in
+    any comment form, is not the one found, and a comment on an element's line is not part of it.
+
     Args:
       text: The Terraform source to read.
       local_name: The local's name, e.g. ``content_security_policy``.
@@ -317,6 +377,7 @@ def join_list_items(text: str, local_name: str) -> tuple[str, tuple[str, ...]]:
       ValueError: When the local, its list or its separator cannot be found — never a silent
         empty result, which every caller would compare against and pass.
     """
+    text = strip_comments(text)
     start = text.find(f"{local_name} = join(")
     if start == -1:
         raise ValueError(f"no `{local_name} = join(...)` local — the parse went trivial")
@@ -333,7 +394,7 @@ def join_list_items(text: str, local_name: str) -> tuple[str, tuple[str, ...]]:
     items = []
     for raw in block[opening:].splitlines()[1:]:
         line = raw.strip().rstrip(",")
-        if not line or line.startswith("#"):
+        if not line:
             continue
         items.append(line[1:-1] if line.startswith('"') and line.endswith('"') else line)
     return separator[1:-1], tuple(items)
@@ -592,10 +653,10 @@ def lambda_environment(body: str) -> str:
     try:
         return argument(body, "environment")
     except ValueError:
-        opening = re.search(r"(?m)^\s*environment\s*\{", body)
+        opening = re.search(r"(?m)^\s*environment\s*\{", strip_noise(body))
         if not opening:
             raise ValueError("the declaration sets no environment") from None
-        return span(body, opening.start())
+        return span(body, opening.end() - 1)
 
 
 LAMBDA_INPUT_SPELLINGS = {
