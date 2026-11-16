@@ -2432,6 +2432,11 @@ discover one.
 **Which Identity Center instance the portal lands on: SETTLED 2026-08-18 — the ORGANIZATION
 instance.** Confirmed with the client platform team alongside same-Region and single-central-account.
 No spec could have closed it; it was theirs to answer, and the answer is the permissive one.
+*(Sharpened 2026-11-16: it is ONE organization instance for every account, managed through the
+client's LZA, and its Identity Center administrators own the instance, the application, the trusted
+token issuer, the grants and scopes and the actor policy. The portal builds none of it and consumes
+four values; `transition_plan.md` §2 item 16 and §4.5. The exchange therefore crosses accounts,
+which gate G11 tests in Phase 0.)*
 
 **What it un-forecloses.** An account instance would have ruled out shape (a) below — RAM-shared data
 read from another team's account under their propagated identity — because AWS's prerequisite is
