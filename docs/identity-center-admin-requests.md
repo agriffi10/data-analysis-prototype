@@ -105,7 +105,7 @@ at the Amazon Cognito user pool that handles the portal's sign-in.
 |---|---|
 | Issuer URL | `https://cognito-idp.<REGION>.amazonaws.com/<USER_POOL_ID>` |
 | Signing keys | Discovered from the issuer's OpenID configuration (Cognito publishes them there) |
-| Token claim to map | `<OBJECT_ID_CLAIM>`: our tokens carry the user's Entra object ID in this claim |
+| Token claim to map | `entra_object_id`: our ID tokens carry the user's Entra object ID in this claim |
 | Identity Center attribute it maps to | **External ID** |
 
 The **audience** our tokens carry is `<PORTAL_SERVER_CLIENT_ID>`, the ID of our server's Cognito app
@@ -113,16 +113,26 @@ client. It is not set on the issuer itself: it goes on the application in item 4
 application trusts this issuer.
 
 **Why Cognito sits in the middle:** your organization already federates Cognito to Entra ID, and we
-follow that pattern. Users authenticate at Entra, and Cognito turns that sign-in into a signed OIDC
-token. Identity Center needs a token of that kind for the exchange, because trusted identity
-propagation does not accept SAML.
+follow that pattern. Users authenticate at Entra, which signs them in to Cognito, and Cognito turns
+that sign-in into a signed OIDC token. **This federation must be SAML**, even if your existing
+Cognito federations use OIDC. Over OIDC, Entra identifies a user with a value that differs per
+application rather than the object ID, so nothing could match it to the external ID. Identity Center needs a token of that kind for
+the exchange, because trusted identity propagation does not accept SAML.
+
+**This mapping depends on the Entra side matching it.** The Entra enterprise application that
+Cognito federates to must send a persistent SAML `NameID` sourced from `user.objectid`, and release
+the email address claim. That is a separate request to your Entra administrators, and it comes with
+the pool's SAML entity ID (`urn:amazon:cognito:sp:<USER_POOL_ID>`) and reply URL
+(`https://<COGNITO_DOMAIN>/saml2/idpresponse`). If they are your team too, please treat it as part
+of this item. The object ID it carries must also be the value SCIM
+writes into the external ID (item 2), or no user will match.
 
 **What we commit to, for your security review.** The pool accepts no self-asserted identity:
 
 - Self-registration is off, the pool has no local users, and Entra is its only identity provider.
   Every user signs in through Entra.
-- The user's identity is keyed on the Entra object ID, never on an email or UPN that Entra could
-  reassign.
+- The user's identity is keyed on the Entra object ID, which arrives as the SAML `NameID`. It is
+  never keyed on an email or UPN that Entra could reassign.
 - The claim in the table is written into the token from the identity Entra federated, at the moment
   Cognito issues the token. It is not copied from a stored user attribute, so editing an attribute
   could not change it.
