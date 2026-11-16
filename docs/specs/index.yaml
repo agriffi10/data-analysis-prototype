@@ -1795,6 +1795,12 @@ specs:
     depends_on: ["SPEC-266"]
     arc: "carrier"
     path: "docs/specs/SPEC-267-the-api-assumes-the-carrier-role-from-a-sealed-context.md"
+  - id: "SPEC-268"
+    title: "The Server Exchanges and Refreshes the Identity Context"
+    description: "At sign-in the Next.js server exchanges the user's Cognito ID token for an Identity Center identity context, keeps it fresh with Identity Center's refresh grant, seals it to the user with KMS and forwards it to the API, so the API can act with that person's own Lake Formation and Access Grants entitlements."
+    spec_status: "Draft"
+    depends_on: ["SPEC-257", "SPEC-262", "SPEC-266", "SPEC-267"]
+    path: "docs/specs/SPEC-268-the-server-exchanges-and-refreshes-the-identity-context.md"
 arcs:
   - name: "analytics"
     order: ["SPEC-032", "SPEC-033", "SPEC-034", "SPEC-035", "SPEC-036"]
