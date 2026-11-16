@@ -23,7 +23,5 @@ declare module '*/eslint.config.js' {
   };
   const config: ConfigEntry[];
   export default config;
-  /** The group that holds react-router to the navigation seam, spread into every clause but its exemptions. */
-  export const REACT_ROUTER_IMPORTS: RestrictedImportPattern;
   export type {ConfigEntry, RestrictedImportPattern};
 }

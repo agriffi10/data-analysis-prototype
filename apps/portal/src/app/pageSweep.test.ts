@@ -60,16 +60,17 @@ function dynamicCalls(source: string): string[] {
 }
 
 /**
- * The rules for a page and the files in its directory: nothing of `src/` imported statically but
- * each other, `src/lib/` and `src/hooks/`, every view reached through `dynamic(…, {ssr: false})`, and
- * no `params` or `searchParams` prop, which a native navigation leaves stale.
+ * The rules for a page, or the root not-found page, and the files in its directory: nothing of
+ * `src/` imported statically but each other, `src/lib/` and `src/hooks/`, every view reached through
+ * `dynamic(…, {ssr: false})`, and no `params` or `searchParams` prop, which a native navigation
+ * leaves stale.
  *
- * @param files - The page's directory, by file (`/src/app/…/page.tsx` and its neighbours).
+ * @param files - The unit, by file, its entry first (`/src/app/…/page.tsx` and its neighbours).
  * @returns A finding per broken rule, naming the file and what broke it.
  */
 export function pageFindings(files: Record<string, string>): string[] {
   const findings: string[] = [];
-  const page = Object.keys(files).find((file) => file.endsWith('/page.tsx')) ?? Object.keys(files)[0];
+  const page = Object.keys(files)[0];
   const directory = page.slice(0, page.lastIndexOf('/') + 1);
   let reachesAView = false;
   for (const [file, source] of Object.entries(files)) {
@@ -85,7 +86,7 @@ export function pageFindings(files: Record<string, string>): string[] {
       if (!/,\s*\{\s*ssr\s*:\s*false\s*,?\s*\}\s*,?\s*\)$/.test(call))
         findings.push(`${file} passes next/dynamic more than {ssr: false}`);
     }
-    if (file.endsWith('/page.tsx')) {
+    if (isEntry(file)) {
       const declared = /export default (?:async )?function \w*\(([^)]*)\)/.exec(source);
       if (!declared) findings.push(`${file} has no default-exported page function`);
       else if (declared[1].trim()) findings.push(`${file} declares a parameter (${declared[1].trim()})`);
@@ -93,6 +94,38 @@ export function pageFindings(files: Record<string, string>): string[] {
   }
   if (!reachesAView) findings.push(`${Object.keys(files)[0]} reaches no view through dynamic(…, {ssr: false})`);
   return findings;
+}
+
+/** A file Next renders as a page: a `page.tsx`, or the root `not-found.tsx`. */
+function isEntry(file: string): boolean {
+  return file.endsWith('/page.tsx') || file === '/src/app/not-found.tsx';
+}
+
+/** The root layout and its mount, held by {@link rootFindings} rather than as any page's neighbours. */
+const ROOT_COMPOSITION = ['/src/app/layout.tsx', '/src/app/PortalMount.tsx'];
+
+/**
+ * The units the page rules judge: each page, and the root not-found page, with the non-test files in
+ * its own directory that are neither another page nor the root composition. A root page has the root
+ * layout beside it, whose stylesheet import and boot mount are no page's, and whose `dynamic` call
+ * would otherwise stand in for a root page that reaches no view.
+ *
+ * @param appFiles - Every non-test file under `src/app/`.
+ * @returns Each unit's files, its page first.
+ */
+export function pageUnits(appFiles: readonly string[]): string[][] {
+  return appFiles.filter(isEntry).map((entry) => {
+    const directory = entry.slice(0, entry.lastIndexOf('/') + 1);
+    const neighbours = appFiles.filter(
+      (file) =>
+        file.startsWith(directory) &&
+        !file.slice(directory.length).includes('/') &&
+        /\.tsx?$/.test(file) &&
+        !isEntry(file) &&
+        !ROOT_COMPOSITION.includes(file)
+    );
+    return [entry, ...neighbours];
+  });
 }
 
 /**
@@ -216,6 +249,36 @@ describe('the page rules, against fixtures', () => {
     ]);
   });
 
+  // Next pulls the root not-found page into every route's hydration chunks, so a static import of its
+  // view there would put the view in every route's; and the root layout's own boot mount must not
+  // stand in for a root page that reaches no view.
+  it('judge the root pages each on its own, and the root layout as no page’s neighbour', () => {
+    const root = (name: string) => `/src/app/${name}`;
+    expect(
+      pageUnits([
+        root('layout.tsx'),
+        root('PortalMount.tsx'),
+        root('page.tsx'),
+        root('not-found.tsx'),
+        '/src/app/(signed-in)/files/page.tsx',
+        '/src/app/(signed-in)/files/Mount.tsx'
+      ])
+    ).toEqual([
+      [root('page.tsx')],
+      [root('not-found.tsx')],
+      ['/src/app/(signed-in)/files/page.tsx', '/src/app/(signed-in)/files/Mount.tsx']
+    ]);
+    const staticView =
+      "import NotFoundPage from '../routes/NotFoundPage';\nexport default function NotFound() {\n  return <NotFoundPage />;\n}";
+    expect(pageFindings({[root('not-found.tsx')]: staticView})).toEqual([
+      `${root('not-found.tsx')} imports ../routes/NotFoundPage statically`,
+      `${root('not-found.tsx')} reaches no view through dynamic(…, {ssr: false})`
+    ]);
+    expect(
+      pageFindings({[root('not-found.tsx')]: CONFORMING.replace('FilesPage()', 'NotFound(props: object)')})
+    ).toEqual([`${root('not-found.tsx')} declares a parameter (props: object)`]);
+  });
+
   it('name the root layout reaching the app, and a mount without ssr: false', () => {
     const layout = "import {PortalMount} from './PortalMount';\nimport {cx} from '../lib/cx';";
     const mount = "const PortalBoot = dynamic(() => import('../PortalBoot').then((m) => m.PortalBoot));";
@@ -243,19 +306,19 @@ describe('the App Router’s files', () => {
   const appFiles = Object.keys(SOURCES).filter((file) => file.startsWith('/src/app/') && !isTest(file));
   const pages = appFiles.filter((file) => file.endsWith('/page.tsx'));
 
-  it('include the catch-all page and the root layout', () => {
-    expect(pages).toContain('/src/app/[[...slug]]/page.tsx');
+  it('include the landing page, the not-found page and the root layout', () => {
+    expect(pages).toContain('/src/app/page.tsx');
+    expect(appFiles).toContain('/src/app/not-found.tsx');
     expect(appFiles).toContain('/src/app/layout.tsx');
+    expect(pageUnits(appFiles).map(([entry]) => entry)).toEqual(
+      expect.arrayContaining(['/src/app/not-found.tsx', ...pages])
+    );
   });
 
   it('keep every page and its neighbours off the application graph', () => {
-    const findings = pages.flatMap((page) => {
-      const directory = page.slice(0, page.lastIndexOf('/') + 1);
-      const neighbours = appFiles.filter(
-        (file) => file.startsWith(directory) && !file.slice(directory.length).includes('/') && /\.tsx?$/.test(file)
-      );
-      return pageFindings(Object.fromEntries(neighbours.map((file) => [file, SOURCES[file]])));
-    });
+    const findings = pageUnits(appFiles).flatMap((unit) =>
+      pageFindings(Object.fromEntries(unit.map((file) => [file, SOURCES[file]])))
+    );
     expect(findings).toEqual([]);
   });
 

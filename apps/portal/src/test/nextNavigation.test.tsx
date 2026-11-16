@@ -4,6 +4,7 @@ import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import {
   NextStandInRoot,
   announcements,
+  documentLoads,
   hold,
   release,
   reloads,
@@ -57,9 +58,9 @@ function router(): ReturnType<typeof useRouter> {
   return handle.router;
 }
 
-function start(href: string, resolver: Parameters<typeof resetStandIn>[0] = null) {
+function start(href: string, resolver: Parameters<typeof resetStandIn>[0] = null, pagesOnly = false) {
   writeAddressRaw(null, href);
-  resetStandIn(resolver);
+  resetStandIn(resolver, pagesOnly);
   seen.length = 0;
   render(
     <NextStandInRoot>
@@ -184,7 +185,7 @@ describe('the next/navigation stand-in', () => {
   });
 
   it('8: hands over the selected page’s params percent-encoded, from the page and not the address', () => {
-    const files = ['(signed-in)/data-quality/[space]/[requestId]/page.tsx', '[[...slug]]/page.tsx'];
+    const files = ['(signed-in)/data-quality/[space]/[requestId]/page.tsx', 'page.tsx'];
     start('/a', (pathname) => selectPage(files, pathname));
 
     act(() => router().push('/data-quality/a%40b%20c/r1'));
@@ -213,6 +214,42 @@ describe('the next/navigation stand-in', () => {
     await traverse(-3);
 
     expect(announcements()).toEqual(['Page /b', 'Changed in place', 'Page /a']);
+  });
+
+  it('10: loads the document for a router navigation or a traversal to a path no page serves', async () => {
+    const files = ['page.tsx', '(signed-in)/files/page.tsx'];
+    start('/files', (pathname) => selectPage(files, pathname), true);
+
+    act(() => router().push('/nope?x=1#h'));
+    expect(last()).toMatchObject({pathname: '/files', tree: '/files', address: '/files'});
+    act(() => router().push('/'));
+    act(() => window.history.pushState({}, '', '/nope'));
+    act(() => router().push('/files'));
+    const renders = seen.length;
+    await traverse(-1);
+
+    expect(documentLoads()).toEqual(['/nope?x=1#h', '/nope']);
+    expect(seen.length).toBe(renders);
+    expect(last().tree).toBe('/files');
+  });
+
+  it('10: restores, rather than loads, a traversal between two entries of one such path', async () => {
+    start('/nope', (pathname) => selectPage(['page.tsx'], pathname), true);
+    act(() => window.history.pushState({}, '', '/nope#x'));
+
+    await traverse(-1);
+
+    expect(documentLoads()).toEqual([]);
+    expect(last()).toMatchObject({pathname: '/nope', address: '/nope'});
+  });
+
+  it('10: renders every navigation for a resolver that selects params rather than pages', () => {
+    start('/a', (pathname) => (pathname === '/a' ? {params: {}} : null));
+
+    act(() => router().push('/b'));
+
+    expect(documentLoads()).toEqual([]);
+    expect(last()).toMatchObject({pathname: '/b', tree: '/b'});
   });
 });
 

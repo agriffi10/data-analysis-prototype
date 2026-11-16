@@ -1,6 +1,6 @@
 /**
- * The navigation seam: the only module a feature imports for navigation. It works under both
- * routers during the coexistence, and decides per path which one performs a navigation.
+ * The navigation seam: the only module a feature imports for navigation. It runs on Next's App
+ * Router and owns what that router lacks: history state, the navigation type and a key per entry.
  */
 export {useLocation, useNavigate, useNavigationType, useParams, useSearchParams} from './hooks';
 export {Link, type LinkProps} from './Link';
@@ -9,7 +9,6 @@ export {Navigate} from './Navigate';
 export {matchPath} from './matchPath';
 export {decodePath} from './address';
 export {NavigationProvider} from './NavigationProvider';
-export {CatchAllRouter} from './CatchAllRouter';
-export {AREAS, AreaRecordsContext, areaOf, routerFor, useAreaRecords} from './areas';
-export type {AreaName, AreaRecord, AreaRouter} from './areas';
+export {AREAS, areaOf} from './areas';
+export type {AreaName, AreaRecord} from './areas';
 export type {NavigateOptions, NavigationType, NavLocation, To} from './navigation.types';

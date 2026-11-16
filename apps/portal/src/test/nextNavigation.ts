@@ -17,7 +17,7 @@ import {formatPageTitle} from '../lib/formatPageTitle';
  * seam runs in tests against the same behaviours it rests on in the browser.
  *
  * Aliased in `vite.config.ts`, so nothing imports this file by its path except the harness. Each of
- * the nine behaviours below was measured on Next 16.4.6 and has a test of its own in
+ * the ten behaviours below was measured on Next 16.4.6 and has a test of its own in
  * `nextNavigation.test.tsx`:
  *
  * 1. A router push or replace renders before it writes the address (the write is an insertion
@@ -48,6 +48,12 @@ import {formatPageTitle} from '../lib/formatPageTitle';
  *    `announcements()` lists what it said. A router navigation, a traversal and an external write
  *    are each a new tree, the last because Next restores the page it shows, so a title the page
  *    changed in place is announced at the next of them.
+ * 10. A router navigation, or a traversal, to a path no page serves is a document load: the page's
+ *    fetch answers 404, and Next loads the document at that address instead of rendering it
+ *    (measured under `next start`: the not-found page is reached by a document load every time,
+ *    Back onto it from another path included; a traversal within one such path is not modelled
+ *    as one, since Next restores the tree it already shows). Recorded in `documentLoads()`, and nothing renders; only `renderApp`,
+ *    which selects pages from the file system, turns it on.
  */
 
 /** The page selection: the href the router last navigated to. A native navigation does not move it. */
@@ -71,6 +77,9 @@ type StandIn = {
   holding: boolean;
   parked: Navigation | null;
   resolver: PageResolver | null;
+  /** Whether a navigation to a path the resolver selects no page for is a document load (behaviour 10). */
+  pagesOnly: boolean;
+  documentLoads: string[];
   announcements: string[];
   originalPush: History['pushState'];
   originalReplace: History['replaceState'];
@@ -111,6 +120,8 @@ function install(): StandIn {
     holding: false,
     parked: null,
     resolver: null,
+    pagesOnly: false,
+    documentLoads: [],
     announcements: [],
     originalPush: window.history.pushState.bind(window.history),
     originalReplace: window.history.replaceState.bind(window.history)
@@ -157,6 +168,11 @@ function install(): StandIn {
       }
       // A traversal takes priority over a navigation still in flight, which Next drops.
       instance.parked = null;
+      // Onto another path; between two entries of the same one, Next restores the tree it shows.
+      if (window.location.pathname !== pathOf(instance.state.url) && servesNoPage(instance, window.location.pathname)) {
+        instance.documentLoads.push(currentHref());
+        return;
+      }
       const tree = (data.__PRIVATE_NEXTJS_INTERNALS_TREE as Tree | undefined) ?? instance.state.tree;
       const href = currentHref();
       flushSync(() =>
@@ -170,6 +186,11 @@ function install(): StandIn {
     true
   );
   return instance;
+}
+
+/** Behaviour 10: whether Next would load the document for this path rather than render a page. */
+function servesNoPage(instance: StandIn, pathname: string): boolean {
+  return instance.pagesOnly && instance.resolver !== null && instance.resolver(pathname) === null;
 }
 
 function setState(instance: StandIn, next: RouterState): void {
@@ -192,6 +213,11 @@ function routerNavigate(href: string, mode: 'push' | 'replace'): void {
   }
   const {url, hash} = urlOf(href);
   instance.requests.push(url);
+  if (servesNoPage(instance, pathOf(url))) {
+    instance.parked = null;
+    instance.documentLoads.push(url + hash);
+    return;
+  }
   const navigation: Navigation = {url, hash, kind: mode};
   if (instance.holding) {
     instance.holding = false;
@@ -303,8 +329,10 @@ function RouteAnnouncer({tree}: {tree: Tree}) {
  * first render writes it.
  *
  * @param resolver - How a path selects a page and its params; `renderApp` passes its own.
+ * @param pagesOnly - Whether the resolver selects pages from the file system, so a path it selects
+ *   none for is one Next answers with a document load (behaviour 10); `renderApp` turns it on.
  */
-export function resetStandIn(resolver: PageResolver | null = null): void {
+export function resetStandIn(resolver: PageResolver | null = null, pagesOnly = false): void {
   const instance = standIn();
   const url = window.location.pathname + window.location.search;
   instance.requests = [];
@@ -313,6 +341,8 @@ export function resetStandIn(resolver: PageResolver | null = null): void {
   instance.holding = false;
   instance.parked = null;
   instance.resolver = resolver;
+  instance.pagesOnly = pagesOnly;
+  instance.documentLoads = [];
   instance.announcements = [];
   instance.state = {url, tree: {href: url}, write: null};
   instance.originalReplace(
@@ -335,6 +365,11 @@ export function requests(): readonly string[] {
 /** The router navigations that would have left the portal for another origin. */
 export function external(): readonly string[] {
   return [...standIn().external];
+}
+
+/** The navigations Next would have answered with a document load at a path no page serves (behaviour 10). */
+export function documentLoads(): readonly string[] {
+  return [...standIn().documentLoads];
 }
 
 /** How many popstates Next would have answered by reloading the document. */

@@ -2,7 +2,7 @@ import {useEffect, useState, type ComponentType, type ReactNode} from 'react';
 import {afterEach, beforeEach, describe, expect, it, onTestFinished, vi} from 'vitest';
 import {screen, waitFor, within} from '@testing-library/react';
 import {renderApp} from '../../test/appRouter';
-import {requests} from '../../test/nextNavigation';
+import {documentLoads, requests} from '../../test/nextNavigation';
 import {authenticated, unauthenticated} from '../../test/authFixtures';
 import {AuthContext} from '../../features/auth/authContext';
 import {AuthProvider, type AuthContextValue} from '../../features/auth';
@@ -17,7 +17,7 @@ import type {FileListPage} from '../../types/s3.types';
 import {FilesView} from './files';
 
 /**
- * What a page change must leave alone, driven through the REAL chrome and the REAL route table.
+ * What a page change must leave alone, driven through the REAL chrome and the REAL pages.
  *
  * The signed-in shell holds two session-scoped records — the upload queue and the in-flight file
  * operations — and both are only worth anything if neither a click on a nav tab nor a page that
@@ -62,8 +62,7 @@ vi.mock('../../features/notifications/notifications.service', () => ({
 }));
 // A signed-in page standing in for any eager page's render defect: it throws wherever the test
 // says it does, so one scenario can crash it from its own tab and another can crash it only
-// behind a query string that the tab does not carry. When it renders, it offers the two ways off
-// the signed-in pages: the landing page and an unknown path.
+// behind a query string that the tab does not carry.
 const standIn = vi.hoisted(() => ({throwsAt: (() => true) as (search: string) => boolean}));
 vi.mock('../DataQualityPage', async () => {
   const navigation = await import('../../lib/navigation');
@@ -71,18 +70,12 @@ vi.mock('../DataQualityPage', async () => {
     default: function DataQualityStandIn() {
       const {search} = navigation.useLocation();
       if (standIn.throwsAt(search)) throw new Error('render failed');
-      return (
-        <>
-          <p>Data quality stand-in</p>
-          <navigation.Link to="/">To the landing page</navigation.Link>
-          <navigation.Link to="/nope">To nowhere</navigation.Link>
-        </>
-      );
+      return <p>Data quality stand-in</p>;
     }
   };
 });
-// Query, standing in for a page the catch-all serves: Monaco and the catalog clients are not this
-// file's subject, only which router renders the page.
+// Query, standing in for another signed-in page: Monaco and the catalog clients are not this file's
+// subject, only that another page renders.
 vi.mock('../QueryPage', () => ({
   default: function QueryStandIn() {
     return <h1>Query stand-in</h1>;
@@ -98,8 +91,8 @@ const page: FileListPage = {
   isTruncated: false
 };
 
-/** Files on the App Router, as it is served now; every area the test does not name is the catch-all's. */
-const renderFiles = (route: string) => renderApp(route, {auth: authenticated('alice'), routers: {files: 'app'}});
+/** Files, served by its page on disk. */
+const renderFiles = (route: string) => renderApp(route, {auth: authenticated('alice')});
 
 type User = ReturnType<typeof renderFiles>['user'];
 
@@ -141,8 +134,8 @@ function unloadIsCancelled(): boolean {
   return event.defaultPrevented;
 }
 
-/** Files as an App Router page, with the two ways off the signed-in pages beside it. */
-function FilesAppRouterPage() {
+/** The Files page with the two ways off the signed-in pages beside it. */
+function FilesWithPublicLinks() {
   return (
     <>
       <FilesView />
@@ -152,11 +145,10 @@ function FilesAppRouterPage() {
   );
 }
 
-/** Files served by the App Router, whatever the records on disk say. */
-const FILES_ON_THE_APP_ROUTER = {
+/** Files served by {@link FilesWithPublicLinks} in place of its page on disk. */
+const FILES_WITH_PUBLIC_LINKS = {
   auth: authenticated('alice'),
-  routers: {files: 'app'},
-  pages: {'(signed-in)/files/page.tsx': FilesAppRouterPage}
+  pages: {'(signed-in)/files/page.tsx': FilesWithPublicLinks}
 } as const;
 
 /** Come back to Files by its tab, and wait for the listing. */
@@ -232,53 +224,38 @@ describe('the signed-in shell outlives the page', () => {
     expect(move.getAttribute('title')).toMatch(/still running here/);
   });
 
-  // The same claim across the two routers: leaving Files for a page the catch-all serves goes
-  // through Next's router, which renders a different page, and the shell above both must not notice.
-  it('keeps an upload running across a round trip between the App Router and the catch-all', async () => {
+  // A public page renders outside the gate, so following a link to the landing page ends the shell.
+  it('ends on the landing page: a link to it aborts the upload and drops the shell', async () => {
     const aborted = holdUploadsOpen();
-    const {user} = renderApp('/files', FILES_ON_THE_APP_ROUTER);
+    const {user} = renderApp('/files', FILES_WITH_PUBLIC_LINKS);
     await startUploads(user);
 
-    await roundTripThroughNotifications(user);
-    await user.click(screen.getByRole('button', {name: 'Upload'}));
+    await user.click(screen.getByRole('link', {name: 'To the landing page'}));
 
-    expect(requests()).toEqual(['/notifications', '/files']);
-    expect(aborted()).toEqual([false]);
-    expect(await screen.findByRole('progressbar', {name: 'Uploading up.txt'})).toHaveAttribute('aria-valuenow', '50');
+    await waitFor(() => expect(aborted()).toEqual([true]));
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Upload'})).not.toBeInTheDocument();
   });
 
-  // A public page renders outside the gate, so following a link to one ends the shell, from a page
-  // either router serves: the landing page and an unknown path are no area's.
-  it.each([
-    ['the landing page', 'catch-all'],
-    ['nowhere', 'catch-all'],
-    ['the landing page', 'app'],
-    ['nowhere', 'app']
-  ])(
-    'ends on a public page: a link to %s from a %s page aborts the upload and drops the shell',
-    async (target, router) => {
-      standIn.throwsAt = () => false;
-      const aborted = holdUploadsOpen();
-      const {user} = renderApp('/files', router === 'app' ? FILES_ON_THE_APP_ROUTER : {auth: authenticated('alice')});
-      await startUploads(user);
-      if (router === 'catch-all') {
-        await user.click(screen.getByRole('link', {name: 'Data quality'}));
-        await screen.findByText('Data quality stand-in');
-      }
+  // No page serves an unknown path, so Next loads the document there rather than rendering it: the
+  // shell stays until the document goes, and the unload guard asks first while an upload runs.
+  it('leaves the document for a link to nowhere, asking first while an upload runs', async () => {
+    const aborted = holdUploadsOpen();
+    const {user} = renderApp('/files', FILES_WITH_PUBLIC_LINKS);
+    await startUploads(user);
 
-      await user.click(screen.getByRole('link', {name: `To ${target}`}));
+    await user.click(screen.getByRole('link', {name: 'To nowhere'}));
 
-      await waitFor(() => expect(aborted()).toEqual([true]));
-      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', {name: 'Upload'})).not.toBeInTheDocument();
-    }
-  );
+    expect(documentLoads()).toEqual(['/nope']);
+    expect(aborted()).toEqual([false]);
+    expect(unloadIsCancelled()).toBe(true);
+  });
 
   // The other side of the same claim: a fix that kept the providers alive by hoisting them above
   // the auth gate would pass every test above, and leave a signed-out tab uploading.
   it('ends with the session: signing out aborts the upload and drops the operations', async () => {
     const aborted = holdUploadsOpen();
-    const {user} = renderApp('/files', {auth: SignOutable, routers: {files: 'app'}});
+    const {user} = renderApp('/files', {auth: SignOutable});
     await startUploads(user);
     await user.click(screen.getByRole('checkbox', {name: 'Select folder docs'}));
     await user.click(screen.getByRole('button', {name: 'Delete selected items'}));
@@ -411,7 +388,7 @@ describe('an unfinished upload asks before the document goes', () => {
       asked.push(unloadIsCancelled());
       return {success: true, data: undefined};
     });
-    const {user} = renderApp('/files', {auth: AuthProvider, routers: {files: 'app'}});
+    const {user} = renderApp('/files', {auth: AuthProvider});
     await startUploads(user);
 
     await user.click(screen.getByRole('button', {name: 'Account: alice'}));
@@ -424,7 +401,7 @@ describe('an unfinished upload asks before the document goes', () => {
     const aborted = holdUploadsOpen();
     vi.mocked(getCurrentAuthUser).mockResolvedValue({success: true, data: {username: 'alice'}});
     vi.mocked(startSignOut).mockResolvedValue({success: false, error: {message: 'offline', code: 'NetworkError'}});
-    const {user} = renderApp('/files', {auth: AuthProvider, routers: {files: 'app'}});
+    const {user} = renderApp('/files', {auth: AuthProvider});
     await startUploads(user);
 
     await user.click(screen.getByRole('button', {name: 'Account: alice'}));
@@ -447,8 +424,8 @@ describe('an unfinished upload asks before the document goes', () => {
 });
 
 /**
- * Wait until the page settles on the area's own content or on the catch-all's 404, then fail naming
- * the 404 if that is what rendered: an area page missing from disk falls through to it.
+ * Wait until the page settles on the area's own content or on the not-found page, then fail naming
+ * the not-found page if that is what rendered: Next renders it for an area page missing from disk.
  */
 async function servedByItsPage(content: () => HTMLElement | null) {
   const notFound = () => screen.queryByRole('heading', {name: 'Page not found'});
@@ -476,18 +453,18 @@ function CountingFilesPage() {
 }
 
 describe('Files on the App Router', () => {
-  // The records and the pages as they stand: with the page deleted, the record still says 'app', so
-  // the catch-all no longer builds the route and renders the 404.
-  it('is served by its own page, where the catch-all would render the 404', async () => {
-    renderApp('/files', {auth: authenticated('alice'), routers: 'as-recorded'});
+  // The page as it stands on disk: with it deleted, Next renders the not-found page at its path.
+  it('is served by its own page, where Next would render the not-found page without it', async () => {
+    renderApp('/files', {auth: authenticated('alice')});
 
     await servedByItsPage(() => screen.queryByRole('checkbox', {name: 'Select folder docs'}));
   });
 
-  // Query is named as the catch-all's, so the claim holds in whatever order the area moves land.
-  it('keeps an upload running across a round trip to a page the catch-all serves', async () => {
+  // Leaving Files for another path goes through Next's router, which renders a different page, and
+  // the shell above both must not notice.
+  it('keeps an upload running across a round trip to another page through Next’s router', async () => {
     const aborted = holdUploadsOpen();
-    const {user} = renderApp('/files', {auth: authenticated('alice'), routers: {files: 'app', query: 'catch-all'}});
+    const {user} = renderApp('/files', {auth: authenticated('alice')});
     await startUploads(user);
 
     await user.click(screen.getByRole('link', {name: 'Query'}));
@@ -515,10 +492,7 @@ describe('Files on the App Router', () => {
     onTestFinished(() => {
       vi.mocked(getNotifications).mockResolvedValue(ok([]));
     });
-    const {user} = renderApp('/notifications', {
-      auth: authenticated('alice'),
-      routers: {notifications: 'app', files: 'app'}
-    });
+    const {user} = renderApp('/notifications', {auth: authenticated('alice')});
 
     await user.click(await screen.findByRole('link', {name: 'Your results are in docs'}));
 
@@ -546,7 +520,6 @@ describe('a space switch on Files', () => {
   it('goes through neither router call, and does not remount the page', async () => {
     const {user} = renderApp('/files', {
       auth: authenticated('alice'),
-      routers: {files: 'app'},
       pages: {'(signed-in)/files/page.tsx': CountingFilesPage}
     });
     await screen.findByRole('checkbox', {name: 'Select folder docs'});

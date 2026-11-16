@@ -23,7 +23,7 @@ describe('linkFlags', () => {
     ['/filesystem', []],
     // Matched case-sensitively, as Next routes: `/Files` is no page, so it names no flag.
     ['/Files?space=finance', []],
-    // Decoded first, as the route table and the gate match it: `/qu%65ry` is Query.
+    // Decoded first, as the gate matches it: `/qu%65ry` is Query.
     ['/qu%65ry', ['query']]
   ])('%s needs %j', (link, expected) => {
     expect(linkFlags(link, 'alice').sort()).toEqual([...expected].sort());

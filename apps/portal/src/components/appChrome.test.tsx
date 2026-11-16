@@ -282,7 +282,7 @@ describe('RootLayout', () => {
     // every page change. Without a reset the fallback would persist after navigating
     // away: nav visible, content region stuck, and the only escape a reload. The reset
     // is a prop and not a `key`; what a key would cost the signed-in shell is pinned in
-    // `routes/areas/files.test.tsx`, against the real chrome and route table.
+    // `routes/areas/files.test.tsx`, against the real chrome and pages.
     describe('the error boundary around the page', () => {
       function Boom(): never {
         throw new Error('render failed');

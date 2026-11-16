@@ -67,12 +67,11 @@ export default defineConfig({
         'src/test/**',
         'src/test-setup.ts',
         // The composition above the boot: the provider tree behind the dynamic import, and the
-        // root layout and catch-all page Next renders around it. Their ORDER and REACH are what
-        // matters, and `src/bootstrap.test.tsx` and the image's behaviour matrix assert those
-        // directly; the boot itself is covered.
+        // root layout Next renders around it. Their ORDER and REACH are what matters, and
+        // `src/bootstrap.test.tsx` and the image's behaviour matrix assert those directly; the boot
+        // itself is covered.
         'src/AppFrame.tsx',
         'src/app/layout.tsx',
-        'src/app/\\[\\[...slug\\]\\]/page.tsx',
         // Emitted from the Python contract, so it is that declaration's coverage to earn,
         // not this suite's. It does not match the `.types.ts` rule above.
         'src/types/apiContract.generated.ts'

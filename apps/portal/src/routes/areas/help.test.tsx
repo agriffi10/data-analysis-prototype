@@ -25,15 +25,15 @@ vi.mock('../../features/notifications/notifications.service', () => ({
 
 describe('App routing', () => {
   it('renders a protected route through the layout for an authenticated user', async () => {
-    renderApp('/help', {auth: authenticated('alice'), routers: {help: 'app'}});
+    renderApp('/help', {auth: authenticated('alice')});
     expect(await screen.findByRole('main')).toBeInTheDocument();
     expect(screen.queryByRole('heading', {name: 'Page not found'})).not.toBeInTheDocument();
   });
 });
 
 /**
- * Wait until the page settles on the area's own content or on the catch-all's 404, then fail naming
- * the 404 if that is what rendered: an area page missing from disk falls through to it.
+ * Wait until the page settles on the area's own content or on the not-found page, then fail naming
+ * the not-found page if that is what rendered: Next renders it for an area page missing from disk.
  */
 async function servedByItsPage(content: () => HTMLElement | null) {
   const notFound = () => screen.queryByRole('heading', {name: 'Page not found'});
@@ -68,10 +68,9 @@ describe('Help on the App Router', () => {
     vi.unstubAllEnvs();
   });
 
-  // The records and the pages as they stand: with the page deleted, the record still says 'app', so
-  // the catch-all no longer builds the route and renders the 404.
-  it('is served by its own page, where the catch-all would render the 404', async () => {
-    renderApp('/help', {auth: authenticated('alice'), routers: 'as-recorded'});
+  // The page as it stands on disk: with it deleted, Next renders the not-found page at its path.
+  it('is served by its own page, where Next would render the not-found page without it', async () => {
+    renderApp('/help', {auth: authenticated('alice')});
 
     await servedByItsPage(helpRail);
   });
@@ -79,7 +78,7 @@ describe('Help on the App Router', () => {
   // A section is a hash on the same path, so the seam writes it natively and Back is a traversal
   // between two entries of one page.
   it('goes Back to the previous section after one is chosen, and Forward to it again', async () => {
-    const {user, location} = renderApp('/help', {auth: authenticated('alice'), routers: {help: 'app'}});
+    const {user, location} = renderApp('/help', {auth: authenticated('alice')});
     const rail = await screen.findByRole('complementary', {name: 'Guides navigation'});
 
     await user.click(within(rail).getByRole('button', {name: /Notifications/}));
@@ -105,8 +104,7 @@ describe('Help on the App Router', () => {
   ])('opens Help at the section the contextual panel on %s links to', async (from, ownContent, hash, section) => {
     vi.mocked(getNotifications).mockResolvedValue({success: true, data: []});
     const {user, location} = renderApp(from, {
-      auth: authenticated('alice'),
-      routers: {help: 'app', files: 'app', notifications: 'app'}
+      auth: authenticated('alice')
     });
     await waitFor(() => expect(ownContent()).not.toBeNull());
 

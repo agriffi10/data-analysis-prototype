@@ -5,17 +5,8 @@ import type {RenderOptions, RenderHookOptions} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type {UserEvent} from '@testing-library/user-event';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import {Route, Routes} from 'react-router';
 import type {ReactElement, ReactNode} from 'react';
-import {
-  AREAS,
-  AreaRecordsContext,
-  CatchAllRouter,
-  NavigationProvider,
-  useLocation,
-  type AreaRecord,
-  type NavLocation
-} from '../lib/navigation';
+import {NavigationProvider, decodePath, matchPath, useLocation, type NavLocation} from '../lib/navigation';
 import {NextStandInRoot, resetStandIn, writeAddressRaw} from './nextNavigation';
 import {AuthContext} from '../features/auth/authContext';
 import type {AuthContextValue} from '../features/auth/auth.types';
@@ -94,11 +85,17 @@ function hrefOfRoute(route: TestRoute): string {
  *
  * @param route - Where the test starts.
  * @param resolver - How a path selects a page, for `renderApp`; none for a plain render.
+ * @param pagesOnly - Whether the resolver is `renderApp`'s, from the file system, so a path it
+ *   selects no page for is a document load.
  */
-export function startAt(route: TestRoute, resolver: Parameters<typeof resetStandIn>[0] = null): void {
+export function startAt(
+  route: TestRoute,
+  resolver: Parameters<typeof resetStandIn>[0] = null,
+  pagesOnly = false
+): void {
   const before = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   writeAddressRaw(null, hrefOfRoute(route));
-  resetStandIn(resolver);
+  resetStandIn(resolver, pagesOnly);
   onTestFinished(() => writeAddressRaw(null, before));
 }
 
@@ -107,7 +104,11 @@ export type ProviderOptions = {
   route?: TestRoute;
   /** The pattern `ui` renders at, so its params resolve, e.g. '/data-quality/:space/:requestId'. */
   path?: string;
-  /** Other patterns and what renders there, for a test whose subject navigates away. */
+  /**
+   * Other patterns and what renders there, for a test whose subject navigates away. Tried in
+   * declaration order before `path`, case-sensitively, with no ranking of static over dynamic: keep
+   * the patterns from overlapping.
+   */
   routes?: Record<string, ReactElement>;
   /** Inject a fixed auth context. Pass `null` to omit the AuthContext provider
    *  (the component doesn't call `useAuth`). Defaults to an authenticated user. */
@@ -173,21 +174,8 @@ type StackProps = {
   auth: AuthContextValue | null;
   client: QueryClient;
   initialState: unknown;
-  /** react-router inside the seam, for `ui` that reads route params; `renderApp` brings its own. */
-  catchAllRouter: boolean;
   onLocation?: (location: NavLocation) => void;
-  /** The area records the seam, the chrome and the table read; {@link CATCH_ALL_RECORDS} otherwise. */
-  records?: readonly AreaRecord[];
 };
-
-/**
- * Every area on the optional catch-all, as the harness serves them unless a test asks otherwise.
- *
- * A fixture, not the production records: an area move flips its own record, and a test that read the
- * live records would change what it renders, or stop exercising its hazard without going red, when a
- * move it never mentions lands. Only a test that names the live records follows them.
- */
-export const CATCH_ALL_RECORDS: readonly AreaRecord[] = AREAS.map((record) => ({...record, router: 'catch-all'}));
 
 /** Reports the seam's location after every commit, for the render result's `location()`. */
 function LocationProbe({onLocation}: {onLocation: (location: NavLocation) => void}) {
@@ -198,53 +186,85 @@ function LocationProbe({onLocation}: {onLocation: (location: NavLocation) => voi
 
 /**
  * The harness's one provider stack: Next's stand-in, the query client, the auth context and the
- * seam, with the toasts inside. `TestProviders` adds react-router inside the seam; `renderApp` puts
- * the real chrome there instead. The shell's providers are never here: a test that wrapped the
- * shell's providers around the app would pass wherever the app put them.
+ * seam, with the toasts inside. `TestProviders` puts the test's `ui` there; `renderApp` puts the real
+ * chrome there instead. The shell's providers are never here: a test that wrapped the shell's
+ * providers around the app would pass wherever the app put them.
  */
-export function ProviderStack({
-  children,
-  auth,
-  client,
-  initialState,
-  catchAllRouter,
-  onLocation,
-  records = CATCH_ALL_RECORDS
-}: StackProps): ReactElement {
-  const content = <ToastProvider>{children}</ToastProvider>;
-  const seam = (
-    <NavigationProvider initialState={initialState}>
-      {onLocation && <LocationProbe onLocation={onLocation} />}
-      {catchAllRouter ? <CatchAllRouter>{content}</CatchAllRouter> : content}
-    </NavigationProvider>
-  );
+export function ProviderStack({children, auth, client, initialState, onLocation}: StackProps): ReactElement {
   const tree = (
     <NextStandInRoot>
       <QueryClientProvider client={client}>
-        <AreaRecordsContext.Provider value={records}>{seam}</AreaRecordsContext.Provider>
+        <NavigationProvider initialState={initialState}>
+          {onLocation && <LocationProbe onLocation={onLocation} />}
+          <ToastProvider>{children}</ToastProvider>
+        </NavigationProvider>
       </QueryClientProvider>
     </NextStandInRoot>
   );
   return auth ? <AuthContext.Provider value={auth}>{tree}</AuthContext.Provider> : tree;
 }
 
-/** `ui` alone, or at `path` beside the other `routes`, in react-router's table under the seam. */
+/** The patterns a render serves, `routes` before `path`, in the order they are tried. */
+function patternsOf(path: string | undefined, routes: Record<string, ReactElement> | undefined): string[] {
+  return [...Object.keys(routes ?? {}), ...(path === undefined ? [] : [path])];
+}
+
+/**
+ * How the stand-in selects params for a render with `path` or `routes`: the first pattern the seam's
+ * matcher accepts on the raw path, so Next's `useParams` hands the values over percent-encoded, as
+ * Next's own are, and the seam decodes them once.
+ *
+ * @param path - The pattern `ui` renders at.
+ * @param routes - The other patterns.
+ * @returns The resolver, or null for a render that serves no pattern.
+ */
+export function resolverFor(
+  path: string | undefined,
+  routes: Record<string, ReactElement> | undefined
+): Parameters<typeof resetStandIn>[0] {
+  const patterns = patternsOf(path, routes);
+  if (patterns.length === 0) return null;
+  return (pathname) => {
+    for (const pattern of patterns) {
+      const match = matchPath(pattern, pathname);
+      if (match) {
+        const params: Record<string, string> = {};
+        for (const [name, value] of Object.entries(match.params)) if (value !== undefined) params[name] = value;
+        return {params};
+      }
+    }
+    return null;
+  };
+}
+
+/**
+ * `ui` at `path` beside the other `routes`: for the current address, the element whose pattern the
+ * seam's matcher accepts on the decoded path, `routes` first and `ui` last, which with no `path`
+ * renders at any address no route claims.
+ */
+function Routed({
+  ui,
+  path,
+  routes
+}: {
+  ui: ReactNode;
+  path: string | undefined;
+  routes: Record<string, ReactElement> | undefined;
+}): ReactNode {
+  const decoded = decodePath(useLocation().pathname);
+  for (const [pattern, element] of Object.entries(routes ?? {})) if (matchPath(pattern, decoded)) return element;
+  return path === undefined || matchPath(path, decoded) ? ui : null;
+}
+
+/** `ui` alone, or at `path` beside the other `routes`. */
 function routed(ui: ReactNode, path: string | undefined, routes: Record<string, ReactElement> | undefined): ReactNode {
   if (path === undefined && routes === undefined) return ui;
   return (
-    <Routes>
-      <Route
-        path={path ?? '*'}
-        element={ui}
-      />
-      {Object.entries(routes ?? {}).map(([pattern, element]) => (
-        <Route
-          key={pattern}
-          path={pattern}
-          element={element}
-        />
-      ))}
-    </Routes>
+    <Routed
+      ui={ui}
+      path={path}
+      routes={routes}
+    />
   );
 }
 
@@ -273,7 +293,7 @@ export function TestProviders({
   // Built here rather than required, so a direct caller (an axe render) gets the same seeded
   // client `renderWithProviders` would have handed it, at the address it asked for.
   const [client] = useState(() => {
-    if (!addressSeeded) startAt(route);
+    if (!addressSeeded) startAt(route, resolverFor(path, routes));
     const created = seededClient(queryClient, seedFeatureFlags, featureFlags);
     // Only when this component owns the client: one passed in was already registered by the
     // `renderWithProviders`/`renderHookWithProviders` call that built it.
@@ -285,7 +305,6 @@ export function TestProviders({
       auth={auth}
       client={client}
       initialState={typeof route === 'object' ? route.state : undefined}
-      catchAllRouter
       onLocation={onLocation}>
       {routed(children, path, routes)}
     </ProviderStack>
@@ -330,14 +349,14 @@ export function locationRecorder(): {onLocation: (location: NavLocation) => void
 
 /**
  * Renders `ui` inside the app's provider stack (the QueryClient, the AuthContext, and the
- * navigation seam on jsdom's own history through Next's stand-in, with react-router inside it so
- * route params resolve) and returns a `userEvent` instance and the seam's location alongside the
+ * navigation seam on jsdom's own history through Next's stand-in) and returns a `userEvent` instance and the seam's location alongside the
  * usual RTL result. This is the default entry point for component/feature tests — mock only the
  * AWS service boundary (`*.service.ts` / `src/lib` clients) and let the real hooks and child
  * components render.
  *
- * `path` puts `ui` at a pattern so its params resolve; `routes` adds other patterns, for a test
- * whose subject navigates away. The address is restored when the test finishes.
+ * `path` puts `ui` at a pattern so its params resolve, through Next's `useParams` as a page reads
+ * them; `routes` adds other patterns, for a test whose subject navigates away. Both are matched by
+ * the seam's own matcher. The address is restored when the test finishes.
  */
 export function renderWithProviders(
   ui: ReactElement,
@@ -353,7 +372,7 @@ export function renderWithProviders(
     ...options
   }: RenderWithProvidersOptions & Omit<RenderOptions, 'wrapper'> = {}
 ): RenderWithProvidersResult {
-  startAt(route);
+  startAt(route, resolverFor(path, routes));
   const client = seededClient(queryClient, seedFeatureFlags, featureFlags);
   clearAfterTest(client);
   const recorder = locationRecorder();
@@ -395,7 +414,7 @@ export function renderHookWithProviders<Result, Props>(
     ...options
   }: ProviderOptions & Omit<RenderHookOptions<Props>, 'wrapper'> = {}
 ) {
-  startAt(route);
+  startAt(route, resolverFor(path, routes));
   const client = seededClient(queryClient, seedFeatureFlags, featureFlags);
   clearAfterTest(client);
   const recorder = locationRecorder();

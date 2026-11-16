@@ -7,7 +7,7 @@ import {FeatureRoute} from '../FeatureRoute';
 const ConnectionsPage = lazy(() => import('../ConnectionsPage'));
 
 /**
- * Shared spaces, at `/connections`: the flag, then a keyed boundary, then the loading state, for the
+ * Shared spaces, at `/connections`: the flag, then a boundary, then the loading state, for the
  * reasons `QueryView` gives.
  *
  * @returns The shared-spaces page behind its flag, its boundary and its loading state.
@@ -15,7 +15,7 @@ const ConnectionsPage = lazy(() => import('../ConnectionsPage'));
 export function ConnectionsView() {
   return (
     <FeatureRoute flag="sharedWorkspaces">
-      <ErrorBoundary key="connections">
+      <ErrorBoundary>
         <Suspense fallback={<LoadingState />}>
           <ConnectionsPage />
         </Suspense>

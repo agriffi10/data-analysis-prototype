@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-263
 title: "The Landing Page and the 404 Move, and React Router Retires"
 description: "Serves the landing page and the 404 from the App Router, deletes react-router and the optional catch-all, collapses the navigation seam and the test harness onto Next.js alone, and stops a malformed percent-escape in a path from answering 500, closing the arc."
-spec_status: Draft
+spec_status: In Progress
 depends_on: [SPEC-262]
 arc: nextjs
 arc_order: 9
@@ -73,8 +73,9 @@ rendered the not-found page, and a request whose path carries a malformed percen
   file under `/_next/static/` already answers `404 text/plain`, so the handler now matters only for
   a non-static `/_next/` path, which would otherwise get the not-found page's HTML; retiring it
   would also change what 255's image matrix asserts about its `Cache-Control`.
-- **The `next/navigation` stand-in's eight modelled behaviours.** Every one is still a behaviour the
-  seam rests on, since same-page navigations stay native.
+- **The `next/navigation` stand-in's modelled behaviours**, but for the tenth, the document load at a
+  path no page serves, which FR-001 adds. Every other is still a behaviour the seam rests on, since
+  same-page navigations stay native.
 - **Next's file conventions beyond `page.tsx` and the root `not-found.tsx`.**
 
 ---
@@ -87,8 +88,16 @@ rendered the not-found page, and a request whose path carries a malformed percen
 
 `src/app/page.tsx` loads the landing page and `src/app/not-found.tsx` loads the not-found page, each
 through `next/dynamic` with `ssr: false`, under the page sweep's rules (no static import of the app
-graph, no props). The chrome already treats `/` and every path no record claims as public, so both
-render bare, outside the gate, with the header suppressed on `/` as today. The landing page keeps
+graph, no props), and each titles itself as it mounts with `usePageTitleOnMount` (`''` for the
+landing page, `'Not Found'` for the 404), as every App Router page does, so the title is right before
+the page's `next/dynamic` chunk arrives. Next reaches the 404 only by a document load: a client
+navigation to a path no page serves, Back and Forward onto one included, fetches the page, gets a 404
+and loads the document there instead (measured under `next start` while building), so the route
+announcer never reads it and the stand-in records such a navigation in `documentLoads()` rather than
+rendering it. Both must reach
+their page through `next/dynamic`: Next pulls a root `not-found.tsx` into every route's hydration
+chunks, so a static import there would fail `npm run check:pages` for every route. The chrome already
+treats `/` and every path no record claims as public, so both render bare, outside the gate, with the header suppressed on `/` as today. The landing page keeps
 every behaviour it has: signed out, it offers sign-in and sign-up through the session routes as 262
 left them and shows "Sign-in failed or was cancelled." on `/?signin=failed`; signed in after a
 sign-in, it sends the user on to the saved return path with a replace; signed in with no return
@@ -107,6 +116,13 @@ same level, so this FR and the catch-all's deletion (FR-002) land in one change.
       `/files?space=finance` lands on Files at that address by a `'REPLACE'`, and the saved path is
       cleared; with none saved, the first enabled destination's control navigates to it.
 - [ ] With either page file deleted, its test turns red, and the page sweep covers both files.
+- [ ] The not-found page is titled "Not Found — Data Quarry" before its view has loaded, red with its
+      `usePageTitleOnMount` removed; a navigation to `/nope` from a signed-in page is a document load
+      the announcer never reads, and a first visit to `/` announces nothing; the per-page announcement
+      test starts every visit on the not-found page, which loads no signed-in view, so no page's chunk
+      is loaded before its own visit.
+- [ ] The `next/navigation` stand-in models the document load as a tenth behaviour, with a test of
+      its own, on for `renderApp` only, whose resolver selects pages rather than params.
 - [ ] `next start` answers `/` with 200 and `/no-such-page` and `/files/extra` with 404, each
       carrying the not-found page and the request's CSP nonce. Measured while authoring on a
       harness with no catch-all and a nonce-setting proxy: both paths, `/Files` and `/nope.svg`
@@ -134,7 +150,8 @@ runtime rather than spelling it, so neither finds itself. That changes the sweep
 reading the name from `eslint.config.js`'s `REACT_ROUTER_IMPORTS`, which goes with the lint pattern,
 and its control that `react-router-dom-ish` is not a match flips, since a specifier beginning
 `react-router` now is one; the prose control (the name in a comment) stays a non-match. The lazy views keep their `ErrorBoundary`
-and `Suspense` but lose their static keys: each route renders its own view component, so React
+and `Suspense` (the shell's page boundary would also catch a failed chunk, but removing a view's own
+changes that view's failure surface, which is out of scope) but lose their static keys: each route renders its own view component, so React
 remounts the boundary on a route change whatever its key (measured on 256's completion, where the
 behaviour test that leaned on the keys was deleted as vacuous), and each area is its own App Router
 segment besides. The check that no two keys collide, and its planted copy, go with them. Of `table.test.tsx`'s other tests, the
@@ -181,7 +198,10 @@ through them, showed the right page. `useParams` returns Next's parameters, deco
 the three shapes `linkFlags.ts` and the gate's `areaOf` use. It matches case-sensitively, as 256
 already made the seam do, and returns each parameter as it stands in the path it was given except
 that `%2F` becomes `/`, exactly as react-router's `matchPath` does today (read in its source:
-`a%40b` comes back as `a%40b`). It decodes nothing itself: `linkFlags.ts` and `areaOf` hand it the
+`a%40b` comes back as `a%40b`). The gate keeps matching the decoded path although Next does not
+decode a static segment (`/fil%65s` and `/data%2Dquality/…` answer the not-found page, measured): a
+gate that claims more than Next serves costs a not-found inside the shell for a spelling nobody
+builds, while one that claimed less would render a page outside the gate. It decodes nothing itself: `linkFlags.ts` and `areaOf` hand it the
 path `decodePath` has already decoded segment by segment, keeping an encoded slash as `%2F`, so what
 they read does not change. The area records keep `area` and `paths` and lose
 `router`, so `routerFor`, the override context behind it and the record-and-page guard's
@@ -197,8 +217,8 @@ they read does not change. The area records keep `area` and `paths` and lose
       every row agrees.
 - [ ] A navigation between two pages calls `router.push`; a search-only, hash-only or same-address
       one calls neither `router.push` nor `router.replace`, each asserted on the call made.
-- [ ] From the not-found page, a link to `/` shows the landing page, and Back shows the not-found
-      page again; with both public paths written natively instead, the landing page never renders,
+- [ ] From the not-found page, a link to `/` shows the landing page, and Back loads the not-found
+      page's document again; with both public paths written natively instead, the landing page never renders,
       observed red, which `renderApp` can show only because it selects the page from the stand-in's
       router state as 256 requires.
 - [ ] The seam's tests from 256 that do not mention the catch-all pass unchanged in what they
@@ -249,8 +269,9 @@ sweep now covers whole. The `ROUTERS` rows of the seam's `it.each` tests keep th
 #### Description:
 
 A request whose path has a percent-escape that does not decode, a `%` not followed by two hex digits
-(`/%ZZ`, `/files%`) or bytes that are not UTF-8 (`/%E0`, `/nope/%E0%A4`), answers 400 with the
-security headers and the lockdown policy, and writes one log line, whichever page, route handler or
+(`/%ZZ`, `/files%`) or bytes that are not UTF-8 (`/%E0`, `/nope/%E0%A4`), or whose request target is
+not a path at all (absolute form, `http://elsewhere/files` or `javascript://elsewhere/%0aalert(1)`, and
+`OPTIONS *`), answers 400 with the security headers and the lockdown policy, and writes one log line, whichever page, route handler or
 not-found would serve the path, with or without a body. Measured on `main`'s standalone server while
 authoring: every such path answered 500 with a plain body, no policy and none of the security
 headers, and logged nothing, `/data-quality/%E0/r1` on 261's report page and `/_next/%E0` among them,
@@ -258,16 +279,23 @@ GET and POST with a body alike; `/data-quality/a%40b/r1` (escapes that decode) a
 escape in the query, which no router decodes) answered 200. 255's image matrix pins that 500 as an
 accepted residual, and this FR reverses it. Next means to answer these 400, as its source reads: its
 router catches the decode failure and renders the pages router's `/_error` at 400. An App Router-only
-build has no `/_error` (its `server/pages/` holds only `500.html`), so the answer is 500 instead.
+build has no `/_error` (its `server/pages/` holds only `500.html`), so the answer is 500 instead. With
+the catch-all gone and no guard (measured while building, on this spec's image with its `CMD` put
+back on `server.js`), a malformed escape in a single root-level segment (`/%zz`, `/%E0`) answers the
+not-found page at 404 with the page's headers, while one deeper in the path (`/data-quality/%E0/r1`,
+`/_next/%E0`) still answers the bare 500; the guard answers both alike.
 
 A guard ahead of Next answers them: `apps/portal/server-guard.cjs`, which the Dockerfile copies into
 the image and its `CMD` starts in place of `server.js`. Run as the entry point, it wraps the request
 listener Next's standalone server creates, by replacing `http.createServer` before it requires
 `server.js`; imported, it only exports its check and its responder, so a unit test can load it. It
-takes the path as the request target up to the first `?` or `#`, tests it segment by segment, and when
-one does not decode it answers 400 with the security headers, `LOCKDOWN_POLICY` as the
+refuses a request target that does not start with `/`, which Next would otherwise redirect to the URL
+it names in the client's own scheme and host (measured: `Location: javascript:/elsewhere.test/…` with
+no policy; the load balancer never forwards such a target, so this removes the image's dependence on
+it rather than closing a live hole). Otherwise it takes the path as the request target up to the
+first `?` or `#`, tests it segment by segment, and when one does not decode it answers 400 with the security headers, `LOCKDOWN_POLICY` as the
 `Content-Security-Policy`, a plain-text body and `Connection: close`, and writes `request: refused a
-path with a malformed percent-escape (<method>)`. The line names the method and not the path, since
+path with a malformed percent-escape (<method>)` (or `…a request target that is not a path…`). The line names the method and not the path, since
 the path is the caller's text. It reads no body, so a request with a body is answered at once and
 never held, and everything else passes to Next untouched. Measured while authoring with that wrapper
 around `main`'s standalone server: the GET corpus, `/_next/%E0` and `/_next/static/%E0` included, and
@@ -283,9 +311,11 @@ spec removes one.
 The guard carries its own copy of `SECURITY_HEADERS` and `LOCKDOWN_POLICY`, because it is plain
 JavaScript that runs outside the build and the image carries no `src/`; a unit test under
 `src/server/` imports both the guard and `src/lib/securityHeaders.ts` and holds the copy equal. A
-WebSocket upgrade never reaches the request listener: Next answers no upgrade for a malformed path at
-all, destroying the socket and logging `Error handling upgrade request` (measured in review), so it
-never answers 500, and the guard leaves upgrades alone. The guard
+WebSocket upgrade never reaches the request listener, and Next destroys the socket of one to a
+malformed path, but one to a path it would redirect (`/files/`) it leaves open with no answer at all
+(measured: past 6 s locally, past 10 s through the balancer), a socket held until the client gives
+up. The portal serves no WebSocket in production, so the guard answers every upgrade itself with the
+same 400 and ends the socket, by answering the server's `upgrade` event before Next's listener sees it. The guard
 depends on Next's standalone server creating its listener through `http.createServer`, which the image
 matrix holds: a Next upgrade that stops doing so turns the matrix's 400 rows red rather than silently
 restoring the 500. `next start` does not run the guard; the proof is the standalone server the image
@@ -294,16 +324,20 @@ runs.
 #### Acceptance Criteria:
 
 - [ ] A unit test of the guard's check passes `/`, `/files`, `/data-quality/a%40b/r1`, `/files/a%2Fb`,
-      `/%2e`, `/query?x=%E0`, `/files#%E0` and an absolute-form target, refuses `/%ZZ`, `/files%`,
-      `/%E0`, `/nope/%E0%A4`, `/_next/%E0` and `/data-quality/%E0/r1`, and goes red with the check
-      removed, with the query decoded as part of the path, or with the path ending only at `?`.
+      `/%2e`, `/query?x=%E0` and `/files#%E0`, refuses `/%ZZ`, `/files%`, `/%E0`, `/nope/%E0%A4`,
+      `/_next/%E0` and `/data-quality/%E0/r1` as malformed and an absolute-form target, `javascript://…`
+      and `*` as not a path, and goes red with the check removed, with the query decoded as part of the
+      path, or with the path ending only at `?`.
+- [ ] A unit test shows a server made after the guard is installed answers a refused request and an
+      upgrade itself and passes every other request to its listener.
 - [ ] A unit test asserts that the guard's copy of the headers equals `SECURITY_HEADERS` and
       `LOCKDOWN_POLICY` as they stand in `securityHeaders.ts`, that its 400 carries every one, and that
       its log line names the method and contains no part of the path; changing a header in either
       place turns it red, and importing the guard starts no server.
 - [ ] 255's image matrix row for `/%zz` asserts 400, the lockdown policy and `nosniff`, with rows for
-      `/data-quality/%E0/r1`, `/_next/%E0` and a POST with a body to `/api/%E0`, and a row that
-      `/data-quality/a%40b/r1` still answers 200. The matrix goes red against an image built with the
+      `/data-quality/%E0/r1`, `/_next/%E0`, an absolute-form target, `OPTIONS *` and a POST with a body
+      to `/api/%E0`, a row that `/data-quality/a%40b/r1` still answers 200, and a row that a WebSocket
+      upgrade to `/files/` is answered 400 within two seconds. The matrix goes red against an image built with the
       `CMD` back on `server.js`, observed once.
 - [ ] The image matrix's bodied-request section gains a row in which a request declaring a large body
       to a malformed path and sending one byte is answered 400 at once, while the health probe
@@ -323,7 +357,9 @@ another session's live checks may overlap.
       folder; a cancelled sign-in comes back to `/` with "Sign-in failed or was cancelled.".
 - [ ] `/no-such-page` shows the not-found page with status 404, outside the shell, signed in and
       out.
-- [ ] `/data-quality/%E0/r1` answers 400, and its log line reaches the web tier's log group.
+- [ ] `/data-quality/%E0/r1` answers 400 with the lockdown policy, and its log line reaches the web
+      tier's log group. The policy or the log line, not the status alone: the load balancer answers
+      `/%zz` 400 itself, with no policy, so a status-only probe would pass with the guard absent.
 - [ ] Every area opens from the header, Back and Forward move between them without a document
       reload, and each page keeps its own tab title.
 
@@ -332,13 +368,16 @@ another session's live checks may overlap.
 ## API / Interface Contract
 
 ```tsx
-// src/app/page.tsx — and src/app/not-found.tsx, the same shape around the not-found page
+// src/app/page.tsx — and src/app/not-found.tsx, the same shape around the not-found page,
+// titled 'Not Found'
 'use client';
 import dynamic from 'next/dynamic';
+import {usePageTitleOnMount} from '../hooks/usePageTitle';
 
 const LandingPage = dynamic(() => import('../routes/LandingPage'), {ssr: false});
 
 export default function Page() {
+  usePageTitleOnMount('');
   return <LandingPage />;
 }
 ```
@@ -371,6 +410,8 @@ apps/portal/src/
 │   ├── not-found.tsx                 new: the 404
 │   ├── publicPages.test.tsx          new: the landing, 404, `/Files` and `/fil%65s` tests moved
 │   │                                 from table.test.tsx
+│   ├── routeAnnouncement.catchAll.test.tsx  renamed routeAnnouncement.publicPages.test.tsx: the
+│   │                                 two public pages' titles, the catch-all's name table gone
 │   └── [[...slug]]/                  deleted
 ├── lib/navigation/
 │   ├── CatchAllRouter.tsx            deleted
@@ -383,6 +424,7 @@ apps/portal/src/
 │   ├── table.test.tsx                deleted
 │   └── areas/*.tsx                   views without static keys
 └── test/
+    ├── appRouter.records.test.tsx    deleted: the catch-all fixture and `'as-recorded'` it tested
     ├── reactRouterSweep.test.ts      no exempt place, plus the manifest check
     ├── renderWithProviders.tsx       no CatchAllRouter; `path` and `routes` on the seam's matcher
     └── appRouter.tsx                 no `routers`
@@ -439,6 +481,7 @@ the page it renders; so the two phases below are built together and land in one 
   `react.md` §21's harness line, the cross-router steps 256 to 261 wrote into `docs/testing/e2e.md`
   (256's block in §4.1 among them), 255's records of the catch-all's 200, and
   `docs/security-baseline.md`'s react-router passages (the open-redirect protection is now the
-  seam's in-app rule) and its "answered before routing" row, which loses the malformed escape (a
-  trailing slash's 308 and `OPTIONS *` stay in it), brought up to date, and the arc's entry in
+  seam's in-app rule) and its "answered before routing" row, which loses the malformed escape, the
+  absolute-form target and `OPTIONS *` to the guard (a trailing slash's, `//host`'s and `/\host`'s
+  same-origin 308s stay in it), brought up to date, and the arc's entry in
   `ARCS.md` closed.

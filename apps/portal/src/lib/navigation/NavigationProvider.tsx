@@ -1,7 +1,6 @@
 'use client';
 import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
-import {routerFor, useAreaRecords} from './areas';
 import {
   KEY_FIELD,
   committedAddress,
@@ -34,12 +33,14 @@ type NextHistoryState = {__NA?: unknown; __PRIVATE_NEXTJS_INTERNALS_TREE?: unkno
  * what the App Router lacks — the navigation type, a key per history entry, the hash, and the state
  * a navigation carries.
  *
- * WHICH ROUTER PERFORMS A NAVIGATION. The source is the committed address, `window.location`, never
- * this component's latest render, which can be a transition Next has not committed. A target that
- * keeps the committed path, or one whose source and target the catch-all both serve, is written
- * with `history.pushState`/`replaceState`: Next copies its own state into the entry and moves
- * `usePathname` and `useSearchParams` without rendering a new segment, so the page stays mounted
- * and nothing is fetched. Every other navigation is Next's `router.push`/`replace`.
+ * WHICH NAVIGATIONS ARE NATIVE. The source is the committed address, `window.location`, never this
+ * component's latest render, which can be a transition Next has not committed. A target that keeps
+ * the committed path is written with `history.pushState`/`replaceState`: Next copies its own state
+ * into the entry and moves `usePathname` and `useSearchParams` without rendering a new segment, so
+ * the page stays mounted and nothing is fetched. Every other navigation is Next's
+ * `router.push`/`replace`, which renders the page the new path selects, the landing page and the
+ * not-found page included: written natively, a move between those two would leave the first on
+ * screen under the second's address.
  *
  * HOW A CHANGE IS CLASSIFIED, while rendering. A change the seam started is what its call said. One
  * it did not start, with the address already moved, is a traversal (`'POP'`): Next writes the
@@ -69,7 +70,6 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
   const pathname = usePathname();
   const nextSearch = useSearchParams();
   const router = useRouter();
-  const records = useAreaRecords();
   const searchString = nextSearch.toString();
   const rendered: Address = {pathname, search: searchString ? `?${searchString}` : '', hash: ''};
 
@@ -179,10 +179,7 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
       const type: NavigationType = options.replace ? 'REPLACE' : 'PUSH';
       const next: Entry = {...target, state: options.state, key: newKey(), type};
       const href = hrefOf(target);
-      const native =
-        target.pathname === normalizePathname(from.pathname) ||
-        (routerFor(from.pathname, records) === 'catch-all' && routerFor(target.pathname, records) === 'catch-all');
-      if (!native) {
+      if (target.pathname !== normalizePathname(from.pathname)) {
         leaving.current = {from: entryRef.current, at: hrefOf(from)};
         setExpected({...next, native: false});
         if (type === 'PUSH') router.push(href);
@@ -215,7 +212,7 @@ export function NavigationProvider({children, initialState}: {children: ReactNod
       if (type === 'PUSH') window.history.pushState(data, '', href);
       else window.history.replaceState(data, '', href);
     },
-    [records, router, setEntry, setExpected]
+    [router, setEntry, setExpected]
   );
 
   const navigate = useCallback((to: To, options: NavigateOptions = {}) => go(to, options, false), [go]);

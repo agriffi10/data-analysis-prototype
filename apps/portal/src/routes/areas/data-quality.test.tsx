@@ -4,7 +4,6 @@ import {renderApp} from '../../test/appRouter';
 import {authenticated} from '../../test/authFixtures';
 import {createTestQueryClient} from '../../test/renderWithProviders';
 import {traverse} from '../../test/nextNavigation';
-import type {AreaRouter} from '../../lib/navigation';
 import {connectionKeys} from '../../features/connections/connectionKeys';
 import {getRunsIndex} from '../../features/data-quality/dataQualityRuns.service';
 import {getQualityReport} from '../../features/data-quality/dataQualityReport.service';
@@ -17,7 +16,6 @@ import {enqueueNotificationAction, getNotifications} from '../../features/notifi
 import {readSharedConnectionsCache} from '../../features/shared-spaces/sharedSpaces.service';
 import type {SharedConnectionsCache} from '../../features/shared-spaces/sharedSpaces.types';
 import type {ServiceResult} from '../../types/service.types';
-import {NotificationsView} from './notifications';
 
 /** Whether the two pages render as stand-ins; the App Router tests below switch them off for the real views. */
 const standIns = vi.hoisted(() => ({on: true}));
@@ -31,13 +29,11 @@ vi.mock('../DataQualityReportPage', async (importOriginal) => {
 });
 
 describe('the data-quality area', () => {
-  // Served from whichever router the area's record names, so the move that changes it does not
-  // redden these.
   it.each([
     ['/data-quality', 'Data quality runs'],
     ['/data-quality/alice/req-1', 'A data quality report']
   ])('serves %s inside the shell', async (path, heading) => {
-    renderApp(path, {auth: authenticated('alice'), routers: 'as-recorded'});
+    renderApp(path, {auth: authenticated('alice')});
 
     expect(await screen.findByRole('heading', {name: heading})).toBeInTheDocument();
     expect(screen.getByRole('link', {name: 'Files'})).toBeInTheDocument();
@@ -72,9 +68,6 @@ vi.mock('../../features/feature-flags/featureFlags.service', async (importActual
 
 const NO_SPACES: SharedConnectionsCache = {version: 1, connections: []};
 const REPORT_LINK = /Data quality check finished/;
-
-/** The report and the runs page served by their App Router pages, whatever the harness defaults to. */
-const ON_APP = {'data-quality': 'app'} as const;
 
 /** A completed run in alice's own space, as the runs index lists it. */
 const RUN: DataQualityRunSummary = {
@@ -119,11 +112,6 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-/** The Notifications page as an App Router page, for a test that serves Notifications from either router. */
-function NotificationsAppPage() {
-  return <NotificationsView />;
-}
-
 describe('the data-quality pages on the App Router', () => {
   const mockRuns = vi.mocked(getRunsIndex);
   const mockReport = vi.mocked(getQualityReport);
@@ -140,7 +128,7 @@ describe('the data-quality pages on the App Router', () => {
 
   it('lists the runs, opens a run’s report from its row, and comes back to the list on Back', async () => {
     mockRuns.mockImplementation(async (_bucket, space) => ({success: true, data: space === 'alice' ? [RUN] : []}));
-    const {user} = renderApp('/data-quality', {auth: authenticated('alice'), routers: ON_APP});
+    const {user} = renderApp('/data-quality', {auth: authenticated('alice')});
 
     await user.click(await screen.findByRole('link', {name: /Data quality check on alice\/sales\//}));
 
@@ -160,7 +148,6 @@ describe('the data-quality pages on the App Router', () => {
     });
     renderApp('/data-quality/a%40b%20c/req-1', {
       auth: authenticated('alice'),
-      routers: ON_APP,
       featureFlags: {sharedWorkspaces: true}
     });
 
@@ -172,7 +159,6 @@ describe('the data-quality pages on the App Router', () => {
   it('renders the unavailable page with data quality off, and reads no report', async () => {
     renderApp('/data-quality/alice/req-1', {
       auth: authenticated('alice'),
-      routers: ON_APP,
       featureFlags: {dataQuality: false}
     });
 
@@ -187,7 +173,7 @@ describe('the data-quality pages on the App Router', () => {
   it('reads no report until a late flag answers, and reads it once data quality is on', async () => {
     const flags = deferred<ServiceResult<FeatureFlags>>();
     vi.mocked(getFeatureFlags).mockReturnValue(flags.promise);
-    renderApp('/data-quality/alice/req-1', {auth: authenticated('alice'), routers: ON_APP, seedFeatureFlags: false});
+    renderApp('/data-quality/alice/req-1', {auth: authenticated('alice'), seedFeatureFlags: false});
 
     // Loaded, the page shows the gate's loader or, were the gate open early, starts a read; which is the subject.
     await waitFor(() => expect(screen.queryByText('Loading…') !== null || mockReport.mock.calls.length > 0).toBe(true));
@@ -211,7 +197,7 @@ describe('the data-quality pages on the App Router', () => {
     mockInbox.mockResolvedValue(inboxLinkingTo('/data-quality/team-data/req-1'));
     const read = deferred<ServiceResult<SharedConnectionsCache>>();
     mockCache.mockReturnValue(read.promise);
-    const {user} = renderApp('/notifications', {auth: authenticated('alice'), routers: ON_APP, queryClient});
+    const {user} = renderApp('/notifications', {auth: authenticated('alice'), queryClient});
 
     await user.click(await screen.findByRole('link', {name: REPORT_LINK}));
 
@@ -238,24 +224,17 @@ describe('the data-quality pages on the App Router', () => {
     expect(mockReport).not.toHaveBeenCalled();
   });
 
-  it.each<AreaRouter>(['catch-all', 'app'])(
-    'opens a report from a notification’s link, with Notifications served by the %s router',
-    async (router) => {
-      mockInbox.mockResolvedValue(inboxLinkingTo('/data-quality/alice/req-1'));
-      const {user} = renderApp('/notifications', {
-        auth: authenticated('alice'),
-        routers: {...ON_APP, notifications: router},
-        pages: router === 'app' ? {'(signed-in)/notifications/page.tsx': NotificationsAppPage} : {}
-      });
+  it('opens a report from a notification’s link, and Back returns to the notification', async () => {
+    mockInbox.mockResolvedValue(inboxLinkingTo('/data-quality/alice/req-1'));
+    const {user} = renderApp('/notifications', {auth: authenticated('alice')});
 
-      await user.click(await screen.findByRole('link', {name: REPORT_LINK}));
+    await user.click(await screen.findByRole('link', {name: REPORT_LINK}));
 
-      expect(await screen.findByRole('heading', {level: 1, name: 'Data quality report'})).toBeInTheDocument();
-      expect(await screen.findByText('alice/sales/')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', {level: 1, name: 'Data quality report'})).toBeInTheDocument();
+    expect(await screen.findByText('alice/sales/')).toBeInTheDocument();
 
-      await traverse(-1);
+    await traverse(-1);
 
-      expect(await screen.findByRole('link', {name: REPORT_LINK})).toBeInTheDocument();
-    }
-  );
+    expect(await screen.findByRole('link', {name: REPORT_LINK})).toBeInTheDocument();
+  });
 });

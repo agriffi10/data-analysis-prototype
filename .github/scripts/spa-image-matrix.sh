@@ -5,9 +5,9 @@
 # Without this script the image's whole specification is documentation.
 #
 # IT ASSERTS ON RESPONSES, NEVER ON THE SOURCE'S TEXT. A route handler that exists in the tree but
-# was not built answers nothing; a header the proxy sets can override a route handler's; and the
-# optional catch-all answers ANY unmatched path with the app shell under a 200, so a missing health
-# route, a missing configuration document and a missing chunk all read as success by status alone.
+# was not built answers nothing; a header the proxy sets can override a route handler's; and a
+# missing route handler falls through to the not-found page, so the status is never the only thing a
+# row reads.
 #
 # The container under test runs the way ECS runs it — read-only root, uid 1000, one tmpfs at /tmp
 # and no other — because "it works with a writable filesystem" is not the claim.
@@ -300,11 +300,30 @@ else
 fi
 
 section "A deep link"
-fetch "/files/alice/reports"
+fetch "/data-quality/alice/r1"
 check_eq "status" "$(status)" "200"
 check_contains "content-type" "$(header content-type)" "text/html"
 check_eq "cache class is the page's" "$(header cache-control)" "$PAGE_CACHE"
 assert_security_headers "deep link" "$(page_csp)"
+
+section "An address no page serves"
+# The not-found page under a 404, as a page: HTML, the page's cache class, and the response's own
+# nonce on every script, since it renders the app like any other page.
+for path in /no-such-page /files/alice/reports; do
+  fetch "$path"
+  check_eq "$path: status" "$(status)" "404"
+  check_contains "$path: content-type" "$(header content-type)" "text/html"
+  check_eq "$path: cache class is the page's" "$(header cache-control)" "$PAGE_CACHE"
+  assert_security_headers "$path" "$(page_csp)"
+  NOT_FOUND_NONCE=$(nonce)
+  SCRIPTS=$(grep -o '<script[^>]*>' /tmp/matrix-body | wc -l | tr -d ' ')
+  SCRIPTS_NONCED=$(grep -o '<script[^>]*>' /tmp/matrix-body | grep -c "nonce=\"${NOT_FOUND_NONCE}\"")
+  if [ -n "$NOT_FOUND_NONCE" ] && [ "$SCRIPTS" -gt 0 ] && [ "$SCRIPTS" = "$SCRIPTS_NONCED" ]; then
+    pass "$path: every script ($SCRIPTS) carries the response's nonce"
+  else
+    fail "$path: every script carries the response's nonce" "$SCRIPTS_NONCED of $SCRIPTS, nonce [$NOT_FOUND_NONCE]"
+  fi
+done
 
 section "A hashed asset"
 fetch "/_next/static/chunks/${ASSET}" -H 'Accept-Encoding: gzip, br'
@@ -315,8 +334,8 @@ check_contains "Vary names Accept-Encoding" "$(header vary)" "Accept-Encoding"
 assert_security_headers "asset" "$(page_csp)"
 
 section "A missing hashed asset"
-# Without the /_next/ route handler the catch-all answers this with the app shell under a 200, and
-# a module script fails on HTML with no way to tell "removed" from "never existed".
+# A plain 404, never HTML: a module script fails on HTML with no way to tell "removed" from "never
+# existed".
 fetch "/_next/static/chunks/missing-$RANDOM.js"
 check_eq "status" "$(status)" "404"
 check_absent "the response is not HTML" "$(header content-type)" "text/html"
@@ -355,19 +374,17 @@ fetch "/favicon.svg"
 check_eq "status" "$(status)" "200"
 check_contains "content-type" "$(header content-type)" "image/svg+xml"
 
-# THE CATCH-ALL'S TRAP, pinned so a change to it is visible: a removed root-level file answers the
-# app shell under a 200, so a removal is never verifiable by status code. Read content-type.
+# A removed root-level file is an address no page serves, so its removal reads from the status.
 fetch "/removed-$RANDOM.js"
-check_eq "a removed root file still answers 200" "$(status)" "200"
-check_contains "…as text/html, which is why removals are read from content-type" "$(header content-type)" "text/html"
+check_eq "a removed root file answers 404" "$(status)" "404"
 
 # ── The responses Next answers before routing ─────────────────────────────────
 section "Answered before routing, so carrying no policy (an accepted residual)"
 
-# Next normalises some URLs and refuses malformed ones before the proxy or `headers()` ever run, so
-# these responses carry no policy and none of the security headers (docs/security-baseline.md).
-# PINNED, so a change to this class is visible rather than silent. Raw request targets, not URLs:
-# curl would otherwise normalise the very spelling under test.
+# Next normalises some URLs before the proxy or `headers()` ever run, so these responses carry no
+# policy and none of the security headers (docs/security-baseline.md). PINNED, so a change to this
+# class is visible rather than silent. Raw request targets, not URLs: curl would otherwise normalise
+# the very spelling under test.
 fetch "/files/"
 check_eq "a trailing slash is a 308 to the bare path" "$(status)" "308"
 check_eq "…to the same origin's path" "$(header location)" "/files"
@@ -379,23 +396,56 @@ check_eq "…to a same-origin path, the slashes collapsed" "$(header location)" 
 fetch "/" --request-target "/\\${FOREIGN_HOST}/files"
 check_eq "a backslash after the leading slash is a 308" "$(status)" "308"
 check_eq "…to a same-origin path, the backslash collapsed" "$(header location)" "/${FOREIGN_HOST}/files"
-# THE OFF-SITE ONE: an absolute-form target is redirected to the URL it names, in the client's own
-# scheme and host, `javascript:` included. Only a raw client sends one, and the load balancer never
-# passes it on: HTTP/1.1 reaches the container in origin form, and an HTTP/2 :path not starting with
-# `/` is refused. So the image answers it only without the balancer. Both headers are pinned, so a
-# fix that rewrites one is seen to leave the other.
+
+# ── The requests the guard answers ahead of Next ──────────────────────────────
+section "Refused by the guard ahead of Next, with the headers"
+
+# A path whose percent-escape does not decode made every page, handler and the not-found page answer
+# a bare 500, and a target that is not a path was redirected to the URL it names, `javascript:`
+# included. The guard the image starts (server-guard.cjs) answers both 400 with the lockdown policy and
+# every security header. These rows are also what holds the guard's one dependency on Next: that its
+# standalone server makes its listener through `http.createServer`. Should a Next upgrade stop doing
+# so, they turn red rather than the 500 silently coming back.
+refused() {
+  local label="$1"
+  check_eq "$label: 400" "$(status)" "400"
+  check_eq "$label: the lockdown policy" "$(header content-security-policy)" "$LOCKDOWN_CSP"
+  check_eq "$label: nosniff" "$(header x-content-type-options)" "nosniff"
+  check_eq "$label: HSTS" "$(header strict-transport-security)" "max-age=31536000; includeSubDomains"
+  check_absent "$label: a plain body, not a page" "$(header content-type)" "text/html"
+}
+# `%` without two hex digits gets the load balancer's own 400 before the container sees it; bytes
+# that are not UTF-8 reach the container. The image answers both.
+for path in "/%zz" "/%E0" "/data-quality/%E0/r1" "/_next/%E0"; do
+  fetch "/" --request-target "$path"
+  refused "$path"
+done
 fetch "/" --request-target "http://${FOREIGN_HOST}/files"
-check_eq "an absolute-form target is a 308" "$(status)" "308"
-check_eq "…to the target's own authority, off-site" "$(header location)" "http://${FOREIGN_HOST}/files"
-check_eq "…and Refresh names the same destination" "$(header refresh)" "0;url=http://${FOREIGN_HOST}/files"
-# Two malformed escapes, because the balancer answers the first itself and passes the second on:
-# `%` without two hex digits gets the balancer's own 400, while bytes that are not UTF-8 reach Next.
-fetch "/%zz"
-check_eq "a malformed escape is a 500" "$(status)" "500"
-check_absent "…with a plain body, not a page" "$(header content-type)" "text/html"
-fetch "/%E0"
-check_eq "an escape that is not UTF-8 is a 500" "$(status)" "500"
-check_absent "…with a plain body, not a page" "$(header content-type)" "text/html"
+refused "an absolute-form target"
+check_header_missing "…which is not redirected anywhere" location
+fetch "/" -X OPTIONS --request-target "*"
+refused "OPTIONS *"
+fetch "/data-quality/a%40b/r1"
+check_eq "an escape that decodes still reaches its page" "$(status)" "200"
+
+# Next leaves an upgrade to a path it would redirect open with no answer at all; the portal serves no
+# WebSocket, so the guard refuses every upgrade. Raw sockets, read with a two-second bound.
+UPGRADE_HEAD=""
+# A fresh key per run: a key written into this file reads as a secret to the history scanner.
+UPGRADE_KEY=$(head -c 16 /dev/urandom | base64)
+if exec 3<>"/dev/tcp/127.0.0.1/${PORT}"; then
+  printf 'GET /files/ HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n\r\n' "$UPGRADE_KEY" >&3
+  while IFS= read -r -t 2 line <&3; do
+    line="${line%$'\r'}"
+    [ -z "$line" ] && break
+    UPGRADE_HEAD="${UPGRADE_HEAD}${line}"$'\n'
+  done
+  exec 3<&- 3>&-
+else
+  fail "a WebSocket upgrade could be sent" "could not connect"
+fi
+check_eq "a WebSocket upgrade to a redirected path is answered 400 within two seconds" \
+  "$(printf '%s' "$UPGRADE_HEAD" | head -1 | awk '{print $2}')" "400"
 
 # ── A request that carries a body ─────────────────────────────────────────────
 section "A request with a body is answered promptly"
@@ -444,6 +494,23 @@ for path in / /files /config.json /healthz "/_next/static/chunks/missing-$RANDOM
   bodied "a 1 GB declaration to $path" "$path" length
 done
 bodied "a chunked body that never ends, to /" "/" chunked
+
+# A malformed path with a body is refused by the guard at once, never held for the body. The health
+# probe is a liveness co-check while that connection is open, which Next would pass on its own; the
+# 400 read after it is the row that tells the guard from none.
+bodied "a 1 GB declaration to /api/%E0" "/api/%E0" length
+check_eq "…refused with a 400" "$(head -1 /tmp/matrix-head | awk '{print $2}')" "400"
+HELD=""
+if exec 4<>"/dev/tcp/127.0.0.1/${PORT}"; then
+  printf 'POST /files/%%E0 HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1073741824\r\n\r\nx' >&4
+  check_eq "the server stays live beside a 1 GB declaration to /files/%E0 (the health probe answers)" \
+    "$(curl -s -o /dev/null -m 2 -w '%{http_code}' "${BASE}/healthz")" "200"
+  IFS= read -r -t 2 HELD <&4 || true
+  exec 4<&- 4>&-
+else
+  fail "a 1 GB declaration to /files/%E0 could be sent" "could not connect"
+fi
+check_eq "…which is refused with a 400 at once" "$(printf '%s' "${HELD%$'\r'}" | awk '{print $2}')" "400"
 
 # ── The session routes and the API pass-through ───────────────────────────────
 section "The session routes answer before reading a body or a session"

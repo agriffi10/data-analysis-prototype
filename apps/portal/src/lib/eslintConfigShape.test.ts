@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import eslintConfig, {REACT_ROUTER_IMPORTS} from '../../eslint.config.js';
+import eslintConfig from '../../eslint.config.js';
 
 /**
  * The `@aws-sdk/*` ban is one rule declared four times, and that is the hazard.
@@ -101,8 +101,7 @@ describe('the server holds the one exception to the ban', () => {
       patterns: {group: string[]}[];
     };
     expect(options.patterns.map((pattern) => pattern.group)).toEqual([
-      ['@aws-sdk/*', '@aws-sdk/**', '!@aws-sdk/client-dynamodb'],
-      REACT_ROUTER_IMPORTS.group
+      ['@aws-sdk/*', '@aws-sdk/**', '!@aws-sdk/client-dynamodb']
     ]);
 
     const negated = eslintConfig
@@ -161,47 +160,30 @@ describe('the browser signs in through the server, so Amplify is gone', () => {
 });
 
 /**
- * react-router is held to three places: the navigation seam, the route table and the test harness.
- * The pattern is one group spread into every clause, and the places it is lifted are two clauses of
- * their own, for the reason the SDK ban above gives: each clause replaces the rule for the files it
- * matches, so an exemption that dropped a group would lift that ban too.
+ * react-router is gone, and with it the two clauses that lifted its ban: one for the navigation seam,
+ * one for the route table and the test harness. Either one left behind would re-state the clause it
+ * overrides as it stood when it was written, and silently stop following every later change to it.
+ * With them gone, the seam's tests fall to the lib-test clause like every other lib test, and the
+ * harness to the `src/**` clause.
  */
-describe('react-router is held to the seam, the route table and the harness', () => {
-  const ROUTER = REACT_ROUTER_IMPORTS.group[0];
-  const EXEMPT_PLACES = [['src/lib/navigation/**/*.{ts,tsx}'], ['src/routes/table.tsx', 'src/test/**/*.{ts,tsx}']];
-  /** Files the exemptions cover, to find which earlier clauses each one overrides. */
-  const PROBES = [
-    'src/lib/navigation/index.ts',
-    'src/lib/navigation/navigation.test.tsx',
-    'src/routes/table.tsx',
-    'src/test/renderWithProviders.tsx'
-  ];
-  const governing = governingEntries();
-  const exemptions = governing.filter((entry) => !(groupsOf(entry) ?? []).includes(ROUTER));
+describe('the retired router’s exemption clauses', () => {
+  const EXEMPTED = ['src/lib/navigation/**/*.{ts,tsx}', 'src/routes/table.tsx', 'src/test/**/*.{ts,tsx}'];
 
-  it('is refused by every clause but the two exemptions', () => {
-    expect(governing.length).toBeGreaterThanOrEqual(7);
-    expect(exemptions.map((entry) => entry.files)).toEqual(EXEMPT_PLACES);
+  it('declare no import rule of their own any more', () => {
+    const survivors = governingEntries().filter((entry) => entry.files?.some((glob) => EXEMPTED.includes(glob)));
+
+    expect(governingEntries().length).toBeGreaterThanOrEqual(6);
+    expect(survivors.map((entry) => entry.files)).toEqual([]);
   });
 
-  it('is lifted only where the exemptions say, and each keeps every other group of the clauses it overrides', () => {
-    for (const exemption of exemptions) {
-      const kept = new Set(groupsOf(exemption));
-      const position = governing.indexOf(exemption);
-      for (const probe of PROBES.filter((file) => exemption.files?.some((glob) => globMatches(glob, file)))) {
-        const overridden = governing
-          .slice(0, position)
-          .filter((entry) => entry.files?.some((glob) => globMatches(glob, probe)));
-        expect(overridden.length, `nothing earlier governs ${probe}`).toBeGreaterThan(0);
-        const owed = overridden
-          .flatMap((entry) => groupsOf(entry) ?? [])
-          .filter((group) => !REACT_ROUTER_IMPORTS.group.includes(group));
-        expect(
-          owed.filter((group) => !kept.has(group)),
-          `${probe} loses a ban`
-        ).toEqual([]);
-      }
-    }
+  it('leave the seam’s own files under the shared layers’ bans', () => {
+    const seamFile = 'src/lib/navigation/index.ts';
+    const last = governingEntries()
+      .filter((entry) => entry.files?.some((glob) => globMatches(glob, seamFile)))
+      .at(-1);
+
+    expect(last?.files).toEqual(['src/lib/**/*.{ts,tsx}', 'src/hooks/**/*.{ts,tsx}']);
+    expect(last && groupsOf(last)).toEqual(expect.arrayContaining(['**/features/*', '../server']));
   });
 
   it('reads a glob as flat config does', () => {

@@ -1,7 +1,6 @@
-import {createContext, useContext} from 'react';
 import {decodePath} from '../address';
 import {matchPath} from '../matchPath';
-import type {AreaRecord, AreaRouter} from './area.types';
+import type {AreaRecord} from './area.types';
 import {filesArea} from './files';
 import {notificationsArea} from './notifications';
 import {helpArea} from './help';
@@ -10,11 +9,11 @@ import {exploreArea} from './explore';
 import {connectionsArea} from './connections';
 import {dataQualityArea} from './data-quality';
 
-export type {AreaName, AreaRecord, AreaRouter} from './area.types';
+export type {AreaName, AreaRecord} from './area.types';
 
 /**
- * Every signed-in area, and which router serves it. An area move flips its own record to `'app'`
- * and adds its pages; nothing else names which router serves what.
+ * Every signed-in area and the paths it serves, each served by its pages under
+ * `src/app/(signed-in)/`. A path one of them claims is signed in; every other path is public.
  */
 export const AREAS: readonly AreaRecord[] = [
   filesArea,
@@ -27,37 +26,19 @@ export const AREAS: readonly AreaRecord[] = [
 ];
 
 /**
- * The records as the seam, the chrome and the table read them. Nothing in production provides
- * it; every test harness does, with every area on the catch-all unless the test names another
- * router, so a test can serve an area from either router whatever is on disk.
- */
-export const AreaRecordsContext = createContext<readonly AreaRecord[]>(AREAS);
-
-/** The records in force here: the context's, which in production are {@link AREAS}. */
-export function useAreaRecords(): readonly AreaRecord[] {
-  return useContext(AreaRecordsContext);
-}
-
-/**
- * The area that claims a path, matched whole and case-sensitively on the decoded path, as the route
- * table matches it.
+ * The area that claims a path, matched whole and case-sensitively on the path decoded segment by
+ * segment.
+ *
+ * Decoded, so an encoded spelling of an area's path (`/fil%65s`) is claimed as that area and a
+ * signed-out user is sent to `/`. Next does not decode a static segment and answers such a spelling
+ * with the not-found page, so claiming it costs a not-found inside the shell for an address nobody
+ * builds; matching undecoded instead would leave the gate claiming less than a page might serve.
  *
  * @param pathname - The path to look up.
- * @param records - The records to read; {@link AREAS} unless a test overrides them.
+ * @param records - The records to read; {@link AREAS} unless a test passes a fixture.
  * @returns The record, or null for a public path: `/`, or one no area claims.
  */
 export function areaOf(pathname: string, records: readonly AreaRecord[] = AREAS): AreaRecord | null {
   const decoded = decodePath(pathname);
   return records.find((record) => record.paths.some((pattern) => matchPath(pattern, decoded))) ?? null;
-}
-
-/**
- * Which router serves a path. A public path is the catch-all's until the last spec moves it.
- *
- * @param pathname - The path to look up.
- * @param records - The records to read; {@link AREAS} unless a test overrides them.
- * @returns `'app'` or `'catch-all'`.
- */
-export function routerFor(pathname: string, records: readonly AreaRecord[] = AREAS): AreaRouter {
-  return areaOf(pathname, records)?.router ?? 'catch-all';
 }
