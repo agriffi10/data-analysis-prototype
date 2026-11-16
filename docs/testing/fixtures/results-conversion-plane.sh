@@ -29,19 +29,23 @@
 # USAGE
 #   1. Sign in to the portal as the account you want to act as.
 #   2. Send each section's request from the developer console of a signed-in portal page rather
-#      than with `enqueue` below: the same JSON body, to the same route under `/api/`, naming the
-#      signed-in user. The portal server attaches the session's token, and the page supplies the
-#      `Origin` the route checks:
+#      than with `enqueue` below: the body `enqueue` builds, to the same route under `/api/`, naming
+#      the signed-in user. The portal server attaches the session's token, and the page supplies
+#      the `Origin` the route checks. §1's Parquet request, for example, for the account alice:
 #        await fetch('/api/v1/enqueue/results-conversion', {method: 'POST',
 #          headers: {'content-type': 'application/json', 'x-dq-user': 'alice'},
-#          body: JSON.stringify(body)})
+#          body: JSON.stringify({requestId: crypto.randomUUID(), queryExecutionId: '<id>',
+#            format: 'parquet', onConflict: 'refuse', submittedAt: new Date().toISOString(),
+#            destination: {space: {kind: 'personal', name: 'alice'}, prefix: 'spec-222/',
+#                          filename: 'live.parquet'}}),
+#        }).then((r) => r.json())
 #      Do not copy a token out of the session store to run the script instead: that puts a live
 #      credential in a shell, and the page sends the same request without one.
 #   3. Run a query in the Query workspace that returns a few thousand rows of mixed types and
 #      use its execution id in each body.
 #   4. Each response must carry its `requestId`. Read the BY EYE text against the inbox and the
-#      saved files; §3's workbook check is plain Python over the downloaded file, and §4 reads the
-#      converter's log in CloudWatch.
+#      saved files; §3's workbook check is plain Python, run by hand over the downloaded
+#      live.xlsx, and §4 reads the converter's log in CloudWatch.
 #
 # It prints one PASS/FAIL per machine-checkable assertion and lists the observations that need a
 # pair of eyes (the notifications, the table builder, the workbook).
@@ -52,7 +56,7 @@ API="${API:-https://api.dataquarry.app}"
 TOKEN_FILE="${TOKEN_FILE:-/tmp/idtoken}"
 : "${USERNAME:?USERNAME=<your portal username>}"
 : "${EXECUTION_ID:?EXECUTION_ID=<a finished execution of your own>}"
-[ -r "$TOKEN_FILE" ] || { echo "no token at $TOKEN_FILE — see USAGE"; exit 2; }
+[ -r "$TOKEN_FILE" ] || { echo "no token at $TOKEN_FILE — not runnable as written; see USAGE step 2"; exit 2; }
 TOKEN="$(cat "$TOKEN_FILE")"
 OUT="${OUT:-${TMPDIR:-/tmp}/results-conversion-live}"
 mkdir -p "$OUT"
@@ -114,7 +118,8 @@ cat <<'EYES'
   and their column names and types must match the query's. That round trip is the reason this
   arc exists; a conversion that cannot be read back has not converted anything useful.
 
-  THEN: download all three into $OUT and re-run this script — §3 checks the workbook.
+  THEN: download all three into $OUT and run §3's Python by hand over live.xlsx — re-running
+  this script stops at its token check.
 EYES
 
 # ── SPEC-222 §2 · the conditional write ──────────────────────────────────────

@@ -18,9 +18,9 @@
 # scripts/validate_docs.py refuses a spec-numbered name in this directory so the next session
 # cannot re-derive the other answer.
 #
-# WHY A SCRIPT AND NOT STEPS IN e2e.md: nothing in the browser reaches this plane yet. The enqueue
-# service exists and no gesture calls it, so every check here is a hand-crafted envelope on the
-# CLI. Each one is also an `owed.md` row; running this is what discharges them.
+# WHY A SCRIPT AND NOT STEPS IN e2e.md: it was written when no gesture reached this plane, so every
+# check here is a hand-crafted envelope. Each one is also an `owed.md` row; running it is what
+# discharges them.
 #
 # WHEN IT GOES AWAY: the spec that gives the browser its async model makes most of this reachable
 # from a signed-in session. At that point the checks that can be driven from the UI move into
@@ -32,19 +32,26 @@
 #
 # USAGE
 #   1. Sign in to the portal in a browser as the account you want to act as.
-#   2. For each section, take its body as written, drop `actor`, and send it from the developer
-#      console of a signed-in portal page, which supplies the `Origin` the route checks:
+#   2. For each section, build its body as written but without `actor`, and send it from the
+#      developer console of a signed-in portal page, which supplies the `Origin` the route checks.
+#      §1's, for example, for the account alice:
 #        await fetch('/api/v1/enqueue/file-ops', {method: 'POST',
 #          headers: {'content-type': 'application/json', 'x-dq-user': 'alice'},
-#          body: JSON.stringify(body)})
+#          body: JSON.stringify({requestId: crypto.randomUUID(), operation: 'delete',
+#            source: {space: {kind: 'personal', name: 'alice'},
+#                     items: [{kind: 'folder', key: 'alice/fileops-check/nested/'}]}}),
+#        }).then((r) => r.json())
 #      Do not copy a token out of the session store to run the script instead: that puts a live
 #      credential in a shell, and the page sends the same envelope without one.
 #   3. Run each section's AWS CLI steps (§7's lock staging, the executions table, the log reads)
-#      from an operator shell, and read its PASS text against the file browser and the inbox.
+#      with your usual AWS CLI credentials, in bash rather than zsh, where USERNAME is a special
+#      parameter and assigning it changes nothing. Set USERNAME, then paste the preamble below
+#      from REGION through LOCK_KEY, and `now_iso`, skipping `set -euo pipefail` and the token
+#      check. Read each section's PASS text against the file browser and the inbox.
 #
-# Never mint a token for a check either: the plane verifies the actor offline against the pool's
-# JWKS, and a forged one would be refused at the front door in a way that reads exactly like the
-# check failing.
+# Never mint a token for a check either. The API verifies the bearer and stamps the username it
+# verified into the envelope's `identity` block, which is all the plane reads, so a forged token is
+# refused at the API in a way that reads exactly like the check failing.
 #
 # WHO YOU ARE WHEN YOU RUN EACH PART, AND IT IS NOT ONE ANSWER. There are three roles here and
 # conflating them is how a session stalls halfway through:
@@ -54,8 +61,8 @@
 #      laptop IAM user cannot read or write dat-prod-user-space, and the verification role this
 #      would otherwise want is deliberately not created. Do not reach for "an assumed role".
 #   2. THE REQUEST SENDER — the same person, sending from the signed-in page. The portal server
-#      attaches the session's token, the API stamps it into the envelope as the actor, and the
-#      plane verifies it offline against the pool's JWKS.
+#      attaches the session's token, the API verifies it and stamps the username into the
+#      envelope's `identity` block, and the plane reads that block.
 #   3. AN OPERATOR — credentials that can write an arbitrary object and call DeleteObjects
 #      directly. ONLY §11 and §14 need this, and only because they probe what S3 itself answers.
 #      Without operator credentials those two rows stay OWED; every other section is runnable
@@ -74,7 +81,7 @@ set -euo pipefail
 
 : "${USERNAME:?set USERNAME to the signed-in account}"
 TOKEN_FILE="${TOKEN_FILE:-/tmp/idtoken}"
-[ -s "$TOKEN_FILE" ] || { echo "no token at $TOKEN_FILE — see USAGE" >&2; exit 1; }
+[ -s "$TOKEN_FILE" ] || { echo "no token at $TOKEN_FILE — not runnable as written; see USAGE step 2" >&2; exit 1; }
 
 REGION="${AWS_REGION:-us-east-1}"
 USER_BUCKET="${USER_BUCKET:-dat-prod-user-space}"
