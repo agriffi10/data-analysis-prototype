@@ -113,14 +113,18 @@ client. It is not set on the issuer itself: it goes on the application in item 4
 application trusts this issuer.
 
 **Why Cognito sits in the middle:** your organization already federates Cognito to Entra ID, and we
-follow that pattern. Users authenticate at Entra, which signs them in to Cognito over SAML, and
-Cognito turns that sign-in into a signed OIDC token. Identity Center needs a token of that kind for
+follow that pattern. Users authenticate at Entra, which signs them in to Cognito, and Cognito turns
+that sign-in into a signed OIDC token. **This federation must be SAML**, even if your existing
+Cognito federations use OIDC. Over OIDC, Entra identifies a user with a value that differs per
+application rather than the object ID, so nothing could match it to the external ID. Identity Center needs a token of that kind for
 the exchange, because trusted identity propagation does not accept SAML.
 
 **This mapping depends on the Entra side matching it.** The Entra enterprise application that
 Cognito federates to must send a persistent SAML `NameID` sourced from `user.objectid`, and release
-the email address claim. That is a separate request to your Entra administrators. If they are your
-team too, please treat it as part of this item. The object ID it carries must also be the value SCIM
+the email address claim. That is a separate request to your Entra administrators, and it comes with
+the pool's SAML entity ID (`urn:amazon:cognito:sp:<USER_POOL_ID>`) and reply URL
+(`https://<COGNITO_DOMAIN>/saml2/idpresponse`). If they are your team too, please treat it as part
+of this item. The object ID it carries must also be the value SCIM
 writes into the external ID (item 2), or no user will match.
 
 **What we commit to, for your security review.** The pool accepts no self-asserted identity:
