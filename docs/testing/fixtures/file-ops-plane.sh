@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Live checks for the file-operations control plane. ONE SCRIPT FOR THE PLANE, NOT ONE PER SPEC.
 #
-# NOT RUNNABLE AS WRITTEN (found 2026-09-10). Since SPEC-262 the browser holds no token, so
-# USAGE step 2 finds nothing in the page. The plane's front door is the API: a signed-in
-# `POST /api/v1/enqueue/file-ops` from the portal's own page, naming the signed-in user in
-# `x-dq-user`, stamps the actor from the session's token and refuses a body that carries `actor`
-# itself, as these do. Send each section's body WITHOUT `actor` through that route instead,
-# from the signed-in page — the 2026-09-10 section of docs/testing/sessions.md ran every section it
-# reached that way. The sections' EXPECT / PASS text still holds, and so does their DO text except
-# §6's single send-message-batch, which the route cannot express: two POSTs in one Promise.all
-# stand in for it.
+# NOT RUNNABLE AS WRITTEN (found 2026-09-10). Since SPEC-262 the browser holds no token and the
+# portal server keeps it, so there is no token to give this script. The plane's front door is the
+# API: a signed-in `POST /api/v1/enqueue/file-ops` from the portal's own page, naming the signed-in
+# user in `x-dq-user`, stamps the actor from the session's token and refuses a body that carries
+# `actor` itself, as these do. Send each section's body WITHOUT `actor` through that route instead,
+# from the signed-in page, as USAGE step 2 shows — the 2026-09-10 section of
+# docs/testing/sessions.md ran every section it reached that way. The sections' EXPECT / PASS text
+# still holds, and so does their DO text except §6's single send-message-batch, which the route
+# cannot express: two POSTs in one Promise.all stand in for it.
 #
 # It is named for the plane deliberately. Four specs build this thing, and a script per spec would
 # be four files that share a token, a queue URL, a group digest and an envelope builder — the same
@@ -32,20 +32,18 @@
 #
 # USAGE
 #   1. Sign in to the portal in a browser as the account you want to act as.
-#   2. Copy its ID token into /tmp/idtoken (no trailing newline). Since SPEC-262 the browser holds no
-#      token: the portal server keeps it in the session store. Load any portal page first, so the
-#      server refreshes a token near expiry, copy the __Host-dq_session cookie's value from the
-#      browser's developer tools, and read the item it names. The cookie is a 30-day credential, so
-#      read it without echo or history, and sign out of the portal once the check is done:
-#        read -rs COOKIE
-#        PK="session#$(printf %s "$COOKIE" | shasum -a 256 | cut -d' ' -f1)"
-#        aws dynamodb get-item --table-name dat-prod-sessions --consistent-read \
-#          --key "{\"pk\":{\"S\":\"$PK\"}}" --projection-expression idToken \
-#          --query Item.idToken.S --output text | tr -d '\n' > /tmp/idtoken
-#   3. USERNAME=alice ./file-ops-plane.sh
+#   2. For each section, take its body as written, drop `actor`, and send it from the developer
+#      console of a signed-in portal page, which supplies the `Origin` the route checks:
+#        await fetch('/api/v1/enqueue/file-ops', {method: 'POST',
+#          headers: {'content-type': 'application/json', 'x-dq-user': 'alice'},
+#          body: JSON.stringify(body)})
+#      Do not copy a token out of the session store to run the script instead: that puts a live
+#      credential in a shell, and the page sends the same envelope without one.
+#   3. Run each section's AWS CLI steps (§7's lock staging, the executions table, the log reads)
+#      from an operator shell, and read its PASS text against the file browser and the inbox.
 #
-# The token is read, never minted: the plane verifies it offline against the pool's JWKS, and a
-# token this script forged would be refused at the front door in a way that reads exactly like the
+# Never mint a token for a check either: the plane verifies the actor offline against the pool's
+# JWKS, and a forged one would be refused at the front door in a way that reads exactly like the
 # check failing.
 #
 # WHO YOU ARE WHEN YOU RUN EACH PART, AND IT IS NOT ONE ANSWER. There are three roles here and
@@ -55,9 +53,9 @@
 #      created and inspected THROUGH THE PORTAL UI as this person: upload, new folder, delete. A
 #      laptop IAM user cannot read or write dat-prod-user-space, and the verification role this
 #      would otherwise want is deliberately not created. Do not reach for "an assumed role".
-#   2. THE REQUEST SENDER — the same person, whose ID token this script reads from /tmp/idtoken and
-#      puts in an envelope. The plane verifies it offline against the pool's JWKS, so the token is
-#      READ, never minted.
+#   2. THE REQUEST SENDER — the same person, sending from the signed-in page. The portal server
+#      attaches the session's token, the API stamps it into the envelope as the actor, and the
+#      plane verifies it offline against the pool's JWKS.
 #   3. AN OPERATOR — credentials that can write an arbitrary object and call DeleteObjects
 #      directly. ONLY §11 and §14 need this, and only because they probe what S3 itself answers.
 #      Without operator credentials those two rows stay OWED; every other section is runnable
