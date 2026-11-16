@@ -65,12 +65,12 @@ def _declares_a_task_volume(source: str) -> bool:
       source: The module's Terraform.
 
     Returns:
-      True when ``volume {`` appears outside a comment.
+      True when a ``volume`` block, plain or ``dynamic``, appears outside a comment.
 
     Raises:
       None.
     """
-    return "volume {" in strip_comments(source)
+    return re.search(r'(?<![\w-])(volume\s*\{|dynamic\s+"volume"\s*\{)', strip_comments(source)) is not None
 
 
 def _container_definition() -> str:
@@ -212,3 +212,5 @@ def test_a_commented_out_task_volume_is_not_a_task_volume() -> None:
 
     assert not _declares_a_task_volume(commented), "a block comment was read as a task volume"
     assert _declares_a_task_volume(live), "the fixture's live volume was not found, so the check reads nothing"
+    for spelling in ('note = <<EOT\nvolume {\nEOT', "volume{\n}", 'dynamic "volume" {\n}'):
+        assert _declares_a_task_volume(spelling), f"{spelling!r} is not seen as a task volume"

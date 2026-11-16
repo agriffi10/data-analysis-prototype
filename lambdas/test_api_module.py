@@ -178,6 +178,26 @@ def _connect_src_terms(path: pathlib.Path = ROOT_MAIN) -> tuple[str, ...]:
     return join_list_items(path.read_text(), "csp_connect_src")[1]
 
 
+def _client_url_lists(text: str) -> list[tuple[str, str]]:
+    """Every ``callback_urls`` and ``logout_urls`` assignment in Terraform source, comments blanked.
+
+    Read over ``strip_comments`` rather than ``strip_noise``, because the lists are quoted strings
+    and ``strip_noise`` blanks them. An assignment kept inside a ``/* */`` comment is not one, and a
+    trailing comment is not part of the value.
+
+    Args:
+      text: The auth module's Terraform.
+
+    Returns:
+      Each assignment's name and value, in file order.
+
+    Raises:
+      None.
+    """
+    found = re.findall(r"^\s*(callback_urls|logout_urls)\s*=\s*(.+)$", strip_comments(text), re.MULTILINE)
+    return [(name, value.rstrip()) for name, value in found]
+
+
 def _root_module_block(name: str) -> str:
     """Extracts one module block from the root composition.
 
@@ -574,9 +594,7 @@ def test_the_browser_reaches_only_its_own_origin_and_presigned_bytes() -> None:
         "compares and nothing serves"
     )
 
-    # Read raw: strip_noise blanks quoted strings, which is what the lists are. A comment line starts
-    # with `#` and cannot match.
-    callbacks = re.findall(r"^\s*(callback_urls|logout_urls)\s*=\s*(.+)$", AUTH_COGNITO.read_text(), re.MULTILINE)
+    callbacks = _client_url_lists(AUTH_COGNITO.read_text())
     assert sorted(callbacks) == sorted([
         ("callback_urls", '["${var.spa_origin}/auth/callback"]'),
         ("logout_urls", "[var.spa_origin]"),
@@ -832,3 +850,31 @@ def test_the_connect_src_terms_skip_a_block_comment_in_the_list(tmp_path: pathli
     )
 
     assert _connect_src_terms(root) == ("'self'", "https://${local.bucket}.s3.amazonaws.com")
+
+
+def test_the_client_url_lists_skip_comments_and_keep_their_strings() -> None:
+    """A list kept for reference in a block comment is not a client's list, and a trailing note is not its value.
+
+    The lists were read raw on the assumption that every comment starts a line with ``#``, so a
+    ``/* */`` comment holding an old list, or a ``# laptop`` after a live one, failed the equality
+    check for clients that were correct.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a comment yields a list, or a live list is lost or carries its comment.
+    """
+    text = (
+        "/*\n  callback_urls = [\"https://retired.example/cb\"]\n*/\n"
+        '  callback_urls = ["${var.dev_origin}/auth/callback"]\n'
+        "  logout_urls = [var.dev_origin] # laptop\n"
+    )
+
+    assert _client_url_lists(text) == [
+        ("callback_urls", '["${var.dev_origin}/auth/callback"]'),
+        ("logout_urls", "[var.dev_origin]"),
+    ]

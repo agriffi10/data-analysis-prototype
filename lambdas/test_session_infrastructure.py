@@ -144,6 +144,42 @@ def _without_urls(body: str) -> str:
     return " ".join(code.split())
 
 
+def _disables_rotation(body: str) -> bool:
+    """Whether a client body turns refresh-token rotation off, read with its comments blanked.
+
+    A ``feature = "DISABLED"`` kept in a comment above a block that says ``ENABLED`` is not the
+    client's setting.
+
+    Args:
+      body: A ``aws_cognito_user_pool_client`` body.
+
+    Returns:
+      True when a live ``refresh_token_rotation`` block opens with ``feature = "DISABLED"``.
+
+    Raises:
+      None.
+    """
+    return re.search(r'refresh_token_rotation\s*\{\s*feature\s*=\s*"DISABLED"', strip_comments(body)) is not None
+
+
+def _has_dynamic_rotation(text: str) -> bool:
+    """Whether Terraform source generates a rotation block with ``dynamic``, read with comments blanked.
+
+    A dynamic block has no literal body for the grace-period sweep to read, so it escapes it; one
+    mentioned in a comment does not exist.
+
+    Args:
+      text: A Terraform file's source.
+
+    Returns:
+      True when ``dynamic "refresh_token_rotation"`` appears outside a comment.
+
+    Raises:
+      None.
+    """
+    return re.search(r'dynamic\s+"refresh_token_rotation"', strip_comments(text)) is not None
+
+
 def _names_localhost(text: str) -> bool:
     """Whether Terraform source names ``localhost`` anywhere but a comment.
 
@@ -224,7 +260,7 @@ def test_the_dev_client_mirrors_the_server_client_and_only_it_names_localhost() 
     assert _argument(server, "callback_urls") == '["${var.spa_origin}/auth/callback"]'
     assert _argument(server, "logout_urls") == "[var.spa_origin]"
     assert _argument(server, "enable_token_revocation") == "true"
-    assert re.search(r'refresh_token_rotation\s*\{\s*feature\s*=\s*"DISABLED"', strip_comments(server))
+    assert _disables_rotation(server), "the server client's refresh-token rotation is not DISABLED"
 
     assert _without_urls(dev) == _without_urls(server), "the dev client differs from the server client beyond its URLs"
     assert _argument(dev, "callback_urls") == '["${var.dev_origin}/auth/callback"]'
@@ -335,7 +371,7 @@ def test_every_rotation_block_states_its_grace_period() -> None:
     dynamic = [
         str(path.relative_to(INFRA))
         for path in files
-        if re.search(r'dynamic\s+"refresh_token_rotation"', strip_comments(path.read_text()))
+        if _has_dynamic_rotation(path.read_text())
     ]
     assert dynamic == [], f"a dynamic refresh_token_rotation block escapes this sweep: {dynamic}"
     rotations = [(path.relative_to(INFRA), body) for path in files for body in _rotation_bodies(path.read_text())]
@@ -484,11 +520,19 @@ def test_a_block_comment_is_not_a_difference_between_the_clients() -> None:
     Raises:
       AssertionError: When a comment counts as a setting, or a real difference is missed.
     """
-    server = '  name = "server"\n  generate_secret = true\n  callback_urls = ["a"]\n'
-    dev = '  name = "dev"\n  /* a laptop signs in here,\n     enable_token_revocation = false */\n  generate_secret = true\n  callback_urls = ["b"]\n'
+    server = '  name = "server"\n  generate_secret = true\n  prevent_user_existence_errors = "ENABLED"\n  callback_urls = ["a"]\n'
+    dev = (
+        '  name = "dev"\n  /* a laptop signs in here,\n     enable_token_revocation = false */\n'
+        '  generate_secret = true\n  prevent_user_existence_errors = "ENABLED"\n  callback_urls = ["b"]\n'
+    )
 
     assert _without_urls(dev) == _without_urls(server), "a block comment made the clients differ"
-    assert _without_urls(dev.replace("generate_secret = true", "generate_secret = false")) != _without_urls(server)
+    assert _without_urls(dev.replace("generate_secret = true", "generate_secret = false")) != _without_urls(server), (
+        "a differing bare value was not seen"
+    )
+    assert _without_urls(dev.replace('"ENABLED"', '"LEGACY"')) != _without_urls(server), (
+        "a difference inside a string was blanked, so the clients compared equal"
+    )
     assert _argument(dev, "enable_token_revocation") is None, "an assignment inside a block comment was read"
 
 
@@ -538,7 +582,32 @@ def test_the_rotation_sweep_reads_each_block_to_its_own_brace_and_skips_comments
     )
 
     bodies = _rotation_bodies(text)
+    parked = _rotation_bodies("refresh_token_rotation {\n  /*\n  retry_grace_period_seconds = 0\n  */\n}\n")
 
     assert len(bodies) == 1, f"expected the one live block, found {len(bodies)}: {bodies}"
     assert _states_grace_period(bodies[0]), f"the live block was cut short: {bodies[0]!r}"
     assert not _states_grace_period(bodies[0].replace("retry_grace_period_seconds = 0", ""))
+    assert len(parked) == 1 and not _states_grace_period(parked[0]), (
+        f"a grace period inside a block comment counted as stated: {parked!r}"
+    )
+
+
+def test_the_rotation_flags_skip_comments() -> None:
+    """A ``DISABLED`` or a ``dynamic`` rotation block kept in a comment is not the file's setting.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a commented block is read as live, or a live one is missed.
+    """
+    enabled = 'refresh_token_rotation {\n  feature = "ENABLED"\n}\n'
+    parked = '# refresh_token_rotation { feature = "DISABLED" }\n/* dynamic "refresh_token_rotation" {} */\n'
+
+    assert not _disables_rotation(parked + enabled), "a commented DISABLED was read as the client's setting"
+    assert _disables_rotation(enabled.replace("ENABLED", "DISABLED")), "a live DISABLED block was missed"
+    assert not _has_dynamic_rotation(parked + enabled), "a commented dynamic block was read as live"
+    assert _has_dynamic_rotation('dynamic "refresh_token_rotation" {\n}\n'), "a live dynamic block was missed"
