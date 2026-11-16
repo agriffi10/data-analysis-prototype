@@ -2953,6 +2953,9 @@ they already were.
   - **The Entra hop and the `externalId` mapping**, the two G10 inputs the 2026-11-15 run could not
     exercise: Entra upstream of Cognito, and the Identity Center user mapped on `externalId` rather
     than `email` (§6.1).
+  - **All five are written as a runnable hand-off** in
+    [`testing/client-phase0/`](testing/client-phase0/README.md): scripts, fixtures, labels,
+    expected values, and a verdict stated as a reason. Not yet run.
 - **Check the Region against the list, before anything else is stood up.** Trusted identity
   propagation with Athena is available in an **enumerated set of Regions** — `us-east-1` is on it;
   `eu-south-2`, `ap-south-2`, `il-central-1`, `me-central-1` and `ca-west-1` are not. The Identity
@@ -3013,10 +3016,6 @@ they already were.
   database, a directory entry and, after Phase 5, a live Access Grant.
 - Choose the sync tooling and rehearse one real prefix end-to-end in non-production, including
   re-encryption under a customer-managed key (§6.5).
-- **The organization-instance checks are written as a runnable hand-off** in
-  [`testing/client-phase0/`](testing/client-phase0/README.md): the cross-account exchange, the
-  allow-list re-run, P1 to P3, ending a user's session, and the Entra hop, with fixtures, labels,
-  expected values and a verdict stated as a reason. Not yet run.
 
 **Exit criteria:** every question in §8 has an answer; **G8 has the Entra side of the federation in
 writing** and the username claim is chosen;

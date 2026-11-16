@@ -8,7 +8,7 @@ checks extend to the organization instance.
 
 | # | Check | Who must act besides the runner |
 |---|---|---|
-| C1 | The cross-account exchange: a member-account role exchanges on the organization's application, a different role assumes | Identity Center admins (application, actor policy) |
+| C1 | Gate G11, the cross-account exchange: a member-account role exchanges on the organization's application, a different role assumes | Identity Center admins (application, actor policy) |
 | C2 | The allow-list re-run, with an SQS probe off the list | none |
 | P1 to P3 | §5.4's permission-set gates | Identity Center admins (permission set, `sso:account:access`, an ABAC attribute) |
 | C4 | Ending the user's Identity Center session: does a refresh or a re-exchange survive? | An Identity Center admin, for one console action |
@@ -128,7 +128,7 @@ under test or not read, an exchanger refused outright (C1 settles that), or an I
 that was refused. If `sub` is not a user id, read `identitystore:UserId` from the carrier's
 `AssumeRole` event in CloudTrail and rerun with `--user-id`.
 
-### C1: the cross-account exchange
+### C1: the cross-account exchange (gate G11)
 
 ```bash
 node signin.mjs refresh --user alice --label C1.cognito
