@@ -1801,6 +1801,12 @@ specs:
     spec_status: "Draft"
     depends_on: ["SPEC-257", "SPEC-262", "SPEC-266", "SPEC-267"]
     path: "docs/specs/SPEC-268-the-server-exchanges-and-refreshes-the-identity-context.md"
+  - id: "SPEC-269"
+    title: "The Recipient Check Asks S3, Not Cognito"
+    description: "Moves the control planes' 'does this user exist?' check off Cognito and onto the user's provisioned prefix marker in S3, so file send, table share and adding a shared-space member keep resolving recipients by portal username once the successor account's bridge pool keys Cognito on the Entra object id."
+    spec_status: "Draft"
+    depends_on: []
+    path: "docs/specs/SPEC-269-the-recipient-check-asks-s3-not-cognito.md"
 arcs:
   - name: "analytics"
     order: ["SPEC-032", "SPEC-033", "SPEC-034", "SPEC-035", "SPEC-036"]
