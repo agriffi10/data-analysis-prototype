@@ -1499,6 +1499,15 @@ aws iam simulate-principal-policy --policy-source-arn "$R" --action-names <actio
   --query 'EvaluationResults[0].EvalDecision' --output text
 ```
 
+## SPEC-264 — the server sends the flags with the page (2026-11-17)
+
+**Owed: all of FR-006**, the three checks in [`e2e.md`](e2e.md) §4.14 *The server sends the set with
+the page*. The web tier was off (`TF_VAR_web_tier_enabled` false) when the spec landed, so there was
+no portal to load. What it takes: the tier on, signed in through Chrome, the three checks run and
+dated into §4.14. What already stands in, and is **not** a discharge: the execution review ran the
+standalone build against a stubbed store and API, and saw the HTML carry the set, `/query` answered
+with the unavailable mount, a signed-out load carry none, and a refresh timing out log one line.
+
 ## 3. Discharged, and worth not re-litigating
 
 Kept short on purpose — the reasoning lives in `docs/decisions/` and the delivery docs. These are
