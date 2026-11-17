@@ -77,7 +77,7 @@ was published.
 | high | `dompurify` | runtime (via monaco) | GHSA-mrv2-3pqr-j5jr — an `IN_PLACE` hook that removes a parent or sibling leaves that subtree's handlers armed | **defer** (2026-11-17) — not reachable, see the notes |
 | low | `dompurify` | runtime (via monaco) | GHSA-c6gr-qvv4-5v3f — the SMIL `attributeName=href` guard is skipped under `PARSER_MEDIA_TYPE: application/xhtml+xml` | **defer** (2026-11-17) — not reachable, see the notes |
 | low | `dompurify` | runtime (via monaco) | GHSA-6688-9rhm-gjv2 — `IN_PLACE` returns a force-removed rawtext root whose text still carries markup | **defer** (2026-11-17) — not reachable, see the notes |
-| medium | `minimatch` | build | GHSA-g3hv-75wg-m249 — DoS via globparts amplification | **FIXED 2026-11-17** — 10.2.6 → 11.0.9, through `eslint` 10.15.0 and `typescript-eslint` 8.73.0 |
+| medium | `minimatch` | build | GHSA-g3hv-75wg-m249 — DoS via globparts amplification | **FIXED** (11.0.9, 2026-11-17) — from 10.2.6, through `eslint` 10.15.0 and `typescript-eslint` 8.73.0 |
 | high | `postcss` | build | GHSA-r28c-9q8g-f849 — path traversal via `sourceMappingURL` | ~~fix~~ **DONE 2026-08-03** — 8.5.15 → 8.5.25 |
 | high | `nanoid` | build | GHSA-2v37-7h3g-55p8 — custom generators loop indefinitely when `size` is zero | ~~fix~~ **DONE 2026-08-30** — 3.3.17 → 3.3.18 |
 | high | `brace-expansion` | build | GHSA-mh99-v99m-4gvg — OOM via unbounded expansion | ~~fix~~ **DONE 2026-08-03** — 5.0.7 → 5.0.9 |
@@ -149,9 +149,9 @@ Notes that change the priority order:
   Taking it would ship an older DOMPurify to the browser and read clean.
 
   **Re-examined 2026-08-05, still deferred — and now with the reason the `overrides` route is
-  closed.** `monaco-editor@0.56.0` (still the latest release on that date, *no longer true since
-  0.57.0 shipped on 2026-09-24, see the 2026-11-17 paragraph below*; everything published after it is a
-  `-dev-` prerelease) pins `dompurify: '3.4.8'` **exactly**, so Dependabot has no in-range update to
+  closed.** `monaco-editor@0.56.0` (on that date still the latest release, with everything
+  published after it a `-dev-` prerelease; *neither is true since 0.57.0 shipped on 2026-09-24, see
+  the 2026-11-17 paragraph below*) pins `dompurify: '3.4.8'` **exactly**, so Dependabot has no in-range update to
   open a PR with — which is why four alerts sit open with no PR rather than being ignored.
   `dompurify` 3.4.13 clears all four **alerts** — not the shipped code, per above — but **npm will
   not apply a newly-added `overrides` entry
@@ -257,8 +257,11 @@ Notes that change the priority order:
   is patched only in 11.0.1, and every dependent on 2026-11-17 declared `^10.x` (`eslint` 10.10.0,
   `@eslint/config-array` 0.23.5, `@typescript-eslint/typescript-estree` 8.70.0), so the fix needed
   the linters to move: `eslint` 10.15.0 and `typescript-eslint` 8.73.0 both require `^11`. The
-  input that triggers it is a glob pattern, and every glob these tools read is this repository's own
-  ESLint configuration, so there was no exposure; the bump is hygiene. **`npm update eslint
+  amplification runs only when a caller sets `optimizationLevel` to 2 or more, and none of the three
+  callers sets it: each passes options like `{ dot: true }`, so minimatch's default of 1 applies.
+  The globs themselves come from this repository's ESLint configuration, the `eslint .` command line
+  and the shareable configs it loads from `node_modules`, none of them attacker input. There was no
+  exposure, and the bump is hygiene. **`npm update eslint
   typescript-eslint` fails ERESOLVE** on the TypeScript peer split that `CLAUDE.md` records. What
   worked was `npm uninstall -w apps/portal typescript`, then installing the two linters, then
   installing `typescript@~7.0.2` last in its own command. The lockfile diff is the linter chain,
