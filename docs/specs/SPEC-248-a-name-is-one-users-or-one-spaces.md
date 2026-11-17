@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-248
 title: "A Name Is One User's or One Space's, and Only the Plane Writes a Membership"
 description: "Closes the access gap where a shared-space name could be claimed as a user's Glue database name and any user holding a client secret could write any name into their own membership list, so only the plane writes memberships; sign-up is left out because the target environment has none."
-spec_status: Draft
+spec_status: In Progress
 depends_on: [SPEC-012, SPEC-051, SPEC-056, SPEC-257, SPEC-262]
 ---
 

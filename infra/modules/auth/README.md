@@ -65,6 +65,16 @@ replacement — but they can never be modified or removed afterwards. **Raise
 `max_shared_memberships`, never lower it.** Only the privileged orchestrator role writes these, via
 `AdminUpdateUserAttributes`.
 
+**That is true because every app client says so.** Each client declares `write_attributes =
+["email"]`, so a user holding a token or a client secret cannot write a slot into their own
+account and reach any space's files or any name's catalog; an admin call under IAM is not limited
+by a client's list. Each also declares `read_attributes = local.client_read_attributes`, which
+names `email`, `email_verified` and every slot over the schema's own range. The two are set
+together: a read list that omits a slot drops that claim from the ID token, and that presents as the
+propagation delay above rather than as a fault, while an unset read list is documented both as
+"every attribute" and as "standard attributes only". `test_every_app_client_declares_both_attribute_lists`
+holds every client in the tree to both.
+
 ## Callback URLs: one per client, and they did not always
 
 Two clients remain, each with exactly one callback and one sign-out URL: the portal server's,

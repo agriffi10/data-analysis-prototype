@@ -42,7 +42,8 @@ resource "aws_cognito_user_pool" "portal" {
   }
 
   # Shared-space membership slots. An unset slot stamps no tag, so that slot's statement
-  # matches nothing — implicit deny. Only the orchestrator role writes these.
+  # matches nothing — implicit deny. Only the orchestrator role writes these: no app client's
+  # write_attributes names one, and an admin call under IAM is not limited by a client's list.
   #
   # CUSTOM ATTRIBUTES CAN NEVER BE MODIFIED OR REMOVED once added, so the slot count is
   # effectively permanent: RAISE max_shared_memberships, NEVER LOWER IT.
@@ -106,10 +107,20 @@ locals {
 # ── User Pool Client (the portal server) ──────────────────────────────────────
 # Confidential: the Next.js server runs the authorization-code flow and holds the tokens, so it can
 # keep a secret and the browser never sees one. It and the dev client below share every sign-in
-# setting and differ only in their one callback and sign-out URL. NO read_attributes list on either: a list
-# that omits a custom:shared_space_k attribute drops that claim from the ID token, and a missing
-# membership claim presents as the documented propagation delay rather than as a fault. README.md.
+# setting and differ only in their one callback and sign-out URL.
+#
+# BOTH ATTRIBUTE LISTS ON EVERY CLIENT, SET TOGETHER. The write list is email alone, so no user can
+# write a custom:shared_space_k slot into their own account through a client. The read list must name
+# EVERY slot: one it omits drops that claim from the ID token, and a missing membership claim presents
+# as the documented propagation delay rather than as a fault. Setting the write list alone could send
+# the read list back to a default one AWS document says excludes custom attributes. README.md.
 locals {
+  # The one read list every client references, built from the same range as the pool's slot schema.
+  client_read_attributes = concat(
+    ["email", "email_verified"],
+    [for k in range(1, var.max_shared_memberships + 1) : "custom:shared_space_${k}"],
+  )
+
   # One source for the server client's token lifetimes and the session's ceiling, so a session can
   # never outlive the refresh token that keeps it alive.
   server_token_validity = {
@@ -135,6 +146,9 @@ resource "aws_cognito_user_pool_client" "server" {
   supported_identity_providers = ["COGNITO"]
 
   prevent_user_existence_errors = "ENABLED"
+
+  write_attributes = ["email"]
+  read_attributes  = local.client_read_attributes
 
   explicit_auth_flows = [
     "ALLOW_USER_SRP_AUTH",
@@ -179,7 +193,7 @@ resource "aws_ssm_parameter" "server_client_secret" {
 }
 
 # ── User Pool Client (local development) ──────────────────────────────────────
-# A third client, so a laptop signs in through the portal server's own routes under `next dev` with a
+# A second client, so a laptop signs in through the portal server's own routes under `next dev` with a
 # secret of its own: a laptop can be cut off without touching production, and the server client's
 # lists never name localhost. It MIRRORS the server client in every setting and differs only in its
 # one callback and one sign-out URL.
@@ -199,6 +213,9 @@ resource "aws_cognito_user_pool_client" "dev" {
   supported_identity_providers = ["COGNITO"]
 
   prevent_user_existence_errors = "ENABLED"
+
+  write_attributes = ["email"]
+  read_attributes  = local.client_read_attributes
 
   explicit_auth_flows = [
     "ALLOW_USER_SRP_AUTH",
