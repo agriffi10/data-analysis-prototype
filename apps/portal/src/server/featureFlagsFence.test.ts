@@ -22,17 +22,20 @@ function guarded(files: readonly string[]): string[] {
   return files.filter(
     (file) =>
       !isTest(file) &&
-      ((file.startsWith('/src/app/') && file.endsWith('/route.ts')) ||
+      ((file.startsWith('/src/app/') && /\/route\.tsx?$/.test(file)) ||
         file === '/src/proxy.ts' ||
         file.startsWith('/src/server/session/'))
   );
 }
 
-/** Every relative specifier a source names: `import … from`, `export … from`, a bare import, `import(…)`. */
+/**
+ * Every relative specifier a source names: `import … from`, `export … from` and a bare import, indented
+ * or not, and `import(…)` with any quote, a template literal included.
+ */
 function relativeSpecifiers(source: string): string[] {
   const written = [
-    ...[...source.matchAll(/^(?:import|export)\s[^'"(=;]*['"]([^'"]+)['"]/gm)].map(([, specifier]) => specifier),
-    ...[...source.matchAll(/\bimport\(\s*['"]([^'"]+)['"]/g)].map(([, specifier]) => specifier)
+    ...[...source.matchAll(/^\s*(?:import|export)\s[^'"`(=;]*['"`]([^'"`]+)['"`]/gm)].map(([, specifier]) => specifier),
+    ...[...source.matchAll(/\bimport\(\s*['"`]([^'"`$]+)['"`]/g)].map(([, specifier]) => specifier)
   ];
   return written.filter((specifier) => specifier.startsWith('.'));
 }
@@ -79,10 +82,19 @@ describe('the pass-through fence, against fixtures', () => {
     for (const line of [
       "import {serverFeatureFlags} from '../../../server/featureFlags';",
       "export {serverFeatureFlags} from '../../../server/featureFlags';",
-      "const flags = await import('../../../server/featureFlags');"
+      "const flags = await import('../../../server/featureFlags');",
+      'const flags = await import(`../../../server/featureFlags`);',
+      "  import {serverFeatureFlags} from '../../../server/featureFlags';"
     ]) {
       expect(fenceFindings({...FLAGS, [ROUTE]: line})).toEqual([`${ROUTE} -> ${FLAGS_MODULE}`]);
     }
+  });
+
+  it('names a route handler written as .tsx', () => {
+    const tsx = '/src/app/api/[...path]/route.tsx';
+    expect(fenceFindings({...FLAGS, [tsx]: "import {x} from '../../../server/featureFlags';"})).toEqual([
+      `${tsx} -> ${FLAGS_MODULE}`
+    ]);
   });
 
   it('names the proxy and a session module reaching it through another module', () => {

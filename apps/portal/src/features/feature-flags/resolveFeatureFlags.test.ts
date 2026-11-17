@@ -20,8 +20,8 @@ const ALLOWED = ['./featureFlags.types', './featureFlagDefaults', '../../lib/ser
  */
 function outsideTheAllowance(source: string): string[] {
   const written = [
-    ...[...source.matchAll(/^(?:import|export)\s[^'"(=;]*['"]([^'"]+)['"]/gm)].map(([, specifier]) => specifier),
-    ...[...source.matchAll(/\bimport\(\s*['"]([^'"]+)['"]/g)].map(([, specifier]) => specifier)
+    ...[...source.matchAll(/^\s*(?:import|export)\s[^'"`(=;]*['"`]([^'"`]+)['"`]/gm)].map(([, specifier]) => specifier),
+    ...[...source.matchAll(/\bimport\(\s*['"`]([^'"`$]+)['"`]/g)].map(([, specifier]) => specifier)
   ];
   return written.filter((specifier) => !ALLOWED.includes(specifier));
 }
@@ -31,10 +31,18 @@ describe('the resolver’s reach', () => {
     const planted = [
       "import {apiRequest} from '../../lib/apiClient';",
       "import type {ReactNode} from 'react';",
-      "const later = () => import('../../lib/runtimeConfig');"
+      "const later = () => import('../../lib/runtimeConfig');",
+      'const quoted = () => import(`../../lib/queryClient`);',
+      "  import {navigate} from '../../lib/navigation';"
     ].join('\n');
 
-    expect(outsideTheAllowance(planted)).toEqual(['../../lib/apiClient', 'react', '../../lib/runtimeConfig']);
+    expect(outsideTheAllowance(planted)).toEqual([
+      '../../lib/apiClient',
+      'react',
+      '../../lib/navigation',
+      '../../lib/runtimeConfig',
+      '../../lib/queryClient'
+    ]);
   });
 
   it('imports nothing but the flag types, the defaults and the result helpers', () => {
