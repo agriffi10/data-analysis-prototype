@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-270
 title: "The Session Table's Key Names Who May Use It"
 description: "Narrows the deployed session table's customer-managed key from a policy that delegates to the account's IAM to one that names the web task role and the deploy role, so an account principal that IAM allows to read the table can no longer read the refresh tokens in it, and moves local dev servers onto a session table and key of their own."
-spec_status: In Progress
+spec_status: Completed
 depends_on: [SPEC-257]
 ---
 

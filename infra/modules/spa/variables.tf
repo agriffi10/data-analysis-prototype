@@ -102,7 +102,7 @@ variable "session_environment" {
 
   validation {
     condition     = contains(keys(var.session_environment), "SESSION_TABLE_NAME")
-    error_message = "session_environment must name SESSION_TABLE_NAME, which the task role's grant is bound to."
+    error_message = "session_environment must name SESSION_TABLE_NAME, the table the server keeps sessions in."
   }
 }
 

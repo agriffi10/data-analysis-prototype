@@ -11,34 +11,6 @@
         "dynamodb:DeleteItem"
       ],
       "Resource": "${session_table_arn}"
-    },
-    {
-      "Sid": "UseTheSessionTablesKeyThroughDynamoDB",
-      "Effect": "Allow",
-      "Action": [
-        "kms:Decrypt",
-        "kms:Encrypt",
-        "kms:GenerateDataKey*",
-        "kms:ReEncrypt*"
-      ],
-      "Resource": "arn:aws:kms:${aws_region}:${account_id}:key/*",
-      "Condition": {
-        "StringEquals": {
-          "kms:ViaService": "dynamodb.${aws_region}.amazonaws.com",
-          "kms:EncryptionContext:aws:dynamodb:tableName": "${session_table_name}"
-        }
-      }
-    },
-    {
-      "Sid": "DescribeTheSessionTablesKeyThroughDynamoDB",
-      "Effect": "Allow",
-      "Action": "kms:DescribeKey",
-      "Resource": "arn:aws:kms:${aws_region}:${account_id}:key/*",
-      "Condition": {
-        "StringEquals": {
-          "kms:ViaService": "dynamodb.${aws_region}.amazonaws.com"
-        }
-      }
     }
   ]
 }

@@ -526,24 +526,18 @@ def test_the_two_keys_carry_descriptions_and_names_built_from_their_alias() -> N
 
 
 def test_the_task_role_reads_and_writes_only_the_session_table() -> None:
-    """A wider item grant on the task role reaches past the sessions it serves."""
+    """A wider item grant on the task role reaches past the sessions it serves.
+
+    The template is rendered with the table's ARN alone, so a statement that reads anything else
+    (the KMS statements this role carried before its key named it) fails the render.
+    """
     policy = json.loads(
         render(
             (SPA / "policies" / "task-session-policy.json.tftpl").read_text(),
-            {
-                "aws_region": RENDERED["aws_region"],
-                "account_id": RENDERED["account_id"],
-                "session_table_arn": "TABLE_ARN",
-                "session_table_name": "TABLE",
-            },
+            {"session_table_arn": "TABLE_ARN"},
         )
     )
-    dynamodb = [
-        s
-        for s in policy["Statement"]
-        if any(a.startswith("dynamodb:") for a in _listed(s["Action"]))
-    ]
-    assert dynamodb == [
+    assert policy["Statement"] == [
         {
             "Sid": "UseTheSessionTable",
             "Effect": "Allow",
@@ -556,6 +550,63 @@ def test_the_task_role_reads_and_writes_only_the_session_table() -> None:
             "Resource": "TABLE_ARN",
         }
     ]
+
+
+def test_no_spa_policy_names_a_kms_action() -> None:
+    """The session key's own policy grants the task role, and ignores identity policies.
+
+    A KMS statement on a spa role would grant nothing while the key does not delegate, and would
+    drift from the key's policy as a second place naming one grant.
+    """
+    sources = sorted(
+        path for path in SPA.rglob("*") if path.suffix in {".tf", ".tftpl", ".json"}
+    )
+    assert any(path.name == "task-session-policy.json.tftpl" for path in sources), (
+        "the sweep reads nothing"
+    )
+    naming = [
+        path.relative_to(SPA).as_posix()
+        for path in sources
+        if re.search(
+            r'"kms:',
+            strip_comments(path.read_text())
+            if path.suffix == ".tf"
+            else path.read_text(),
+            re.IGNORECASE,
+        )
+    ]
+    assert naming == [], f"spa policies naming a KMS action: {naming}"
+
+
+def test_the_task_role_holds_one_inline_policy_and_nothing_attached() -> None:
+    """A second policy on the task role, anywhere under infra/, would carry grants no test reads.
+
+    The session key ignores identity policies, but other keys in the account may delegate, and an
+    attachment or a policy in another module naming the role is invisible to the template tests.
+    """
+    found = []
+    for path in sorted(INFRA.rglob("*.tf")):
+        if ".terraform" in path.parts:
+            continue
+        text = strip_comments(path.read_text())
+        for kind in (
+            "aws_iam_role_policy",
+            "aws_iam_role_policy_attachment",
+            "aws_iam_policy_attachment",
+        ):
+            for name, body in blocks(text, kind).items():
+                in_spa = path.parent == SPA and re.search(
+                    r"\baws_iam_role\.task\.", body
+                )
+                if in_spa or "spa-task-role" in body or "module.spa." in body:
+                    found.append((path.relative_to(INFRA).as_posix(), kind, name))
+    assert found == [("modules/spa/iam.tf", "aws_iam_role_policy", "task_session")], (
+        found
+    )
+    role = blocks((SPA / "iam.tf").read_text(), "aws_iam_role")["task"]
+    assert not re.search(
+        r"^\s*(managed_policy_arns|inline_policy)\b", strip_comments(role), re.MULTILINE
+    )
 
 
 def _without_urls(body: str) -> str:

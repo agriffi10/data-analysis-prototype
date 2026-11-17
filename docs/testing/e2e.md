@@ -1684,6 +1684,13 @@ the boot, the pages, the request proxy, the guard or the image.
   `npm run dev`, and sign in at `http://localhost:5173`: Managed Login returns to
   `http://localhost:5173/auth/callback`, the file listing loads through the local server's `/api/`, and
   an upload succeeds. The API has no CORS since SPEC-262, and a dev origin is never a reason to add it.
+  The session lands in `<prefix>-dev-sessions`, never in the deployed table (SPEC-270): a projected
+  `aws dynamodb scan --projection-expression pk --query 'length(Items)'` of the dev table counts it.
+- **The deployed session key admits only the task role.** As an administrator,
+  `aws dynamodb scan --table-name <prefix>-sessions --max-items 1 --projection-expression pk --query 'length(Items)'`
+  fails with a KMS `AccessDeniedException`, more than five minutes after that principal last touched
+  the table (DynamoDB caches a table key per caller for five minutes). Then, signed in on the portal,
+  a request made after six minutes idle is still signed in, and sign-out ends the session.
 
 **What a signed-in session cannot settle here** — the platform's own verification (the no-NAT pull
 read beside a route table, superseded in part since SPEC-257 added a NAT gateway, the redirect, target health), the container under real concurrency, and

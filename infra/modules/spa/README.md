@@ -170,10 +170,9 @@ anything over port 80 is one that can serve the app over it.
 
 The **execution** role is ECS's — it pulls the image, opens the log stream and reads the server
 client's secret from SSM, **before the container exists**. The **task** role is the container's own
-AWS identity, and the server's one AWS call is its session store: item actions on that one table, and
-the table's key only as DynamoDB uses it for that table (`kms:ViaService` and the table-name
-encryption context). `key/*` because the key is created in the same apply as this document, which
-the plan-time IAM scan must be able to read.
+AWS identity, and the server's one AWS call is its session store: item actions on that one table.
+Its use of the table's key is granted by the key's own policy, which names this role and does not
+delegate to identity policies (`../session-store/README.md`), so this role carries no KMS statement.
 
 **Merging them applies green forever**, because nothing the container does would fail — and hands the
 running container the registry pull, log-write and secret-read grants for no reason.
