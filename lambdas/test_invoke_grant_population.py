@@ -73,6 +73,7 @@ PROBE_TARGETS = {
     "table-builder-validate-authorize": "TerminalError at events.parse_sqs_request, zero AWS calls",
     "table-share-validate-authorize": "TerminalError at events.parse_sqs_request, zero AWS calls",
     "shared-space-backfill-ever-active": "mode defaults to report, which writes nothing",
+    "shared-space-name-collisions": "ValueError on an event with no requestId, before any AWS call",
     "shared-space-transfer-reader": "GRANT DELIBERATELY ABSENT — see the owed row",
     "api": "authentication runs first, so an unsigned probe is 401 before any route",
     "pre-signup": "refuses a malformed Cognito event",

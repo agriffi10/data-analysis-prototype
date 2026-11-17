@@ -87,9 +87,13 @@ machine and every verb.
   confirmation holds only because every roster removal revokes after a write the read can see**:
   delete and forget claim before revoking, and leave and remove clear again after their commit
   ([entry](../../../docs/decisions/control-planes/a-delete-decides-its-route-on-the-record-it-claims-and-a-removal-cannot.md)).
-- **A teardown touches only a database the space made.** A space's database and a user's personal
-  one share one Glue namespace, so the create marks its own and refuses to adopt an unmarked one,
-  and `teardown.owns_database` gates the revoke and the drop the same way.
+- **A name is one user's or one space's, and a teardown touches only a database the space made.** A
+  space's database and a user's personal one share one Glue namespace. So the create asks the pool
+  after the reservation and refuses a user's name, finishes the database step (marked as its own, or
+  refused) before it writes the creator's slot, and raises `NameTaken` for every taken name, whose
+  card carries `retryable: false`. `teardown.owns_database` gates the revoke and the drop, and both
+  act only on `True`
+  ([entry](../../../docs/decisions/control-planes/a-space-named-after-a-user-finds-that-users-database-and-a-teardown.md)).
 - **Every member sees the roster.** The join acknowledgement is display-only, since access is
   granted at add time.
 - **No shared-space directory is published.** A full list would be more useful and is declined as a

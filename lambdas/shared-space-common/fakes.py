@@ -573,7 +573,8 @@ class FakeGlue:
         which is what a user's personal database looks like.
       tables: Table names by database.
       undroppable: Tables the batch drop reports as failed instead of dropping.
-      page_size: Tables per listing page, tiny for the same reason as the S3 fake's.
+      create_times: A ``CreateTime`` to report per database; absent reports none.
+      page_size: Tables and databases per listing page, tiny for the same reason as the S3 fake's.
       exceptions: The exception namespace production code catches on.
     """
 
@@ -597,6 +598,7 @@ class FakeGlue:
         self.archived = {}
         self.update_calls = []
         self.undroppable = set()
+        self.create_times = {}
         self.page_size = 2
         self.exceptions = types.SimpleNamespace(
             AlreadyExistsException=FakeAlreadyExists, EntityNotFoundException=FakeEntityNotFound
@@ -655,6 +657,32 @@ class FakeGlue:
         if Name not in self.databases:
             raise FakeEntityNotFound(f"no such database {Name}")
         return {"Database": {"Name": Name, "Parameters": dict(self.parameters.get(Name) or {})}}
+
+    def get_databases(self, NextToken=None):
+        """Lists every database one page at a time, with its parameters and creation time.
+
+        Args:
+          NextToken: The offset to resume from, as a string, or None for the first page.
+
+        Returns:
+          A page of database records, with ``NextToken`` while more remain.
+
+        Raises:
+          None.
+        """
+        names = sorted(self.databases)
+        start = int(NextToken or 0)
+        page = names[start : start + self.page_size]
+        records = []
+        for name in page:
+            record = {"Name": name, "Parameters": dict(self.parameters.get(name) or {})}
+            if name in self.create_times:
+                record["CreateTime"] = self.create_times[name]
+            records.append(record)
+        out = {"DatabaseList": records}
+        if start + self.page_size < len(names):
+            out["NextToken"] = str(start + self.page_size)
+        return out
 
     def get_tables(self, DatabaseName, NextToken=None):
         """Lists a database's tables one page at a time.
@@ -812,6 +840,7 @@ class FakeLF:
       revokes: The resource and permission pairs revoked.
       lf_tags: The resource and tag pairs assigned.
       tag_failures: Failures the tag assignment reports back, for partial-failure tests.
+      opt_ins: The opt-in records the account holds, as ``ListLakeFormationOptIns`` returns them.
     """
 
     def __init__(self):
@@ -830,6 +859,25 @@ class FakeLF:
         self.revokes = []
         self.lf_tags = []
         self.tag_failures = []
+        self.opt_ins = []
+
+    def list_lake_formation_opt_ins(self, NextToken=None):
+        """Lists the account's opt-ins, one record per page so the walk is exercised.
+
+        Args:
+          NextToken: The offset to resume from, as a string, or None for the first page.
+
+        Returns:
+          A page of opt-in records, with ``NextToken`` while more remain.
+
+        Raises:
+          None.
+        """
+        start = int(NextToken or 0)
+        out = {"LakeFormationOptInsInfoList": self.opt_ins[start : start + 1]}
+        if start + 1 < len(self.opt_ins):
+            out["NextToken"] = str(start + 1)
+        return out
 
     def grant_permissions(self, Principal, Resource, Permissions):
         """Records a grant.
@@ -898,6 +946,7 @@ class FakeCognito:
       pool: In single-user mode, the usernames that exist, or None for every name.
       statuses: A ``UserStatus`` to report per username; absent reads as ``CONFIRMED``.
       get_user_faults: An exception ``admin_get_user`` raises per username, before anything else.
+      created: A ``UserCreateDate`` to report per username in multi-user mode; absent reports none.
       updates: The attribute updates applied, in order.
       calls: Every call made, as ``(operation, username)``, in order.
       exceptions: The exception namespace production code catches on.
@@ -921,6 +970,7 @@ class FakeCognito:
         self.pool = None if pool is None else set(pool)
         self.statuses = {}
         self.get_user_faults = {}
+        self.created = {}
         self.updates = []
         self.calls = []
         self.exceptions = types.SimpleNamespace(UserNotFoundException=FakeUserNotFound)
@@ -982,6 +1032,36 @@ class FakeCognito:
             "UserAttributes": [{"Name": n, "Value": v} for n, v in bucket.items()],
             "UserStatus": self.statuses.get(Username, "CONFIRMED"),
         }
+
+    def list_users(self, UserPoolId, PaginationToken=None):
+        """Lists the multi-user mode's users one per page, with attributes and creation time.
+
+        Args:
+          UserPoolId: The pool, unused.
+          PaginationToken: The offset to resume from, as a string, or None for the first page.
+
+        Returns:
+          A page of user records, with ``PaginationToken`` while more remain.
+
+        Raises:
+          None.
+        """
+        self.calls.append(("ListUsers", None))
+        names = sorted(self.users)
+        start = int(PaginationToken or 0)
+        records = []
+        for name in names[start : start + 1]:
+            record = {
+                "Username": name,
+                "Attributes": [{"Name": n, "Value": v} for n, v in self.users[name].items()],
+            }
+            if name in self.created:
+                record["UserCreateDate"] = self.created[name]
+            records.append(record)
+        out = {"Users": records}
+        if start + 1 < len(names):
+            out["PaginationToken"] = str(start + 1)
+        return out
 
     def admin_update_user_attributes(self, UserPoolId, Username, UserAttributes):
         """Applies attribute updates to one user and records them.

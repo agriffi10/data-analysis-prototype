@@ -1855,6 +1855,12 @@ fenced reader, on SPEC-217's model, or an existing one** (item 11); **where the 
 shared-space name collision is actually fenced**, since item 3's refusal detects it rather than
 preventing it and no fence exists today; and who owns de-provisioning.
 
+> **Superseded in part 2026-11-17 (SPEC-248):** "no fence exists today" no longer holds in the
+> current account. The space create refuses a name a pool user holds and writes no slot before
+> its own marked database, and every taken name is one refusal. The successor still has to choose
+> its own fence: the database marker now gives a minting check an ownership test to read. The
+> decision lives in `docs/decisions/control-planes/` (*A name is one user's or one space's*).
+
 ---
 
 ## 4. Deployment topology
@@ -3172,6 +3178,14 @@ synthetic `{providerName}_<subject>`. **Since 2026-11-15 it does:** `userOf` rea
 verifier's `oidc_username_claim` reads too, and `lambdas/test_session_infrastructure.py` fails if
 either reader stops taking it from there. Changing the username claim is that one line. A fleet
 sweep also fails if any shipped Lambda module writes a provider's claim name as a literal. The full record of what moved and where: `docs/decisions/identity-and-access/`.
+
+> **Superseded in part 2026-11-17 (SPEC-248):** both clients in `infra/modules/auth/cognito.tf` now
+> set both lists — `write_attributes = ["email"]` and a `read_attributes` naming `email`,
+> `email_verified` and every `custom:shared_space_k` — so the "sets neither" measurement below is
+> history for this account. That closes the current account's slot write through a client; the
+> two rules below still stand for the successor's pool, where federation makes mapped attributes
+> writable. The decision lives in `docs/decisions/control-planes/` (*A name is one user's or one
+> space's*).
 
 **The [B] guardrail is a security control, not hygiene — and the app client cannot be what enforces
 it.** A user who can write the attribute that carries their username can take another user's S3

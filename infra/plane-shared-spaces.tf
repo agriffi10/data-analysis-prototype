@@ -14,10 +14,11 @@
 # exec role for every Lambda it invokes. planes/shared-spaces/README.md.
 
 locals {
-  # A verb touches one space, and 60s is generous for that. The one-shot backfill walks EVERY
-  # registry record instead and has no resume marker, so a timeout is a run that made no progress
-  # rather than a partial pass: its ceiling is Lambda's own, sized to the whole walk (one
-  # GetObject per record, ~18,000 records at a conservative 50ms each).
+  # A verb touches one space, and 60s is generous for that. The one-shot backfill and the one-shot
+  # name-collision report walk EVERY registry record instead and have no resume marker, so a
+  # timeout is a run that made no progress rather than a partial pass: their ceiling is Lambda's
+  # own, sized to the whole walk (one GetObject per record, ~18,000 records at a conservative 50ms
+  # each).
   #
   # 128 MB is DECLARED rather than inherited: the provider's default is invisible in a plan and
   # shows up only as a production OOM.
@@ -33,6 +34,7 @@ locals {
     "transfer-ownership"     = { handler = "transfer_ownership.handler", timeout = 60, memory = 128 }
     "notify-failure"         = { handler = "ss_notify_failure.handler", timeout = 60, memory = 128 }
     "backfill-ever-active"   = { handler = "backfill_ever_active.handler", timeout = 900, memory = 128 }
+    "name-collisions"        = { handler = "name_collisions.handler", timeout = 900, memory = 128 }
   }
 
   shared_space_queue_arn = "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${var.project_name}-${var.environment}-shared-space-requests.fifo"

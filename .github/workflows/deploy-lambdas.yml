@@ -384,7 +384,7 @@ jobs:
   probe:
     needs: [pointed]
     runs-on: ubuntu-latest
-    # DERIVED, not chosen. Fourteen sequential invocations, each bounded by the function's own
+    # DERIVED, not chosen. Sixteen sequential invocations, each bounded by the function's own
     # Lambda timeout: two carry 300s (log-sweep, user-directory-build) and the rest 30-60s, so the
     # pathological case is ~16 min, plus checkout and the OIDC assume. 25 is that with room, and
     # the run only approaches it if a probed function is hanging — which is a failure worth waiting

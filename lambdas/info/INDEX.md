@@ -51,6 +51,7 @@ Orchestration, layer and traps: [`planes/shared-spaces.md`](planes/shared-spaces
 |---|---|---|
 | `shared-space-acknowledge-membership/` | `acknowledge_membership.py` | acknowledge-membership verb: a member confirms they have picked up the space. |
 | `shared-space-backfill-ever-active/` | `backfill_ever_active.py` | one-shot, not a verb: stamps the durable ever-active fact on records that predate it. Invoked from its own workflow. |
+| `shared-space-name-collisions/` | `name_collisions.py` | one-shot, not a verb, read-only: reports a username that is a space, a user database marked as a space's, a slot no roster backs, an inherited database, and the Lake Formation opt-ins. Invoked from its own workflow. |
 | `shared-space-add-members/` | `add_members.py` | add-members verb: adds each valid username to the space. |
 | `shared-space-create/` | `create_space.py` | create-space verb: provisions a new shared space owned by the actor. |
 | `shared-space-delete/` | `delete_space.py` | delete-space verb: the owner ends everyone's access, and destroys the space only if it was never usable. |
