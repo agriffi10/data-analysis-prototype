@@ -66,7 +66,7 @@ describe('a request the server sends no flags', () => {
 
   it('carries the cookie under a name padded with U+00A0, which is not the session cookie', async () => {
     const {deps, cookie} = await signedInRequest();
-    vi.mocked(headers).mockResolvedValue(new Headers({cookie: ` ${SESSION_COOKIE}=${cookie}`}) as never);
+    vi.mocked(headers).mockResolvedValue(new Headers({cookie: `\u00a0${SESSION_COOKIE}=${cookie}`}) as never);
     const get = vi.spyOn(deps.store, 'get');
 
     expect(await serverFeatureFlags()).toBeUndefined();

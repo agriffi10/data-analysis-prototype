@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "The portal server holds the session, and only the provider or the clock ends it (SPEC-257)"
-description: "**The portal's Next.js server holds the session** in DynamoDB under the SHA-256 of an opaque `__Host-dq_session` cookie, **read by a name trimmed of space and tab only**: `trim()` strips U+00A0, and a cookie named 0xA0 then `__Host-` carries none of the prefix's protection. **Expiry is checked on every read**: the TTL deletes within days and DynamoDB returns the item until then. **A refresh is a compare-and-set** on `version` with `attribute_exists(#pk)`; without the condition `UpdateItem` recreates a session a sign-out deleted. A losing refresh **uses the stored token**, unless it was forced and the stored one has an earlier `iat`; a forced loser that always wrote its own answered 503 to as many as 13 of a burst of 20. **Only `invalid_grant`, a missing item or the session's expiry end a session**: a store fault, a timeout or `invalid_client` answers 503 and leaves the item. Every unsafe method under `/auth/` and `/api/` needs `Origin` equal to the portal, checked before any store read, because `SameSite=Lax` admits a sibling subdomain. **Nothing about a session lives in module scope.**"
+description: "**The portal's Next.js server holds the session** in DynamoDB under the SHA-256 of an opaque `__Host-dq_session` cookie, **read by a name trimmed of space and tab only**: `trim()` strips U+00A0, and a cookie named 0xA0 then `__Host-` carries none of the prefix's protection. **Expiry is checked on every read**: the TTL deletes within days and DynamoDB returns the item until then. **A refresh is a compare-and-set** on `version` with `attribute_exists(#pk)`; without the condition `UpdateItem` recreates a session a sign-out deleted. A losing refresh **uses the stored token**, unless it was forced and the stored one has an earlier `iat`; a forced loser that always wrote its own answered 503 to as many as 13 of a burst of 20. **Only `invalid_grant`, a missing item or the session's expiry end a session**: a store fault, a timeout or `invalid_client` answers 503 and leaves the item. Every unsafe method under `/auth/` and `/api/` needs `Origin` equal to the portal, checked before any store read, because `SameSite=Lax` admits a sibling subdomain. **Nothing about a session lives in module scope**; the one thing held between requests is the feature-flag set, which is not session state, and **no token is ever kept there**."
 ---
 
 The client environment requires a Next.js server, and the arc puts the session there: the browser
@@ -65,6 +65,14 @@ session. A test serves a session through one store and then asks for the same co
 empty one; a module-registry reset was the first shape of that test, and it passed with a cache
 planted, because the fresh module brought a fresh, empty cache.
 
+**One thing is held between requests, and it is not session state** (since SPEC-264, 2026-11-17): the
+resolved feature-flag set, with the time the API answered it, the time of the last failed refresh and
+whether a refresh is in flight. It is the same document for every signed-in user, so it serves them
+all, and it lives on the process's global object rather than in a module, so every route entry reads
+the copy the root layout warmed. **No token is held there**: a refresh takes the requesting
+session's token as a local and drops it. Reading it costs a page one store read through
+`peekSession`, which checks what `loadSession` checks and never refreshes, deletes or writes.
+
 **Do NOT** trim a cookie name with `trim()`, derive a redirect or `redirect_uri` from the request's host, keep a session or a token
 in memory between requests, end a session on a fault, drop the update's condition, let a forced
 refresh write over a newer token, or turn refresh token rotation on.
@@ -72,6 +80,10 @@ refresh write over a newer token, or turn refresh token rotation on.
 Detail: `docs/specs/SPEC-257-the-nextjs-server-holds-the-session.md`.
 
 ## History
+
+### 2026-11-17
+
+- **Changed:** The held feature-flag set is named as the one thing kept between requests, not session state, with no token in it; `peekSession` reads a session without changing it (SPEC-264).
 
 ### 2026-11-13
 

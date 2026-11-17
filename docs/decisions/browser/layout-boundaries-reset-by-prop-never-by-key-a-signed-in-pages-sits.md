@@ -48,7 +48,8 @@ around `AppChrome`, which is `RootLayout` around either the bare page or `Protec
 which page matched: the root layout sits above the landing page, the not-found page and every
 signed-in page alike, so where it sits says nothing. A path no record claims is public. The decision sits above the gate rather than in it,
 so the gate's hooks run on signed-in pages only, and the `(signed-in)` route group has no layout of
-its own. Nothing between the root layout and `AppChrome` (`layout.tsx`, `PortalMount`, `PortalBoot`,
+its own. *(Since SPEC-264, 2026-11-17, each gated area has a server layout below the shell — see
+below; the group itself still has none.)* Nothing between the root layout and `AppChrome` (`layout.tsx`, `PortalMount`, `PortalBoot`,
 `AppFrame`) may carry a `key`, and the page sweep (`src/app/pageSweep.test.ts`) refuses one, because
 the proof renders from `AppChrome` down.
 
@@ -60,6 +61,15 @@ hydration, before `/config.json` arrives. So every provider renders client-only 
 query client is made per mount, and a page reaches its view only through `next/dynamic` with
 `ssr: false` and reads no `params` or `searchParams` prop, all held by the page sweep, and what a
 page hydrates is held on the build by `npm run check:pages`.
+
+**The gated areas have server layouts below the shell (SPEC-264, 2026-11-17).** `/files`, `/query`,
+`/connections`, `/explore` and `/data-quality` each have a `layout.tsx` that answers a disabled area
+with the "not available" page from the flag set the server holds, and otherwise returns its
+`children` untouched. They sit below the shell, which lives in the root layout, so moving between
+areas never remounts it, and **they carry no `key`**. **They never throw**: there is no `error.tsx`
+between them and the root, so a throw in one answers 500; their gate answers `open` on any fault and
+does no I/O. They read no session and no `params`, and the page sweep holds each to importing only
+the server's flag module, the unavailable mount and React's types.
 
 **A document load is now a way to lose the shell, so the shell asks first.** A navigation to or from
 an App Router page fetches that page, and Next turns it into a document load when the server cannot
@@ -132,6 +142,11 @@ instead, as the upload suites do. Removing the shell's provider turns all three 
 keying it on the page turns both survival tests red.
 
 ## History
+
+### 2026-11-17
+
+- **Changed (SPEC-264):** the gated areas gained server layouts below the shell, with no `key`, and a
+  gate that never throws.
 
 ### 2026-11-15
 

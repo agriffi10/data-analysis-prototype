@@ -89,7 +89,9 @@ is asserted once. The same review found the paired sloppiness: `Go to Dashboard`
 the compiled-in defaults in force. Collapsing the two made the documented no-AWS local workflow
 a permanent spinner behind every gated route — `FeatureRoute` never left its neutral state.
 Going the other way (treating still-resolving as fallback) would show every gated surface and
-take it away a tick later, which is the flicker FR-007 exists to prevent.
+take it away a tick later, which is the flicker FR-007 exists to prevent. *(Marked 2026-11-17, SPEC-264: when the
+server sent a flag set with the page, still-resolving with that set in the cache is `'ready'`, so a
+seeded tab renders its gated surfaces from the first frame; with no set it is `'loading'` as above.)*
 
 **Hiding a surface is not hiding a WRITE PATH, and the first pass missed that.** With shared
 workspaces off, the spaces rail was gone but the move/copy destination picker still offered a
