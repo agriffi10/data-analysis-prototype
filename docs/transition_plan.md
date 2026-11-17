@@ -3372,12 +3372,23 @@ leave the S3 path unexercised until the successor account — the condition the 
 item warns against. This reverses one clause of
 `docs/decisions/identity-and-access/the-username-directory-is-built-from-s3-not-cognito.md`, which
 says existence checks stay on `admin_get_user`; the directory stays advisory and is still read by no
-control plane. The same clause is repeated in the directory's tripwire test,
-`lambdas/user-directory-build/test_build_directory.py`: the comment that opens the section holding
-`DIRECTORY_MARKERS` says every existence check stays against the User Pool, and the failure message of
-`test_no_production_lambda_but_the_builder_and_its_route_reads_the_directory` tells the reader to
-"ask the User Pool instead". The change that moves the checks rewords both to name the prefix marker,
-in the same commit that rewrites the decision, or the test will send the next reader back to Cognito.
+control plane. The same clause is repeated in prose the move must rewrite in the same change, or it
+sends the next reader back to Cognito. The directory's tripwire test,
+`lambdas/user-directory-build/test_build_directory.py`, states it twice: the comment that opens the
+section holding `DIRECTORY_MARKERS`, whose second reason ("missing every user not yet provisioned")
+also stops distinguishing the directory once the marker answers the same way, so only its staleness
+survives; and the failure message of
+`test_no_production_lambda_but_the_builder_and_its_route_reads_the_directory`, which says "ask the
+User Pool instead". The rest is found by grepping `lambdas/`, `infra/` and `apps/portal/src` for
+`admin_get_user` and "user pool" outside tests, and keeping the hits that say a recipient's existence
+is decided by Cognito; most hits are about sign-in and stay true. This plan does not list them,
+because a list here would be stale by the time the move is built. They include the plane pages under
+`lambdas/info/planes/` (`standalone.md` says "Existence is still decided where it always was"),
+`infra/planes/file-send/README.md`'s paragraph defending `RecipientUserCheck`, which goes with the
+statement, and docstrings in file send's validate-authorize handler, `cpcommon.cognito`, `tscommon.cognito`,
+add-members and the portal's `memberInput.ts`. One test fails loudly rather than misleading:
+`lambdas/test_pool_id_reaches_its_readers.py` pins which modules read `COGNITO_USER_POOL_ID`, so
+deleting each plane's variable means rewriting it.
 
 **Lookup semantics.** A name that does not fullmatch `CATALOG_IDENTIFIER_RE` is unknown, and no
 request is sent. This is a correctness rule, not tidiness: saved queries and "New folder" each write a
