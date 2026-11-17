@@ -13,6 +13,10 @@ absorbed into §3, §5.5 and §7. **Do not resurrect either file:** add here ins
 
 ## Where we stand (2026-11-16)
 
+*2026-11-17: work meant for after the move into the client environment is carried in this plan, not
+in specs. The five Draft specs that held it (SPEC-265 to SPEC-269) are cancelled, and their design is
+in the sections §11's first line names.*
+
 **No phase in §7 has started.** The successor account's tenancy, the Identity Center relationship
 and the Phase 0 gates G8 and G11 are still open — but **G7, G9 and G10 ran on 2026-11-15 and passed**
 (below).
@@ -38,7 +42,7 @@ from the identity context the server forwards. Two pieces of compute, each doing
 does, so Phase 5 adds one call to each rather than a component (§4.7 carries the split and the
 alternatives it beat). The work that bridges the gap is named where it lands: gate G10 — the
 exchange split, tested — in Phase 0, the Variant B items in Phase 1, and Phase 5's two exchange
-specs, written after G10.
+halves (§4.7), designed after G10.
 
 **2026-11-15, later the same day: Variant B is chosen.** The client already has an established
 pattern of Cognito federated to Entra ID, and building on it is simpler than registering the
@@ -274,7 +278,8 @@ Treated as inputs. Do not re-litigate without new information.
    exchange consumes, and is the Identity Center trusted token issuer, following the pattern the
    client already uses for Cognito federated to Entra — the reason it was chosen over registering
    the portal with Entra directly ([A]). Nothing app-level depends on Cognito beyond the claims §6.1
-   names: no custom attributes unless §6.1's choice needs one, no `cognito:username` as the
+   names, once the recipient checks move off it (§6.1, *The recipient check moves to the prefix
+   marker*; today three control planes still ask Cognito whether a username exists): no custom attributes unless §6.1's choice needs one, no `cognito:username` as the
    username, and no Managed Login screen of its own — the sign-in redirect is to name the Entra
    provider, so no picker appears (Phase 1 [B]: the server's `OIDC_IDENTITY_PROVIDER`, unset until then). §3.3 carries the mechanism. *History: "Cognito survives as a facade" was
    superseded on 2026-08-18 by two variants with no Cognito in the baseline, and the variant was to
@@ -578,7 +583,8 @@ shared spaces — crosses this revision unchanged. That is what makes them safe 
                      the shape AWS's own Entra walkthrough uses. Verified 2026-08-19)
                     — the one the callback's code exchange just returned. Each assertion
                       exchanges once; a later, refreshed Cognito ID token also exchanges
-                      (measured 2026-11-15), which matters only to §4.7's open question
+                      (measured 2026-11-15), which §4.7's retry from `pending` relies on, and which its refused-refresh decision declines to use
+after a refusal
    → IdC validates the signature against the TTI's JWKS, checks the audience,
      maps the configured claim (typically `email`) to exactly ONE IdC user
    → returns accessToken, refreshToken (when the grant is enabled), idToken, and
@@ -714,6 +720,23 @@ consequential as G7:
   override, not the prefix.** *Narrowed again 2026-11-15:* `CreateWorkGroup` accepted an IdC
   workgroup with `EnforceWorkGroupConfiguration` false (Access Grants on, no user prefix), and
   stored it so; whether a query then honours a client-side result location was not run.
+  **DECIDED 2026-11-16: the portal's Identity Center workgroup sets `EnforceWorkGroupConfiguration`
+  false, and the API keeps supplying a per-user client-side `OutputLocation`.** The reason is the
+  execution-id fence (`docs/decisions/identity-and-access/an-execution-id-is-a-claim-and-every-route-that-names-one-proves-it.md`).
+  Every route that names an execution proves it is the caller's by its recorded output location under
+  `user_results_prefix`, which is keyed on the username. Enforcing without the user prefix would put
+  every user's results in one location, which that proof cannot tell apart. Enforcing with the user
+  prefix would key results on the Identity Center user id, which the API never sees because the
+  context is opaque. The workgroup is `<workgroup_name>-idc`, with Identity Center on the instance
+  input; `query_results_s3_access_grants_configuration` with `DIRECTORY_IDENTITY` and
+  `create_user_level_prefix = false`; engine version 3 pinned; the existing scan cutoff; CloudWatch
+  metrics; `SSE_S3`; and no workgroup output location, so a query naming none is refused rather than
+  written anywhere. **The premise is unmeasured and gates moving queries onto the workgroup.** It is
+  checked by a `StartQueryExecution` from an identity-enhanced carrier session with `OutputLocation`
+  under the user's results prefix, which must report that location in `GetQueryExecution` and write
+  there through the user's own grant. If it fails, this decision is rewritten in place and the
+  ownership proof is re-keyed. The workgroup is not rebuilt, because the setting updates in place; only
+  the authentication method is fixed at creation.
 - **Queries time out after 30 minutes by default, one hour maximum**, in a TIP workgroup. The limit is
   not raisable past an hour.
 - **Users must be assigned to the `IdentityCenterApplicationArn`** returned by `GetWorkGroup`, not
@@ -820,12 +843,37 @@ Two further consequences worth designing for:
   holds a data credential. It needs no per-user conditions — the identity travels in the context
   and Lake Formation, not the trust policy, enforces per-user. *(Condition keys checked against the
   IAM condition-key reference and AWS's S3 Access Grants application walkthrough, 2026-11-15.)*
-- **Permissions:** Athena start/get/results on the Identity Center workgroup, Glue catalog read
-  on the core-dataset databases, `lakeformation:GetDataAccess`, and the three S3 Access Grants
-  operations (§3.9). Deliberately **no direct S3 read** on dataset data — Lake Formation vends it,
-  and the allow-list below denies it anyway — *as written; Phase 0 found it did not (the amendment
-  below), so this "deliberately" is the whole control.*
+  The principal is the API's execution role as a constructed ARN, and the only actions are
+  `sts:AssumeRole` and `sts:SetContext`. There is no `sts:TagSession`, because the carrier takes no
+  tags. `sts:RequestContextProviders` carries a `Null` false guard beside its
+  `ForAllValues:ArnEquals`, so a call with no context cannot satisfy it vacuously.
+  `max_session_duration` is 3600, because role chaining from a Lambda session caps at an hour. The two
+  `identitycenter:` keys are on AWS's list of STS condition keys for Identity Center, but no AWS page
+  shows them in a trust policy, and a condition on a key STS does not populate fails closed. **Whether
+  STS populates them is owed to the first live run**, Phase 5's end-to-end check.
+- **Permissions:** Athena `StartQueryExecution`, `StopQueryExecution`, `GetQueryExecution`,
+  `GetQueryResults` and `GetWorkGroup` on the Identity Center workgroup. Glue `GetDatabase(s)`,
+  `GetTable(s)`, `GetPartitions` and `BatchGetPartition` on this account's catalog, `database/*` and
+  `table/*/*`, not on the core-dataset databases by name: those do not exist yet, so a named list
+  would only be rewritten when they do, and Lake Formation decides per user which of them a session
+  reads. `lakeformation:GetDataAccess`, and the three S3 Access Grants operations (§3.9). No S3 data
+  action, no KMS, no SQS, no Step Functions and no IAM. Deliberately **no direct S3 read** on dataset
+  data — Lake Formation vends it, and the allow-list below denies it anyway — *as written; Phase 0
+  found it did not (the amendment below), so this "deliberately" is the whole control.*
 - **One role for everyone.** All differentiation is in Lake Formation via the propagated identity.
+- **The allow-set gate.** A test checks every policy attached to the carrier role and enforces six
+  things. Every allowed action matches an entry of a vendored, byte-for-byte copy of
+  `AWSIAMIdentityCenterAllowListForIdentityContext` v12, using IAM's case-insensitive wildcard
+  matching. No action contains `*` or `?`. No Allow statement uses `NotAction` or `NotResource`. No
+  managed policy is attached at all, because its actions are not in the repository to check.
+  `Resource: "*"` appears only on an action the Service Reference gives no resource type, such as
+  `lakeformation:GetDataAccess`, recorded with that reason. And the set of carrier policy documents
+  found equals the set the module declares, so a stray one fails the gate rather than going
+  unmeasured. v12's entries were all literal when read on 2026-11-16, and every action above is among
+  them. If a needed action is ever not covered, it is dropped from the role, never admitted by
+  widening the gate. The copy is re-vendored on purpose and never fetched at test time, since a runner
+  may have no egress. A second test asserts that no resource policy under `infra/` names the carrier
+  role. Being a gate, it owes a fixture corpus asserting each refusal's reason.
 
 Note that the identity-enhanced session is restricted by the
 `AWSIAMIdentityCenterAllowListForIdentityContext` managed policy, which STS attaches
@@ -858,14 +906,14 @@ says. It is NOT what Phase 0 measured on 2026-11-15; see the amendment below.)*
 > for the IdC workgroup and for per-user scoping, but the backstop is gone and it was never S3-only.
 > The policy is a single `Deny` on everything outside its list, so **assume nothing outside the
 > carrier role's own policy limits an identity-enhanced session**, whether for S3, SQS, Step
-> Functions, KMS, DynamoDB or IAM. Two controls cover the gap. The first is owed by the Phase 5 API
-> spec, which carries the carrier role: an IAM test that the carrier role's allowed actions are a
+> Functions, KMS, DynamoDB or IAM. Two controls cover the gap. The first is owed by Phase 5, which
+> builds the carrier role: an IAM test that the carrier role's allowed actions are a
 > **subset of the allow-list's own list**, an allow set rather than named absences, which `s3:Get*`
-> would slip past. The second half-exists. The user-space bucket's policy already denies direct
+> would slip past (*the allow-set gate*, above). The second half-exists. The user-space bucket's policy already denies direct
 > object access to every principal it does not name (§3.12 item 5), so the obligation there is to
 > keep the carrier role off that list, and to put the Access Grants location role on it, because
 > vended credentials act as that role (Phase 5's Access Grants item). The shared-space bucket has no
-> such policy, and whether it gains one is that spec's call. This also unsettles the reason §3.4 and
+> such policy, and whether it gains one is open (§8, *Gating Phase 5*). This also unsettles the reason §3.4 and
 > §3.9 give for Access Grants, the P1-implies-P3 tension in §5, and the allow-list's role in the
 > actor contract (`docs/specs/ARCS.md`). Neither is decided here.
 
@@ -945,13 +993,46 @@ architecture today, and it is an account-wide singleton to own in the coordinati
    **prerequisite of the IdC-enabled Athena workgroup**, not an optional extra.
 2. **Register a location**: the bucket or prefix, plus an IAM role Access Grants uses to vend
    credentials for it, whose **permission** policy is where per-user narrowing lives (below). Its
-   **trust** policy needs a **second statement** granting **`sts:SetContext`** — beside the
-   `sts:AssumeRole` one, not folded into it — conditioned on
-   `ForAllValues:ArnEquals` over `sts:RequestContextProviders` =
-   `arn:aws:iam::aws:contextProvider/IdentityCenter`, plus `aws:SourceAccount` and an `aws:SourceArn`
-   naming the **location**.
+   **trust** policy's first statement lets `access-grants.s3.amazonaws.com` call `sts:AssumeRole`
+   **and `sts:SetSourceIdentity`**, conditioned on `aws:SourceAccount` and an `aws:SourceArn` naming
+   the **Access Grants instance** (`arn:aws:s3:{region}:{account}:access-grants/default`), not the
+   location. ~~an `aws:SourceArn` naming the location~~ — *corrected 2026-11-17 against AWS's
+   "Register a location" page, whose sample names the instance.* For an Identity Center instance it
+   needs a **second statement** granting **`sts:SetContext`**, beside the first and not folded into
+   it. AWS's page says the Identity Center case "includes a second statement" but, as fetched on
+   2026-11-17, never prints it, so its exact shape is an owed check on the first apply against a real
+   instance. Until then our requirement is that it carries the same confused-deputy guard as the
+   first, `aws:SourceAccount` and the instance's `aws:SourceArn`, plus `ForAllValues:ArnEquals` over
+   `sts:RequestContextProviders` = `arn:aws:iam::aws:contextProvider/IdentityCenter` with a `Null`
+   false guard beside it, because a bare `ForAllValues` is true when the key is absent (the same
+   hazard §3.6 guards against on the carrier).
+   The location role's **permissions** cover object read, write and delete, `ListBucket`,
+   `AbortMultipartUpload` and `ListMultipartUploadParts` on the user-space bucket alone. They never
+   include `ListBucketMultipartUploads`, which ignores `s3:prefix`. The policy carries an explicit
+   Deny of `s3:*` on `<bucket>/_*`, and of `ListBucket` under `StringLike` `s3:prefix` `_*`. The
+   bucket keeps system documents at `_config/` and `_directory/`, and no username can start with `_`.
+   Without that Deny, a grant to any grantee on `*` would vend credentials that write the feature
+   flags, because the location role is on the bucket policy's exception list. One gap is accepted: a
+   listing with no prefix, or an empty one, matches no `s3:prefix` condition, so it would return those
+   key names, though not their contents. Only a grant scoped to the location root can make such a
+   listing, and that grant already exposes every user's keys unless the role-policy narrowing below
+   applies. These permissions are on the user-space bucket; §3.11's per-(member, space) grants need a
+   registered location on the shared-space bucket too, and whether this role is widened to it or a
+   second role serves it is open (§8, *Gating Phase 5*). Athena's result writes on the Identity
+   Center workgroup also go through Access Grants, as the same role.
 3. **Create grants**: bind an **Identity Center user or group** to a **prefix** with
-   `READ` / `WRITE` / `READWRITE`.
+   `READ` / `WRITE` / `READWRITE`. **The fence on grants has three rules.** Only the roles this plan names as grant issuers may call `s3:CreateAccessGrant` and
+`s3:DeleteAccessGrant`: the deploy role, the provisioner's identity-shaped pass (§3.12) and the
+shared-space control plane (§3.11). No other identity policy grants either, and a test holds the
+list. *(SPEC-266 wrote "only the deploy role"; the plan's runtime issuers are the correction.)* Grantees are directory users and
+   groups only, never an IAM principal, because a grant to the carrier role would apply to every
+   user's carrier session. And no grant is scoped to the location root **unless** Phase 0 chooses
+   the role-policy-narrowed form (below, and Phase 0's *Decide the Access Grants prefix identity*),
+   in which case that one standing grant is the root grant, the location role's permissions narrow
+   it by `${identitystore:UserId}`, and the `_*` Deny above still holds. Under the literal per-user
+      form, a root grant is a defect. This fence does not decide between the two forms; Phase 0 does.
+   One consequence is already fixed: §3.5 keys query results on the username, which the narrowed
+   form cannot express, so under it the results location still needs literal per-user grants.
 
 **The backend calls `GetDataAccess` on the user's identity-enhanced session and gets back
 prefix-scoped temporary credentials.** From there the bytes reach the browser the way Arc B already
@@ -991,7 +1072,8 @@ can consult it, so that bucket forces the literal form whatever this one decides
   turns out to be unavoidable on an IdC workgroup (§3.5's workgroup bullet, narrowed 2026-08-19 and
   again 2026-11-15) —
   so the invariant may hold for the file browser and break for results. Decide it deliberately; it
-  strands data if it changes afterwards.
+  strands data if it changes afterwards. *For results it is decided (§3.5's workgroup bullet, 2026-11-16):
+  the username stays the results prefix, as long as the owed result-location probe passes.*
 - **Who creates a user's grant, and how many are there?** A literal per-user grant is a provisioning
   step and belongs beside database creation and tagging in the provisioning contract (§2 item 7),
   with the same latency question. A role-policy-narrowed grant is standing and provisions nothing —
@@ -1529,7 +1611,17 @@ no first-visit write, a user whose space does not exist has nothing that would c
    adequate here only because the body is a **constant**, so a lost race writes identical bytes —
    which holds only while *every* writer of that key writes the same constant, and is why §6.3's
    prefix-marker row moves the constants' values rather than leaving them to be re-derived. If a stronger guarantee is ever wanted,
-   the name for it is `PutObject` with `If-None-Match: *`.
+   the name for it is `PutObject` with `If-None-Match: *`. **It is wanted:** once the marker answers
+   "does this user exist" (§6.1, *The recipient check moves to the prefix marker*), the provisioner
+   writes the marker **first**, before the database, the grant and the tag, with `PutObject` and
+   `If-None-Match: *`. A `412` means it is already there, which counts as success. A `409`
+   (`ConditionalRequestConflict`, a concurrent unconditional write) is retried once, and that retry's
+   `412` is success. Writing it first means "exists" means "provisioned", whatever happens to the Glue
+   and Lake Formation steps. A marker failure raises and stops the later steps. Every writer of the
+   marker key, and the reader, uses one filename and byte-identical bodies; a function that may import
+   only `observability` from `cpcommon` (the post-confirmation function, by
+   `test_layer_import_safety.py`) keeps local copies, and a test asserts they equal the shared
+   constants and `fileBrowser.constants.ts`, byte for byte.
 2. **The Glue database**, named exactly the username.
 3. **The Lake Formation grant** giving the shared portal role use of that database and its tables.
 4. **The `portal-managed` LF-Tag** on the database, **last** — so a tagging failure costs
@@ -1736,8 +1828,12 @@ Provisioning ahead of use spends that budget on people who may never sign in.
 
 **De-provisioning is the mirror image and nothing owns it yet.** The external system is the source of
 who exists, so it is also the source of who has left — and nothing in this repo deletes a user's
-space. A leaver keeps a prefix, a database, a directory entry and, after Phase 5, a live Access
-Grant; what actually cuts their access is losing the Identity Center user, which is SCIM's doing and
+space. A leaver keeps a prefix, a database, a directory entry, a prefix marker and, after Phase 5, a
+live Access Grant. The marker is not inert residue: it keeps a leaver a valid recipient for file
+send, table share and shared-space membership (§6.1), so if the client later gives a leaver's
+username to a new hire, the new hire inherits everything sent to that name since the leaver left.
+Whoever owns de-provisioning must therefore delete the marker; the recipient check needs no change,
+because it answers "unknown" as soon as the marker is gone. What actually cuts their access is losing the Identity Center user, which is SCIM's doing and
 leaves every one of those artifacts behind. **Name an owner in the coordination contract (§4.4) or
 accept the residue explicitly.** What is not acceptable is discovering at the client's security
 review that "provisioned from the list" was never paired with anything.
@@ -1745,7 +1841,9 @@ review that "provisioned from the list" was never paired with anything.
 #### What it does not do
 
 It creates no Identity Center users — SCIM does (§2 item 12) — it touches Cognito in neither
-variant, it mints no per-user IAM, and it does not decide who may sign in.
+variant, it mints no per-user IAM, and it does not decide who may sign in. It does write one thing
+the bridge reads: under [B], one identity-index entry per row of the username list (§6.1, *The bridge
+pool as designed*), which is how the bridge's sign-in learns a person's username.
 
 #### What Phase 0 must answer for it
 
@@ -1820,7 +1918,12 @@ An account has **one** Lake Formation Identity Center configuration, maintained 
 **creates** it rather than joining an existing one. Still call
 `DescribeLakeFormationIdentityCenterConfiguration` first — another team may land earlier than
 planned — and record ownership in the contract either way: creating a second is not possible, and
-replacing an existing one breaks every other consumer.
+replacing an existing one breaks every other consumer. That check is by hand, before the first
+apply. **The IaC itself creates the configuration and the Access Grants instance and reads neither
+first**: no data source and no `import` block. One that already exists therefore fails the apply
+with the service's own error rather than being silently adopted. Adopting one is a separate,
+deliberate change with an `import` block, made only after the coordination contract's ownership line
+says it is ours.
 
 The same posture applies to `aws_lakeformation_data_lake_settings`: the portal now legitimately
 owns the account's data-lake administrator list, and later tenants are added through this repo's
@@ -1877,6 +1980,144 @@ no management-account credential for any of them. **Unconfirmed:** the Lake Form
 configuration, the workgroup and the Access Grants association each register an AWS-managed
 application on the instance from the member account, and the same LZA service control policies
 that probably block an account instance might block that too. Phase 0 asks the administrators.
+
+#### Building the consumers
+
+*Folded in 2026-11-17 from SPEC-266, cancelled because it could only be proved in the client
+environment.*
+
+**The AWS provider comes first.** None of the consumers can be written against the provider this
+repository pins. `infra/` pins `hashicorp/aws ~> 5.0`, locked at 5.100.0, which has no
+`aws_lakeformation_identity_center_configuration` (it first ships in 6.19.0) and neither of
+`aws_athena_workgroup`'s `identity_center_configuration` and
+`query_results_s3_access_grants_configuration` blocks (present from 6.10.0). A major-version upgrade
+of the provider therefore comes before any consumer. The gate is the pin itself: no consumer resource
+is written until `infra/providers.tf` on `main` requires 6.19 or later.
+
+**The flag and the four inputs.** The flag is the root variable `identity_center_enabled`, a string
+that accepts exactly `"true"` or `"false"` and defaults to `"false"`. `deploy-infra.yml` falls back to
+`"false"` when the repository variable is unset, deliberately the opposite of `web_tier_enabled`'s
+fallback, because an unset input must never build half the consumers. An unset GitHub repository
+variable arrives as the empty string, not as absent, so each input's own validation accepts the empty
+string or its shape, and a root `terraform_data` counted on the flag carries one precondition per
+input, each refusing an empty value while the flag is `"true"` with a message naming the variable. A
+precondition rather than a validation, because CI runs OpenTofu `~1.8` and the one existing
+cross-variable check under `infra/` is already a precondition. The shapes are:
+
+- instance: `^arn:aws:sso:::instance/(sso)?ins-[0-9a-f]{16}$`
+- identity store: `^d-[0-9a-f]{10}$`
+- application: `^arn:aws:sso::[0-9]{12}:application/(sso)?ins-[0-9a-f]{16}/apl-[0-9a-f]{16}$`
+- audience: `^[A-Za-z0-9._:/-]{1,256}$`
+
+No validation compares the application's or the instance's account to ours, because under LZA both
+live in the management or delegated-admin account. There is no Region input: the instance's home
+Region is `var.aws_region` by requirement, no ARN carries it, so a plan cannot check it and a mismatch
+surfaces only at apply. The identity store id and the audience feed no consumer resource; they are
+root outputs for the provisioner and the server. The consumers export `carrier_role_arn`,
+`identity_context_key_arn`, `access_grants_instance_arn` and `identity_center_workgroup_name`, each
+empty while the flag is off.
+
+**The server's wiring.** The server reads three values: `IDC_APPLICATION_ARN`,
+`IDC_TOKEN_ISSUER_AUDIENCE` and `IDC_CONTEXT_KEY_ARN`, the last being the sealing key. The `spa`
+module sets them in the task definition only while the flag is `"true"`, and under the same
+condition grants the task role exactly `sso-oauth:CreateTokenWithIAM` on exactly the application ARN.
+A `precondition` refuses the plan when the flag is on and the application ARN or the audience is
+empty, so a half-configured environment fails at plan rather than as a task that will not start. All
+three unset is the inert state, and it is what merges: no Identity Center or KMS call is made, no
+identity is written, no request carries either identity header (§4.7), and sign-in, refresh and the
+pass-through behave as they do today. Some set and some unset is a configuration fault, which the
+start-time check in `instrumentation.ts` reports by name before it exits. The audience must equal
+`OIDC_CLIENT_ID`, because the assertion is the server's own ID token; any other value is reported as
+unusable rather than surfacing as a refusal on every sign-in. Both new clients use `AWS_REGION`, since
+the instance shares the portal's Region, and none of the three is a `CONFIG_*` key. The web tier must
+be on for the infrastructure change that adds them, because a change to `spa`'s IAM goes unplanned
+while it is off. The API Lambda gains `CARRIER_ROLE_ARN` and `IDENTITY_CONTEXT_KEY_ARN`, both empty
+while the flag is off and required lazily, on the first carrier request, so an empty value never fails
+a cold start. The API's execution role carries `sts:AssumeRole` and `sts:SetContext` on the carrier's
+constructed ARN whatever the flag says, because a grant on a role that does not exist authorizes
+nothing.
+
+**Switching the consumers off destroys singletons, so it takes a second act.** Setting the flag to
+`"false"` would delete the Lake Formation Identity Center configuration and the Access Grants instance,
+which every consumer in the account shares; that makes it unlike `web_tier_enabled`, which is flipped
+for cost. So the apply job, the one that runs on a merge, a dispatch and a `skip_refresh` break-glass
+alike, runs a guard over the exact plan it applies. Today that job runs `tofu apply -auto-approve`
+with no saved plan, and the existing plan-JSON guards (`frozen_fleet_guard.py`,
+`lambda_plan_guard.py`) run only in the pull request's plan job, which never sees what the merge
+applies. The apply step becomes one step that does four things in order: `tofu plan -out`, `tofu show
+-json` to a file rather than a pipe, the guard, and `tofu apply` of that saved plan, both the plan and
+the apply carrying `-lock-timeout`. It stays one step because every planning or applying step must
+start with `tf_var_guard.py` and carry `REPO_VARS`, and a second step with copied `TF_VAR_` values
+could disagree with the plan. The guard lives in `.github/scripts/` beside the others. **It guards
+exactly two resource types, `aws_s3control_access_grants_instance` and
+`aws_lakeformation_identity_center_configuration`**, at any address, never by module path, because a
+`moved` block can relocate a singleton and a later change would then delete it at an address a path
+match ignores. On those two types it refuses any change whose actions include `delete` (replacements
+in either order included); a `forget`, which drops the singleton from state so the next switch-on
+collides with it; and an update that changes `identity_center_arn` or `instance_arn`, where an
+attribute counts as changed when `after_unknown` marks it, because an unknown value is dropped from
+`after` rather than set to null. It is silent on everything else: a plan with no changes, a `delete`
+of an unguarded type such as the Identity Center workgroup or a Lambda, and an update to a guarded
+type that changes only its tags. Refusing every delete would turn ordinary merges red. It fails closed
+on a missing or unparseable plan, or one with no `format_version`. The plan and the apply each carry
+`-lock-timeout=10m`.
+The override is a `workflow_dispatch` input, `allow_identity_center_destroy`, defaulting to false. A
+push never carries it, so **a merge that switches the consumers off turns `main` red by design**, and
+the fix is the dispatch, never a revert. The trigger is the repository variable, not code: once it
+reads `"false"`, every later apply refuses until someone runs the override dispatch, so the operator
+runs the dispatch straight after flipping it. **AWS deletes an Access Grants instance only once its
+grants and locations are deleted and its Identity Center association is removed**
+(`DeleteAccessGrantsInstance`), and the per-user grants (§3.12) and per-(member, space) grants
+(§3.11) are made outside Terraform, so in any real environment the override destroy fails mid-apply
+unless every grant made outside Terraform (and any location so registered) is deleted first. Where
+that step runs, and how it keeps the runtime issuers from creating a grant between it and the
+destroy, is open (§8, *Gating Phase 5*). Being a
+gate, it owes a fixture corpus asserting each refusal's reason, cases that assert silence, and one
+mutation per rule.
+
+**The deploy role's grant covers calls made on our behalf.** It lands in its own pull request and
+applies green before any consumer. Associating Access Grants, creating Lake Formation's configuration
+and creating an Identity Center workgroup each create an Identity Center application against the
+instance, so the grant carries those Identity Center actions. *SPEC-266 also said Lake Formation's
+configuration creates a RAM share; AWS's "Prerequisites for IAM Identity Center integration" page
+asks for RAM permissions only when sharing catalog resources across accounts, which we do not plan,
+so RAM actions join the grant only if the first apply's CloudTrail shows a share.* It also carries `iam:PassRole` on the location role, conditioned on
+`access-grants.s3.amazonaws.com`. The action list is derived, not guessed: from each resource's
+create, read, update and delete at the pinned provider version, from AWS's documented permissions for
+each on-behalf call, and from a simulate for each action placed on `Resource: "*"`. The first-use
+resources sit behind a `time_sleep` keyed on the grant's body (`infra/info/deploy-role-iam.md`). Only
+the same-account half can be proved here; the cross-account half, those calls against an
+organization instance in another account, is owed. The new managed policies (this one, and the
+bridge's in §6.1) count against the deploy role's attachment ceiling, which
+`lambdas/test_feedback_deploy_grant.py` asserts at or below `MAX_ATTACHED_MANAGED_POLICIES` (20);
+check the headroom before adding them.
+
+**Two invariants beside the switch.** The location role's entry on the user-space bucket policy, a
+constructed ARN in root `locals`, is present whatever the switch says, as is the API role's grant on
+the carrier. And the existing portal workgroup in `infra/modules/analytics/`, with
+`aws_lakeformation_data_lake_settings`, is untouched by any of this; the Identity Center workgroup is a
+second one beside it.
+
+**Decision files owed when this is built**, each under `docs/decisions/`: the workgroup decision
+(§3.5) under `analytics/`; *the carrier role is bounded by its own policy, because the allow-list is
+not a fence* under `identity-and-access/`; and *we consume the client's Identity Center from four
+inputs and build none of it, and switching the consumers off takes a dispatch override* under
+`infrastructure/`. The others this plan records, written as decision files when built: the
+refused-refresh rule (§4.7) and the explicit `error.stack` scrub (§4.7) under `identity-and-access/`;
+the username lookup as a Pre-Token-Generation trigger (§6.1); the in-place rewrite of
+`two-credential-planes-declared-per-route-defaulting-to-the-user-plane.md` for three planes (§4.7,
+*The API's half*); and the reversed existence-check clause of
+`the-username-directory-is-built-from-s3-not-cognito.md` (§6.1).
+
+**Proving apply and destroy against a stand-in.** Before the client's environment, the consumers'
+apply and destroy are proved against a throwaway account instance (§4.5's *Testing*), under the PR
+queue lock. Set the four inputs and turn the flag on, dispatch the deploy and record the apply. Turn
+the flag off and dispatch without the override, recording the guard's refusal. Dispatch again with
+the override and confirm that the Access Grants instance, the Lake Formation configuration and the
+workgroup read back as absent. If an Access Grants instance can be planted first, the same run
+records the apply refusing to adopt it. Plant one grant outside Terraform before the destroy, so the
+run also proves whatever step §8's question settles on. The run cannot prove the cross-account calls, or that
+STS populates the carrier's two Identity Center keys.
 
 ### 4.5 A third counterparty — unchanged
 
@@ -2065,7 +2306,7 @@ compute that already exist, along the line between the session and the data.**
 | | The Next.js server — the BFF | The API Lambda — the resource server |
 |---|---|---|
 | Owns | The opaque cookie, `/auth/*`, the provider's code exchange and refresh, the session item | Every request-path AWS call: the role assumption, Athena, Glue, Access Grants, presigning, the enqueues |
-| Identity Center | **Step 1** at sign-in and **step 1r** before the context lapses (§3.5) — G10 confirmed the placement on 2026-11-15 (below); stores the tokens in the session item either way | **Step 2** per request, from the identity context the server forwards; **step 3** |
+| Identity Center | **Step 1** at sign-in and **step 1r** before the context lapses (§3.5) — G10 confirmed the placement on 2026-11-15 (below); stores the sealed context and the Identity Center refresh token in the session item | **Step 2** per request, from the identity context the server forwards; **step 3** |
 | Its role may | Read and write the session table, use its key, call `sso-oauth:CreateTokenWithIAM` on the portal's application, encrypt with the sealing key — **no data access at all** | Assume the carrier role with `sts:SetContext` (and, until Phase 5 retires it, the shared portal role with its session tags); decrypt with the sealing key; its existing enqueue grants |
 | Forwards / receives | The bearer and the context **sealed to the bearer's subject** (below), server to server, on the `/api/` pass-through | Verifies the bearer for **who**; unseals the context with that bearer's subject and hands it to STS for **what they may reach** |
 
@@ -2113,14 +2354,43 @@ without its own user's bearer. Four rules keep it a binding:
   from the session table's key, whose policy delegates to the account's IAM: delegated, any
   principal IAM allows could unseal, or re-seal a raw context to its own `sub`, and exclusive
   `Encrypt` is the property the binding rests on.
-- **A cache never skips the check.** The API's cache of an unsealed context or a carrier session
-  is keyed on the sealed value **and** the verified `sub`, so a leaked sealed value presented with
+- **A cache never skips the check.** The API's cache of a carrier session (it never caches a
+  plaintext context) is keyed on the sealed value **and** the verified `sub`, so a leaked sealed value presented with
   another bearer misses the cache and meets `Decrypt`.
 - **The encryption context holds `sub`, never the username**, because CloudTrail records KMS
   encryption contexts in plain text.
-- **An unseal failure is not a 401.** The browser answers a 401 with one refresh and then a sign-out,
-  so `InvalidCiphertextException` answers a code of its own and a KMS throttle or outage answers
-  5xx, as the verifier already does for a provider it cannot read.
+- **An unseal failure is not a 401.** The browser answers a 401 by re-reading its session once and,
+  if that read finds no session, signing out locally; a 401 with a live session leaves the user signed
+  in but reports the request as an expired session (`apiClient.ts`, `AuthProvider.tsx`). ~~The browser
+  answers a 401 with one refresh and then a sign-out~~ — *corrected 2026-11-17 against the code.* So
+  an identity reason must never answer 401, since it would tell a signed-in user their session had
+  expired: `InvalidCiphertextException` answers a code of its own and a KMS throttle or outage
+  answers 5xx, as the verifier already does for a provider it cannot read (*The interface between the
+  server and the API*, below).
+
+**The key itself.** It is symmetric, `alias/<project>-<env>-identity-context`, with rotation on and a
+30-day deletion window, and its policy has four parts. **Administration** goes to the deploy role
+alone, as a named `Principal`, which is the form KMS's lock-out check reads: describe, get, list, put
+key policy, rotation, tags, deletion scheduling, description and aliases, and no cryptographic action.
+**`kms:Encrypt`** uses `Principal: "*"` conditioned on `aws:PrincipalArn` equal to the task role's
+constructed ARN — a condition and not a named principal, because the task role does not exist while
+the web tier is off and KMS refuses a policy naming a principal that does not exist. **`kms:Decrypt`**
+has the same shape, for the API's role. **An explicit Deny** covers Encrypt and Decrypt for everyone
+else, and `kms:ReEncrypt*` and `kms:GenerateDataKey*` for everyone, since ReEncrypt is how a holder of
+ciphertext moves it under a key someone else can decrypt. Both Allows require `kms:CallerAccount` to
+be ours, `kms:EncryptionContext:purpose` equal to `identity-context`, and `ForAllValues:StringEquals`
+on `kms:EncryptionContextKeys` for `purpose` and `sub`, each with a `Null` false guard on that key and
+on `kms:EncryptionContext:sub`, so every seal must name a bearer. No identity policy carries a KMS
+grant on this key, so there is one place to keep in step. Two things the binding rests on, said
+plainly. First, the deploy role is the trust root, because `kms:PutKeyPolicy` lets it grant itself
+either side. Second, `aws:PrincipalArn` matches a role by name, not by unique id, so while the task
+role does not exist anyone able to create a role of that name would gain Encrypt; that is accepted
+only because no identity policy outside the deploy role's grants `iam:CreateRole`, and a test holds
+it. Losing administration of the key with the deploy role is accepted, and so is losing the key
+itself: a sealed context lives at most an hour. The server cannot re-seal what it stores (it holds no
+plaintext and may not `Decrypt`), so after a key replacement each session's requests answer
+`IdentityContextMismatch` until its next successful refresh seals a new context, and a context with
+no refresh token until it lapses. How the server recovers sooner is open (§8, *Gating Phase 5*).
 
 The cost is one `Decrypt` per request on the API, less what its cache saves, and one `Encrypt` per
 context on the server. An HMAC under a shared key was weighed and is not simpler: it needs the same
@@ -2185,46 +2455,74 @@ less.**
   scaling breaks sessions and every restart logs everyone out. The Next.js server is a container,
   so this is a rule to enforce rather than a property it gets free: it keeps no session in memory
   (SPEC-257 holds it to that, with a test).
-- **The Identity Center tokens join the existing item**, refreshed under the same compare-and-set
-  as the provider's. **The provider's refresh token still decides the session's life**: only the
-  provider refusing it, a missing item or the session's expiry ends a session.
-- **Identity Center is a separate failure, and never a sign-out.** The Phase 5 spec carries a table
-  sorting Identity Center's answers into refusals and faults; whichever it is, a sign-in whose
+- **The identity joins the existing item**, under the same `version` the provider's
+  compare-and-set advances but by a write of its own (*The server's half*, below). What is stored is
+  the **sealed context** and the **Identity Center refresh token** only; the access token and the
+  Identity Center `idToken` are discarded, and the raw context is dropped once it is sealed. **The
+  provider's refresh token still decides the session's life**: only the provider refusing it, a
+  missing item or the session's expiry ends a session.
+- **Identity Center is a separate failure, and never a sign-out.** *The server's half*, below,
+  sorts Identity Center's answers into refusals and faults; whichever it is, a sign-in whose
   exchange fails still creates the session, with the context marked absent, so the user reaches
   everything the context does not gate and the server retries the exchange later. Without that, an
   Identity Center outage, throttling in a login storm, or a user SCIM has not yet provisioned —
   there is no just-in-time provisioning — would block sign-in outright. Routes that need the
   context answer a code of their own while it is absent.
 - **A lapsed context must not read as a lapsed session.** The pass-through relays the API's 401
-  unchanged, and the browser answers a 401 with one forced refresh and then a sign-out. So the
+  unchanged, and the browser treats a 401 as an expired session (above; *corrected 2026-11-17*). So the
   server refreshes the context on the same 300-second margin it uses for the provider's token, a
-  forced refresh renews both, and an STS refusal of a stale context answers a code other than 401.
+  forced refresh renews both (the context only if it was issued more than 60 seconds ago — *The
+  server's half*), and an STS refusal of a stale context answers a code other than 401.
   The refusal is `InvalidContextAssertion` (*"Provided context has expired"*, measured
   2026-11-15). **The margin also bounds the carrier session**, because STS ends that session when
   its context expires: a context forwarded with five minutes left yields a session of at most five
   minutes. That is enough for every call made on a carrier session, since API Gateway caps an
-  integration at about 30 seconds, and asynchronous work such as an Athena query or a presigned
-  URL's redemption does not ride the session. So the 300-second margin stands; a spec that raises
-  it raises the provider's with it.
-- **What a refused Identity Center refresh does is OPEN, for the Phase 5 server spec.** Phase 0
-  saw the refresh token last at least three hours without rotating, but a session lasts up to 30
-  days, and nothing measured says one refresh token lasts that long. Phase 0 also measured that a
-  refreshed Cognito ID token exchanges, so re-running step 1 is available as a recovery. As a rule,
-  though, it carries three hazards. First, it would mint a new Identity Center session past any
-  session revocation or duration the Identity Center administrators set (§4.5), so de-provisioning
-  would have to go through SCIM or unassignment. Second, it spends the 10-per-second JWT-bearer
-  quota, which the Phase 0 sizing counts only at sign-in, and refresh tokens issued in a login
-  storm would expire together. Third, two containers re-exchanging at once would collide, and the
-  loser's replay refusal looks exactly like a real refusal, so it needs the session item's
-  compare-and-set. The alternative is marking the context absent until the next sign-in. That spec
-  decides, after Phase 0 probes whether deleting a user's Identity Center session refuses a
-  refresh.
+  integration at about 30 seconds, and asynchronous work such as an Athena query does not ride the
+  session. A presigned URL does in one respect: the presign clamp bounds a URL by its signing
+  credential's expiry, so a URL signed from a credential with five minutes left lives five minutes,
+  not 900 seconds. Storage moves onto Access Grants presigning, which signs from
+  `GetDataAccess`-vended credentials; G9 proved those presign, but nothing measured whether they
+  outlive the carrier session that requested them, and that is the storage move's premise to clear
+  first. So the 300-second margin stands; a change that raises it raises the provider's with it.
+- **A refused Identity Center refresh leaves the context absent until the next sign-in. DECIDED
+  2026-11-16 by Andrew.** The identity becomes `ended` and its refresh token is removed; the portal
+  session is untouched, and only a new sign-in, which writes a new item, brings a context back. The
+  server signals it with `x-identity-context-absent: signin` and the API answers
+  `IdentitySignInRequired`. Phase 0 saw the refresh token last at least three hours without rotating,
+  but a session lasts up to 30 days, and nothing measured says one refresh token lasts that long.
+  Phase 0 also measured that a refreshed Cognito ID token exchanges, so re-running step 1 would
+  recover silently. It is declined for three reasons. First, a refused refresh means Identity Center
+  no longer honours this user's refresh token, whether its lifetime ran out or the administrators
+  ended the session; a re-exchange would mint a new Identity Center session past the session duration
+  the client set (§4.5), and past a revocation if revocation refuses a refresh, and a new sign-in is
+  the right gate after either because it passes through Entra again. Second, the JWT-bearer quota is
+  10 per second across the whole instance, shared with sign-ins and with every other application the
+  client runs on it, and refresh tokens issued in a login storm would expire together. Third, two
+  containers re-exchanging at once collide, and the loser's replay refusal looks exactly like a real
+  refusal. The cost is that after the refresh token stops working, a user sees data routes answer
+  "sign in again" until they do; the token's lifetime is undocumented and in the client's instance is
+  likely bounded by the session duration its administrators set. The decision is reversible:
+  re-exchange would replace the `ended` transition in one function if that prompt proves too
+  frequent. One premise is unmeasured and the decision does not rest on it alone: Phase 0 did not
+  probe whether deleting a user's Identity Center session refuses a refresh (check D of
+  `docs/identity-center-admin-requests.md`). If it does not, the administrators' revocation does not
+  reach the portal's context until the refresh token's own lifetime ends, and the decision still
+  stands on the quota and the collision.
 - **Ordering invariant:** step 1r runs, and a context is forwarded, only while the provider's token
-  is valid. A context refreshed on its own clock would extend data access past the provider's.
+  is valid. A context refreshed on its own clock would extend data access past the provider's. An
+  Identity Center call is made only after the provider's token in that load is valid. If that token
+  was due and its refresh faulted while it is still valid, the refresh grant may proceed, because it
+  needs no ID token; no exchange is attempted, because an exchange needs a fresh ID token this load
+  does not have. A load that ends the session makes no Identity Center call.
 - **The API's credential cache is keyed on the context, not the claims.** It already caches an
   assumed session per container, keyed on the tags derived from the bearer. A carrier session keyed
-  the same way would ignore a refreshed context with narrower entitlements for up to an hour, so the
-  key is a digest of the context and an entry never outlives the context.
+  the same way would ignore a refreshed context with narrower entitlements for up to an hour. So only
+  the carrier session is cached, never a plaintext context, and the key is the SHA-256 of the
+  **sealed** value together with the verified `sub`. The server seals once per context, so the
+  sealed value is stable for a context's life and changes at each refresh: a refreshed context misses
+  the cache, and narrowed entitlements apply at once. A hit skips both `Decrypt` and `AssumeRole`.
+  Expired entries are evicted on each insert, because contexts rotate hourly and the cache would
+  otherwise grow with every user's every hour (today's cache has no eviction on insert).
 - **Sign-out has nothing to revoke at Identity Center.** The OIDC API has no revocation operation,
   so deleting the session item is the whole revocation, and a context that leaked lives out its own
   lifetime. **Measured 2026-11-15:** that is one hour from the mint or refresh that produced it,
@@ -2257,7 +2555,8 @@ Identity Center refresh token, and the session's absolute expiry. Decide deliber
 experiences when each expires, rather than letting the shortest one produce a confusing failure.
 **Under [B], Cognito is the master clock, and Entra does not end a session by itself.** Keep
 refreshing the provider's token even though Identity Center has its own refresh token, so the
-session item — Identity Center tokens included — goes when Cognito refuses a refresh. But a Cognito
+session item — the sealed context and the Identity Center refresh token included — goes when
+Cognito refuses a refresh. But a Cognito
 refresh does not consult Entra: AWS's refresh-token page describes none, and nothing else in its
 documentation has one, so Phase 0 confirms it rather than this page assuming more. **So a user Entra
 disables keeps a portal session until Cognito's refresh token runs out** — 30 days as SPEC-257 set
@@ -2283,7 +2582,233 @@ that no longer applies.*
 
 **A new portal-owned state store.** The DynamoDB table joins the admin bucket as app-owned state.
 Unlike the admin bucket, it holds credentials that grant access to client data, so it needs the
-customer-managed key, tightly scoped access, and its own line in the client's security review.
+customer-managed key, tightly scoped access, and its own line in the client's security review. A
+stolen session item alone yields no context, because the refresh grant works only for a principal the
+actor policy names, which is the task role. A thief holding the task role's credentials as well can
+refresh it to a raw context, past the seal, and keep doing so after the user signs out, for as long as
+the token lives. That is the same reach those credentials and that table already give through the
+provider's 30-day refresh token and the client secret in the same container, so the exchange adds no
+new principal that can reach a user's data. Narrowing who may read the session table and use its key
+covers both tokens; that narrowing is SPEC-270 in this repository, and it must be on `main` before the
+client's security review.
+
+#### The interface between the server and the API
+
+*Folded in 2026-11-17 from SPEC-267 and SPEC-268, which agreed it on 2026-11-16 and were then
+cancelled because only the client environment can build and prove them.*
+
+| | Value |
+|---|---|
+| Context header | `x-identity-context`: standard base64 of the KMS `CiphertextBlob`, at most 4,096 characters |
+| Absence header | `x-identity-context-absent`: `signin` (only a new sign-in restores it) or `unavailable` (the server is retrying) |
+| Neither header | the exchange is switched off |
+| Encryption context | exactly `{"purpose": "identity-context", "sub": <sub of the Cognito ID token forwarded as the bearer>}` |
+| Plaintext | the raw identity context, `awsAdditionalDetails.identityContext` |
+| Stability | sealed once per context: constant for its life, new at each refresh |
+
+What the server sends, by the identity's state (*The server's half*): with the exchange off, neither
+header, whatever the item holds; an unexpired `present` context, the sealed value; a lapsed `present`
+context, a `pending` identity or no attribute yet, `unavailable`; `ended` or `unreadable`, `signin`.
+The browser cannot set either header: the request-header allow-list stays exactly `content-type`,
+`accept` and `x-request-id`, and the server sets both headers after copying it. The identity is never
+part of the browser's session shape: `GET /auth/session` and `POST /auth/refresh` answer the same in
+every identity state.
+
+**Size.** The API refuses a sealed value over 4,096 characters. The server's own allowance is 3,416
+characters: the base64 of 2,560 bytes, which is a 2,048-character context plus a deliberate 512-byte
+allowance for KMS's undocumented ciphertext overhead. With a 2,000-character request line and a
+4,096-byte bearer, that stays under the HTTP API's 10,240 bytes. Phase 0's contexts were 1,588 to
+1,668 characters; the real lengths in the client's instance are measured live (Phase 5's
+verification).
+
+On a route that needs a context, the API answers in this order, and **none is 401**:
+
+| What happened | Code |
+|---|---|
+| `absent: signin` | `IdentitySignInRequired` (403) |
+| `absent: unavailable`, any other `absent` value, or neither header | `IdentityContextUnavailable` (503) |
+| Value over 4,096 characters, empty or not base64 (API Gateway's v2 payload joins a repeated header with commas, which fails here) | `IdentityContextMismatch` (403) |
+| The bearer has no string `sub`, or an empty one (checked on a context route only) | `IdentityContextMismatch` |
+| KMS `InvalidCiphertextException` (sealed for another subject) or `IncorrectKeyException` (another key; `KeyId` is pinned) | `IdentityContextMismatch` |
+| KMS throttling, `KMSInternalException`, `DependencyTimeoutException`, or a connection error | `ApiUnavailable` (503) |
+| Any other KMS error, `AccessDenied`, `NotFound`, `Disabled` and the invalid-state errors included | `IdentityUnavailable` (500) |
+| STS `InvalidContextAssertion` | `IdentityContextUnavailable` (503), because the server's next refresh fixes it |
+| STS throttling or a connection error | `ApiUnavailable` (503) |
+| Any other STS error, `AccessDenied` and `RegionDisabledException` included | `IdentityUnavailable` (500); STS says `AccessDenied` for a wrong trust policy, so it is a fault, never a denial |
+
+`IdentityContextMismatch` means the context cannot belong to this bearer and a retry cannot fix it.
+`IdentitySignInRequired` means Identity Center refused a refresh. `IdentityContextUnavailable` means
+the context is not ready yet or has lapsed. `IdentityUnavailable` keeps its existing meaning, a
+configuration fault in the identity layer. `ApiUnavailable` is today's 503, made through
+`server_fault`; there is no dedicated exception class for it. The browser's sentences are, for a
+mismatch, "Your data access couldn't be confirmed. Sign out and sign in again; if this keeps
+happening, contact your administrator."; for sign-in required, "Your data access has ended for this
+session. Sign out and sign in again to restore it."; and for unavailable, "Your data access isn't
+ready yet. Try again in a moment." With the exchange switched off, a carrier route would answer
+`IdentityContextUnavailable` permanently, so **no route declares the carrier plane in a release that
+reaches an environment whose flag is off**: the flag goes on everywhere the release deploys first,
+non-production before production, and the first carrier route ships after. Switching the consumers
+off once carrier routes exist is open (§8, *Gating Phase 5*).
+
+#### The server's half
+
+*Folded in 2026-11-17 from SPEC-268, cancelled for the same reason.* It builds and merges inert, and
+is switched on in an environment only after gate G11 passes there (§5.5).
+
+**The exchange.** The callback exchanges after the provider's code exchange and before the session
+item is written. The assertion is the ID token that code exchange just returned, and the server reads
+none of its claims for the exchange. It is presented once: the callback never retries, and the
+`sso-oidc` client is built with `maxAttempts: 1`, because the SDK's default of three attempts would
+re-send an assertion Identity Center may already have consumed after a reset connection, and the
+resulting refusal would read as a real one. The exchange and the seal each have a 5-second deadline,
+the same as the provider's token call, so Identity Center and KMS together delay a sign-in by at most
+ten seconds and never hang it. The server requests no `scope`, because naming one the administrators
+have not configured fails the whole exchange. It checks the granted scopes against the documented set
+(`lakeformation:query`, `athena:workgroup:read_write`, `s3:access_grants:read_write`,
+`sts:identity_context`, plus `openid` and `aws`, which Identity Center adds by default), and logs a
+configuration line naming each scope missing and another naming each one granted beyond that set,
+because a broader grant widens what a leaked context reaches; neither blocks the context. A success
+with no `refreshToken` means the administrators have not enabled the refresh grant: the context is
+stored, a configuration line is logged, and at its expiry the identity becomes `ended` for the same
+reasons a refused refresh does.
+
+**The seal.** The encryption context is exactly `{"purpose": "identity-context", "sub": <sub>}`, the
+`sub` being that of the ID token stored in the same item. Cognito's `sub` is stable across refreshes,
+so one seal serves every bearer the provider issues during the context's hour. Sealing happens once
+per context because KMS ciphertext differs on every call, and sealing per request would hand the API
+a new value each time and defeat its cache. A seal that fails or times out is a fault, never a
+refusal. An ID token with no `sub` makes no exchange and no refresh at all, because a context sealed
+to nothing could not be opened. The server cannot open what it stored: the task role's existing KMS
+statement works only through DynamoDB and only for the session table, and the sealing key's policy
+denies the task role `Decrypt` regardless. A test over the IaC holds the first half: every
+decrypt-capable statement on the task role carries the DynamoDB `kms:ViaService` condition and the
+session table's name. No `kms:Encrypt` statement is added to the task role,
+because the sealing key's own policy names it.
+
+**Refusals and faults.** `CreateTokenWithIAM` errors are sorted by the SDK's exception name. A refusal
+is Identity Center declining this user or this token; a fault is anything the user did not cause.
+Configuration faults are faults, logged as `configuration`, because signing in again cannot fix them.
+At sign-in every row, refusal or fault, writes the identity `pending` with `retryAt` 300 seconds on,
+and is retried. On a refresh a
+refusal writes `ended` and a fault takes the fault branch.
+
+- **Refusals:** `InvalidGrantException`, `ExpiredTokenException`, `AccessDeniedException`.
+- **Configuration faults:** `InvalidClientException`, `UnauthorizedClientException`,
+  `InvalidRequestException`, `InvalidScopeException`, `UnsupportedGrantTypeException`,
+  `InvalidRequestRegionException`.
+- **Faults:** `InternalServerException`, `SlowDownException`, throttling and any other exception name;
+  no answer within the deadline, or a network error; a success with no `identityContext`; an
+  `expiresIn` that is missing, not a positive whole number, or above 7,200 seconds (twice the hour
+  Phase 0 measured), because a wrong expiry would either forward a context STS has already ended or
+  never refresh it; a seal that fails or times out; an ID token with no `sub`.
+
+`AccessDeniedException` is a refusal on a refresh even though an IAM denial of the task role would
+raise it too. Failing closed means a broken grant sends users to sign in again, where the exchange
+then fails as `pending` and recovers on its own once the grant is fixed. Failing open would let an
+administrator's denial of a user read as an outage that never ends that user's access.
+
+**The identity's states.** The session item's identity is one of: **`present`**, the sealed context,
+when it was issued and when it expires, the refresh token if the grant gave one, and a `retryAt`
+after a fault; **`pending`**, a `retryAt` and no exchange before it; **`ended`**; and
+**`unreadable`**, what the store adapter reads when an identity attribute is present but does not
+parse. Every identity write goes through one function that refuses any transition not in this list:
+
+- the sign-in callback creates the item with no identity while the exchange is off, and otherwise
+  with the identity `present`, or `pending` with `retryAt` 300 seconds on: the creating put is the
+  one write that carries both the tokens and the identity, because there is nothing yet to roll back;
+- no attribute becomes `pending`, with a jittered `retryAt`, on the first load that sees it;
+- `pending` becomes `pending` with a later `retryAt`, by a retry's claim;
+- `pending` becomes `present`, by a retry's successful exchange;
+- `present` becomes `present` with a new context and a later issue time, by a successful refresh;
+- `present` gains a `retryAt` and keeps its context, after a refresh fault, a seal fault, or a
+  refreshed ID token with no `sub`;
+- `present` becomes `ended` on a refused refresh, however new the stored context, or when a context
+  with no refresh token lapses;
+- `unreadable` becomes `ended`, by the load that reads it;
+- `ended` never changes. Only a new sign-in, on a new item, brings a context back.
+
+Nothing returns to `pending` from `present`: a context that lapses after a refresh fault stays
+`present`, is forwarded as unavailable, and is refreshed past its `retryAt`. Nothing goes from
+`pending` to `ended`, because an exchange refusal is retried. And a parse failure becomes `ended`,
+never `pending`, so that neither a marshalling bug nor a rolling deploy across a schema change can
+become the re-exchange the refused-refresh decision declines. Neither case makes the item absent: the
+session still loads. An item written before the flag was turned on is given `pending` with a
+`retryAt` drawn uniformly from now to 300 seconds on, which spreads the first exchanges over five
+minutes instead of spending the instance-wide quota at once.
+
+**Two writes under one version.** The identity is written by its own conditional write, under the
+same `version` the provider-token writes compare and advance. After the creating put, a token write
+never carries the identity, and an identity write never carries the tokens, so the provider refresh's forced re-write
+cannot roll the identity back and an identity write cannot roll a newer provider token back. An
+identity write that loses re-reads the item and writes against the new version only if the stored
+identity is still the one it acted on (the same state; for `present` the same or an earlier issue
+time; for `pending` the same `retryAt`); otherwise it adopts what is stored. There are two
+exceptions, both toward `ended`: a refused refresh writes `ended` over any `present`, so a revocation
+racing a successful refresh is never lost, and `ended` is never overwritten. Two containers
+refreshing at once both succeed, because the refresh token is not rotated, and the loser adopts the
+stored context, which is no older than its own.
+
+**Retrying a failed exchange.** After `retryAt`, and only while the provider's token is valid, a load
+first claims the retry by moving `retryAt` 300 seconds on with a conditional identity write. A load
+that loses the claim does nothing more for the identity. The winner refreshes the provider's token,
+which gives it an ID token issued to this call alone and never presented, and exchanges that token,
+whether or not its token write then wins. A success writes `present`, keyed on the claim's `retryAt`;
+a failure writes nothing, since the claim has already moved `retryAt`. If the provider refresh faults,
+or its ID token has no `sub`, no exchange is made. A stored ID token is never exchanged by a retry, so
+no ID token is ever presented twice. An exchange refused at sign-in is retried the same way, because
+the commonest refusal then is a user SCIM has not yet provisioned, which resolves on its own. The
+retry costs one JWT-bearer call per retrying session every 300 seconds, so 300 sessions retrying at
+once spend one call a second of the instance-wide 10; each retry logs a line, so that spend is
+visible rather than assumed to fit.
+
+**Refreshing.** A refresh that faults keeps the stored context and sets `retryAt` 60 seconds on, so an
+outage costs each session one call a minute rather than one a request; the stored context is
+forwarded while it is unexpired, and as unavailable once it has lapsed, until a later refresh
+succeeds. A forced refresh renews the context only if it was issued more than 60 seconds ago.
+`POST /auth/refresh` needs only a same-origin request and a session, and nothing in front of it limits
+the rate, so without the floor one user looping it would spend the refresh grant's per-application
+quota, and KMS's `Encrypt` quota, for everyone. A forced refresh exists to pick up a membership
+granted a moment ago, and Lake Formation reads grants at query time, so a context a minute old serves
+it.
+
+**Dependencies.** `@aws-sdk/client-sso-oidc`, at a version whose model carries
+`awsAdditionalDetails`, and `@aws-sdk/client-kms` join the server. They change in one pull request
+together with the Tech Stack AWS row in `CLAUDE.md`, the server's `no-restricted-imports` clause, its
+shape test and `check:bundle`. One identity module is the only importer of the two packages, as the
+store is of DynamoDB's, and the browser bundle still holds no AWS client.
+
+**Logging.** Each failure logs a fixed string naming its row of the table above (`refused`,
+`configuration`, `fault`, `timeout`, `no-context`, `seal`, `no-sub`, `bad-expiry`) and nothing else. No
+part of the assertion, the Identity Center refresh token, the response's other tokens, the raw
+context, an error's message or its stack appears in any log, on the exchange, the refresh or the
+retry.
+
+#### The API's half
+
+*Folded in 2026-11-17 from SPEC-267, cancelled for the same reason.*
+
+**A third credential plane that never falls back.** A route declares the carrier plane, a third value
+beside user and API (`Route.plane` is `Literal["user", "api"]` today), and
+`docs/decisions/identity-and-access/two-credential-planes-declared-per-route-defaulting-to-the-user-plane.md`
+is rewritten in place for three planes when it lands. A carrier route never falls back to the portal
+role: with no usable context it answers a code of its own, because a silent fallback would serve data
+under the interim plane's rules on a route whose owner moved it, and nothing would show it. `Decrypt`
+and the carrier `AssumeRole` run inside the identity layer on the execution role, so no route gains
+the API plane for them, and what the carrier needs travels on the identity object, never in a
+request-scoped global. Presigning on a carrier route is refused as a fault until the storage move.
+
+**The call.** The API calls `AssumeRole` with `DurationSeconds` 3600, `RoleSessionName` from the
+existing username derivation, the Identity Center provided context, and no `Tags` and no `Policy`. It
+reads `Expiration` from the response and never assumes an hour, because STS ends the session with its
+context. The image's build-time botocore check (`lambdas/Dockerfile`) also asserts that
+`ProvidedContexts` is in STS `AssumeRole`'s input shape, so an image whose botocore predates it fails
+the build rather than every carrier request.
+
+**Both halves are inert until a route declares the carrier plane**, so the API's half and the
+server's can land in either order. The consumers (§4.4) come before both, and the provider upgrade
+before the consumers. What each later move waits on: queries move only after the result-location
+probe (§3.5's workgroup bullet); storage moves only after the presign-lifetime premise (above); per-user
+grants follow the fence on grants (§3.9); and the interim plane retires last.
 
 #### A sharp interaction with the settled `error.stack` decision
 
@@ -2303,9 +2828,16 @@ about for **file contents**, not for secrets.
   its tests should assert that a failed `CreateTokenWithIAM` logs no part of the assertion or the
   response.
 - **The API** now receives the identity context in a header. A failed `AssumeRole` must not carry
-  it into a stack, and no request logging may record that header. **Either exempt that path from
-  stack attachment, or scrub it explicitly**, and record the decision in `decisions/` alongside the
-  original. Do not assume the existing exemption covers this — it does not.
+  it into a stack, and no request logging may record that header. ~~Either exempt that path from
+  stack attachment, or scrub it explicitly~~ — **decided 2026-11-16: scrub explicitly.** The identity
+  layer catches every exception from the header parse, the `Decrypt` and the carrier `AssumeRole`,
+  reads the AWS error code with `aws_error_code`, then raises a fixed-message error with `from None`,
+  which breaks the `__cause__` chain so no botocore message that echoes a parameter reaches a stack.
+  The identity object holds the sealed value in a field excluded from its repr, so formatting the
+  identity never prints it. The decision is recorded under `decisions/identity-and-access/` when it
+  is built, naming the `error.stack` decision it narrows, and its containment test must first assert
+  that a stack was captured, so it cannot pass on a span that failed without one. Do not assume the
+  existing exemption covers this — it does not.
 
 ---
 
@@ -2443,8 +2975,8 @@ inherited from the spike; it was added on 2026-11-15 with §4.7's split. Nor is 
 | G6 | Session lifetime is workable and silent refresh exists | UX churn; needs a refresh strategy |
 | G7 | A plain `StartQueryExecution` on an IdC-enabled workgroup, issued with identity-enhanced credentials from our own code, runs and is enforced per user (§3.5). **PASSED 2026-11-15** — enforcement shown per grant on one user; measured below the table | **Blocker, and genuinely uncertain** — the docs list *federated access to the Athena API* as incompatible with TIP, but define that term narrowly elsewhere as SAML-via-JDBC/ODBC, so neither reading is safe to assume. If it fails, Phase 5 needs a different query surface: a studio product, or a broker that re-implements masking (§3.2 point 4). **Run it in Phase 0, not Phase 5**. **Evidence added 2026-08-24 (§3.10):** AWS's own JDBC/ODBC driver TIP plugins do exactly this — exchange a JWT, assume an identity-enhanced session, then call the Athena API from ordinary client code with no studio product in the path. Expect a pass; run it anyway, since a vendor driver may hold a privileged path our own code does not |
 | **G8** | **The Entra side of the Cognito federation for this application** — on the client's established pattern: the Entra application the bridge pool federates to (**SAML**, with a persistent `NameID` sourced from `user.objectid` — §6.1; *was "SAML or OIDC" until 2026-11-16*), and the claims it releases, **email** for the Identity Center claim mapping and whatever can carry the username (§6.1) | **No longer the variant decider: [B] was chosen on 2026-11-15** on the client's established pattern. Without it nobody signs in, and under [B] the **desktop fleet** authenticates through the same bridge (§3.10), so ask it with the drivers in the question. A conversation with the tenant owner, in **Phase 0**, with a long lead time. *It used to ask whether Entra could issue OIDC for the portal on the default signing key: pass meant [A], fail meant [B]* |
-| **G10** | **PASSED 2026-11-15, both arms — measured below the table.** **The split exchange (§4.7).** One principal (standing in for the Next.js server's task role) calls `CreateTokenWithIAM`; a *different* principal (standing in for the API's role) calls `AssumeRole` with the returned identity context and then runs G7's query. A second arm tests the fallback's premise: the **same** role, in two separately issued sessions minutes apart, one minting and one assuming. Record alongside it: whether the same context serves many `AssumeRole` calls, how long it stays usable, whether a `refresh_token` grant returns a **new identity context** or only an access token (with and without the application's *"Automatically refresh user authentication for active application sessions"* option), how long the Identity Center refresh token lives, and whether CloudTrail's `AssumeRole` event records the `ContextAssertion` (the organization trail has a broad audience) — none of which AWS documents | **Fail on the second principal** → §4.7's fallback: the API mints and the server stores, so one role makes both calls. **No context on refresh** → the server re-exchanges a fresh provider token each hour instead of refreshing (§3.5), and the JWT-bearer quota is sized against active users per hour. Neither reopens §3; both change Phase 5's two specs before they are written. Run it on G7's throwaway instance with a Cognito pool federated to Entra as the trusted token issuer — the [B] shape, which is also what §5.4's experiment is written around — and exchange one assertion twice while it is up, which confirms §3.5's replay protection |
-| **G11** | **NOT RUN — needs the client's environment.** **The cross-account exchange.** The server's role in our non-production member account (§4.3) calls `CreateTokenWithIAM` on that environment's customer-managed application, which the client's administrators own in the management or delegated-admin account, with the actor policy naming that role and an Entra test user (§4.5; check A of the request list); a second principal in the same account then assumes a carrier role with the returned context and runs G7's query, as in G10. **It passes** when the exchange returns an identity context and the query runs on the assumed session. G10 put both principals and the application in one account, so it never tested the call crossing accounts | **If the exchange cannot cross accounts as drawn,** the exchange itself (§3.5 step 1) reopens, under §4.7's split and its fallback alike, since both put the caller in our account. Nothing designed covers that case and any fix runs through the administrators, so Phase 5's exchange specs wait while the finding goes to the client relationship's owner. **If the workgroup or the Lake Formation configuration cannot be created in the member account**, that is §4.4's unconfirmed service-control-policy question failing, not G11, and it blocks Phase 5's consumers as well |
+| **G10** | **PASSED 2026-11-15, both arms — measured below the table.** **The split exchange (§4.7).** One principal (standing in for the Next.js server's task role) calls `CreateTokenWithIAM`; a *different* principal (standing in for the API's role) calls `AssumeRole` with the returned identity context and then runs G7's query. A second arm tests the fallback's premise: the **same** role, in two separately issued sessions minutes apart, one minting and one assuming. Record alongside it: whether the same context serves many `AssumeRole` calls, how long it stays usable, whether a `refresh_token` grant returns a **new identity context** or only an access token (with and without the application's *"Automatically refresh user authentication for active application sessions"* option), how long the Identity Center refresh token lives, and whether CloudTrail's `AssumeRole` event records the `ContextAssertion` (the organization trail has a broad audience) — none of which AWS documents | **Fail on the second principal** → §4.7's fallback: the API mints and the server stores, so one role makes both calls. **No context on refresh** → the server re-exchanges a fresh provider token each hour instead of refreshing (§3.5), and the JWT-bearer quota is sized against active users per hour. Neither reopens §3; both change Phase 5's two halves (§4.7) before they are built. Run it on G7's throwaway instance with a Cognito pool federated to Entra as the trusted token issuer — the [B] shape, which is also what §5.4's experiment is written around — and exchange one assertion twice while it is up, which confirms §3.5's replay protection |
+| **G11** | **NOT RUN — needs the client's environment.** **The cross-account exchange.** The server's role in our non-production member account (§4.3) calls `CreateTokenWithIAM` on that environment's customer-managed application, which the client's administrators own in the management or delegated-admin account, with the actor policy naming that role and an Entra test user (§4.5; check A of the request list); a second principal in the same account then assumes a carrier role with the returned context and runs G7's query, as in G10. **It passes** when the exchange returns an identity context and the query runs on the assumed session. G10 put both principals and the application in one account, so it never tested the call crossing accounts | **If the exchange cannot cross accounts as drawn,** the exchange itself (§3.5 step 1) reopens, under §4.7's split and its fallback alike, since both put the caller in our account. Nothing designed covers that case and any fix runs through the administrators, so Phase 5's exchange halves (§4.7) are not switched on while the finding goes to the client relationship's owner. **If the workgroup or the Lake Formation configuration cannot be created in the member account**, that is §4.4's unconfirmed service-control-policy question failing, not G11, and it blocks Phase 5's consumers as well |
 | **G9** | **Presign an S3 `GET` and a `PUT` from `GetDataAccess`-vended credentials and redeem both from a browser origin** (§3.9). **PASSED 2026-11-15** — measured below the table | Presigning is a local SigV4 operation and the session token rides in the query string, so this *should* work and S3 should evaluate the grant's scope at redemption — but it is **unproven**, and the whole "AWS credentials never reach the browser" posture rests on it. If it fails, the fallback is vending the scoped credentials to the browser directly, and **SPEC-202's load-bearing negative live check must be re-worded before it is run**. Cheap; run it in Phase 0 beside G7, on the same throwaway instance |
 
 **G7, G9 and G10 RAN on 2026-11-15, and all three passed (results below).** The identity design in
@@ -2606,11 +3138,15 @@ otherwise. So two rules, both Phase 0 confirmations and Phase 1 build items:
 - **The username is looked up by that subject, never transformed from a mail or UPN.** §3.12's
   username list carries the object id beside each catalog-safe username, and a transform collides
   anyway (two mail domains with one local part). The lookup is emitted as a claim by a
-  **Pre-Token-Generation V2 trigger** reading the federated identity, or done by the server and the
-  API from the same list — a mapped attribute, standard or custom, is not the key, because every
-  mapped attribute is writable (below). **First ask what the client's established pattern already
-  does**; reuse it if it meets both rules. **Whichever is chosen is a Phase 1 [B] build item**, and
-  it must be read the same way by **both** readers below.
+  **Pre-Token-Generation V2 trigger** reading the federated identity — **decided 2026-11-16 by
+  Andrew**, over having the server and the API each look it up from the same list: one function reads
+  the federated subject and writes the username into the ID token, so the server and the API go on
+  reading one claim name from one local. A mapped attribute, standard or custom, is not the key,
+  because every mapped attribute is writable (below). The same trigger emits the object id as a
+  claim, which Phase 5's trusted token issuer maps to Identity Center's `externalId`. *The bridge
+  pool as designed*, below, carries the trigger. What remains for Phase 0 is a confirmation: whether
+  the client's established pattern already carries such a claim, and that SCIM sets `externalId`
+  from the object id.
 
 The reason the attribute route is closed is also the reason to get the pool right first time: **a
 Cognito custom attribute can never be renamed or deleted**, so fixing a schema mistake means a new
@@ -2636,7 +3172,7 @@ prefix and Glue database, and a user who can write `email` can map their token t
 Identity Center user (§3.3). This section used to say the app client must not have write permission
 on that attribute. **That is impossible under federation**: AWS's attribute-mapping page requires
 every attribute mapped from the IdP to be **writable** by the app client, because Cognito rewrites
-mapped attributes at each federated sign-in. Measured on 2026-11-15, none of the three clients in
+mapped attributes at each federated sign-in. Measured on 2026-11-15, none of the three clients then in
 `infra/modules/auth/cognito.tf` sets `read_attributes` or `write_attributes`, so by the
 `CreateUserPoolClient` reference the clients may write the **standard** attributes — a custom
 attribute must be listed in `write_attributes` explicitly, and a mapped one that is not writable is
@@ -2667,6 +3203,26 @@ trust" and can target a federated user. Cognito's re-mapping at sign-in does not
 it updates mapped attributes only when their values change at the IdP, and a refresh never
 re-federates.
 
+**Those four actions are the floor, not the guardrail.** Under the bridge, what keys an identity is
+the SAML provider, the pool's clients and trigger wiring, the trigger's code and configuration, and
+the identity index (*The bridge pool as designed*, below); a user attribute is not among them, and the
+guardrail covers all of these. No portal role may hold any `cognito-idp:` action — while the
+recipient checks still use Cognito the exceptions are `AdminGetUser` and `ListUsers`, and moving
+those checks to S3 (*The recipient check moves to the prefix marker*, below) lets the test allow none.
+No portal role but the provisioner's (§3.12), the index's one writer, may write to
+`{admin bucket}/identity-index/*`, and none may hold `lambda:Update*`,
+`lambda:PutFunction*`, `lambda:AddPermission` or `lambda:DeleteFunction` on the trigger. The test takes
+its population from the tree: every `templatefile` bound to a role-policy argument, with a named
+exclusion set holding the deploy role, bucket policies, flow logs and the LF registration role, and
+every `.json.tftpl` must be in one set or the other. Placeholders are rendered from the root locals
+that bind them, never as `*`. Matching is case-insensitive and wildcard-aware in both directions, and
+a `NotAction` or `NotResource` Allow counts as a grant; a Deny does not. Five plane templates hold
+`{admin}/*` statements today, and all five are Denies. The `CognitoMembershipAttributes` statement
+moves into its own policy, attached only while the bridge flag is null, so the test is mode-aware:
+it reads each policy's attachment per `local.identity_mode`, and in cognito mode that one policy is
+outside the bridge's population. A conditional guard owes both branches, so a fixture proves it
+refuses the statement when the policy is attached under the bridge.
+
 A test over the IaC holding both rules for every client is cheap, and it is the only thing that
 would catch a third client added carelessly. **It must assert presence, not absence:** a client that
 omits `explicit_auth_flows` gets `ALLOW_REFRESH_TOKEN_AUTH`, `ALLOW_USER_SRP_AUTH` and
@@ -2675,7 +3231,8 @@ omits `explicit_auth_flows` gets `ALLOW_REFRESH_TOKEN_AUTH`, `ALLOW_USER_SRP_AUT
 to be true, because Identity Center's replay protection was confirmed only on assertions carrying
 the `jti` that revocation makes Cognito emit (§3.5). The same test holds what makes "no local
 identities" true rather than intended: every client's `supported_identity_providers` is exactly the
-Entra provider (all three carry `["COGNITO"]` today), the pool has that one identity provider and no
+Entra provider (both of today's clients, the server's and the development client, carry
+`["COGNITO"]`), the pool has that one identity provider and no
 other — a second could assert any email — `allow_admin_create_user_only` is true, the pool has no
 pre-sign-up trigger (an imported "established pattern" can carry one that links users by email).
 **~~One gap stays open for Phase 0~~ — CLOSED 2026-11-15, measured:** `ALLOW_REFRESH_TOKEN_AUTH`
@@ -2691,6 +3248,175 @@ path's and on a confidential one shaped like the server's. Each client allowed `
 profile email`, the scope of the sign-in, with no `aws.cognito.signin.user.admin`. So the two rules
 above are sufficient as written. The federated-subject rule stands on its own reasons (the
 reassignment attack), not on this gap.
+
+#### The bridge pool as designed
+
+*Folded in 2026-11-17 from SPEC-265, cancelled because only the client environment can prove it. It
+is Phase 1's [B] list, in detail.*
+
+**The identity index.** The trigger reads `identity-index/{object_id}.json` from the admin bucket,
+the one that holds `memberships/`. Each entry is `{object_id, username}`. The object id is a
+lowercase GUID equal to the key's stem, and the username must fullmatch
+`cpcommon.config.CATALOG_IDENTIFIER_RE`, so there is no third copy of the rule. The provisioner
+(§3.12) writes one entry per row of the username list; until it exists, an operator writes an entry
+by hand for a live check. The index is an authorization input, in the same class as the list: no user and no portal role but the provisioner's may write it (the guardrail above).
+
+**How the trigger validates, and what it emits.** It trusts a subject only when
+`cognito:user_status` is `EXTERNAL_PROVIDER`, so an administrator-created local user named like a
+federated one does not pass. `userName` must begin with the literal `{provider name}_`, taken from
+configuration (`ENTRA_PROVIDER_NAME`, which defaults to `unwired` while the flag is unset, so the
+unwired function still has a prefix to test) and compared case-insensitively, never as a pattern. The
+remainder, lowercased, must match
+`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, so an Entra `NameID` misconfigured to a
+UPN fails here. On success it adds two claims through
+`claimsAndScopeOverrideDetails.idTokenGeneration.claimsToAddOrOverride`: the username under the name
+in `local.oidc_username_claim`, which is `portal_username` under the bridge and `cognito:username`
+otherwise, and the object id under `entra_object_id`. Terraform renders the trigger's claim name from
+that same local, so the writer and both readers take one name from one place.
+
+**How it fails.** It fails closed in two ways, chosen by whether a retry could help. In four cases it
+refuses — the user is not federated, the subject is not an object id, the subject has no index entry,
+or the entry is invalid — by adding no claim and returning the event unchanged. The server already
+refuses a sign-in whose ID token lacks the username claim (`handlers.ts`) and treats a refreshed
+token without it as an ended session (`session.ts`, `active`), and the API's verifier rejects that
+token too. The trigger logs one line with a reason code (`not_federated`, `subject_not_object_id`,
+`not_on_index`, `invalid_entry`) and the subject, and never another entry's username. Any S3 error other than a missing key is raised as a fault, which fails that sign-in or
+refresh at Cognito. Which token-endpoint error a raised trigger produces on refresh is unmeasured; if
+it is `invalid_grant`, the server ends the session, so an S3 fault signs the user out. That is
+accepted, because it fails closed and the next sign-in succeeds once S3 answers.
+
+**Its IAM, timeout and warm-up.** In S3 the trigger holds exactly `s3:GetObject` on `identity-index/*`
+and `s3:ListBucket` on the admin bucket conditioned on that prefix: S3 says `NoSuchKey` only to a
+caller that may list the bucket, so without the list grant every user missing from the index would
+raise as a fault instead of being refused. Its timeout is 5 seconds, as long as Cognito waits, with
+512 MB of memory to buy CPU for the image's cold start inside that wait. It joins the daily keep-warm,
+whose payload carries no `cognito:user_status`, so it is a no-op. A cold invoke while unwired
+(`userName` `unwired_{guid}`, no entry) is runnable in this account: it must log `not_on_index` within
+5 seconds, its `REPORT` line must carry an `Init Duration`, and it is forced cold by a configuration
+change first.
+
+**The flag, and the shape the guard test reads.** A root variable `entra_federation`
+(`{provider_name, metadata_url}`, default `null`) chooses the bridge. While it is null, every auth
+resource is configured exactly as today. Each client argument that differs by mode indexes one of two
+literal objects, `local.client_settings.cognito` and `local.client_settings.bridge`, by
+`local.identity_mode`; no argument is a ternary written inline, so a test can read each branch as a
+literal. The `cognito` branch must equal today's values, because a conditional guard owes both
+branches and that branch serves users now. The pool selects per block: `pre_sign_up` and
+`post_confirmation` keep the literal `module.X.function_arn` that the keep-warm test reads;
+`pre_token_generation_config` is a dynamic block; and the `shared_space` schema `for_each` is empty
+under the bridge. A V2_0 pre-token trigger needs the Essentials tier, so `user_pool_tier` is declared;
+no tier is declared in `infra/modules/auth/` today, so read the live pool's tier before declaring one.
+
+**The SAML provider.** It is `SAML` with `IDPInit = "false"`, so IdP-initiated sign-in is off. Its
+attribute mapping is `email` only, and Cognito takes identity from the persistent `NameID`. A SAML
+provider with a `MetadataURL` can read back extra `provider_details` keys and show a permanent diff,
+so a second plan straight after the first apply must be empty, and any such keys are ignored or
+declared until it is.
+
+**The provider reference and the development client.** Both `supported_identity_providers` and the
+server's `OIDC_IDENTITY_PROVIDER` take the provider name from the provider resource, not from the
+variable: the module exposes a nullable `entra_provider_name` output, read from
+`one(aws_cognito_identity_provider.entra[*].provider_name)`. That dependency edge is what makes
+Terraform create the provider before a client names it, and Cognito rejects a client naming a
+provider that does not exist. `session_environment` is a merge of today's block and a mode-indexed
+map, because a ternary between `{}` and a one-key object is rejected as inconsistent types. Under the
+bridge the development client and the development session parameter are not created; each gets a
+`moved` block whose `from` is checked against `tofu state list`, not against the configuration, and
+local development keeps signing in against the current environment's pool. Both development outputs
+become nullable. A null root output is dropped from state and `tofu output -raw` errors on it, so the
+branding loop in `deploy-infra.yml` reads `tofu output -json` and skips a missing key.
+
+**Removing a trigger means unwiring it.** In Phase 1, removing the `pre-signup` and
+`post-confirmation` triggers means removing them from the pool's `lambda_config`. The functions, their
+roles, keep-warm targets and invoke permissions stay declared in both environments, the new pre-token
+function included; an unwired function cannot be invoked by the pool. Keeping them declared keeps
+`fleet.py`'s inventory, the deploy `MISSED` check, the cold-start probes and the post-confirmation
+role that root builds as a Lake Formation admin true in both accounts. The entry points are deleted
+at cutover (§9).
+
+**Deploy-role IAM.** The deploy role needs `cognito-idp:CreateIdentityProvider`,
+`DescribeIdentityProvider`, `UpdateIdentityProvider`, `DeleteIdentityProvider` and
+`ListIdentityProviders` on `userpool/*`, plus the function, role and log-group statements the
+pre-signup function has, minus the probe invoke. These go in a new customer-managed policy, not the
+inline one: the inline aggregate is near IAM's 10,240-character limit, and `infra/modules/base/iam.tf`
+says every new grant is a managed policy. This lands in its own pull request first.
+
+**Three things must land before the flag is set anywhere.** Setting `entra_federation` changes three
+things other planes depend on, and each needs its own work first, or a user-visible path breaks.
+First, the bridge pool has no `custom:shared_space_k` attributes and loses the grant that wrote them,
+so `assign_or_find_slot` and `clear_slot` in `shared-space-common/membership.py` must stop first —
+Phase 1's `MEMBERSHIP_SOURCE` item — or adding a shared-space member fails. Second, the recipient
+checks must move off Cognito (below), or every recipient reads as unknown. Third, the per-user Glue
+database goes with the unwired post-confirmation trigger, so the provisioner must have taken it over.
+
+#### The recipient check moves to the prefix marker
+
+*Folded in 2026-11-17 from SPEC-269, cancelled with the client-environment specs: although it could be
+built in this account, its only purpose is the bridge pool.*
+
+**The problem.** Three control-plane checks still ask Cognito whether a portal username exists: file
+send's and table share's recipient checks, through `cpcommon.cognito.user_exists` and `AdminGetUser`,
+and shared-space add-members, through the `UserNotFoundException` the slot code raises. Under the
+bridge, Cognito usernames are `{provider}_{object id}`, so all three would report every recipient as
+unknown. The question has to move to one that means the same thing in both environments: does this
+person have a provisioned space?
+
+**The source is the prefix marker**, read with `HeadObject` on `{username}/DO_NOT_DELETE.txt`. Three
+alternatives were refused. The username directory is rebuilt daily, so it misses someone provisioned
+this morning, and it is advisory, never an authorization input. The identity index is keyed on the
+object id, so asking it about a username means listing it, and it exists only in the bridge. The
+username list's shape is still a Phase 0 question, and it too exists only in the bridge. The marker is
+what §3.12 says a provisioned space is, it is keyed on the username, it costs one request, and it
+exists in both environments. Both environments use one source, not a switch, because a switch would
+leave the S3 path unexercised until the successor account — the condition the `MEMBERSHIP_SOURCE`
+item warns against. This reverses one clause of
+`docs/decisions/identity-and-access/the-username-directory-is-built-from-s3-not-cognito.md`, which
+says existence checks stay on `admin_get_user`; the directory stays advisory and is still read by no
+control plane.
+
+**Lookup semantics.** A name that does not fullmatch `CATALOG_IDENTIFIER_RE` is unknown, and no
+request is sent. This is a correctness rule, not tidiness: saved queries and "New folder" each write a
+`DO_NOT_DELETE.txt` inside a space, so without it `alice/reports` would read as an existing user, and
+the same rule keeps `_config` and `_directory` from ever reading as users. Use `fullmatch` because
+`$` also matches before a final newline. A 404 (`404`, `NoSuchKey` or `NotFound`) means unknown; every
+other outcome, `403` included, is a transient fault and is retried. S3 answers a missing key with
+`403` when the caller cannot list the bucket, so treating `403` as unknown would make a missing grant
+report every recipient as nonexistent, silently. Each reader therefore needs `s3:ListBucket` on the
+user-space bucket. File send and table share already hold `GetObject` on `bucket/*`, an unconditioned
+`ListBucket`, and a place on the bucket policy's allowlist; shared spaces needs one new grant,
+`s3:GetObject` on `*/DO_NOT_DELETE.txt`. **Add-members resolves existence for every requested name
+before its slot loop begins**: the loop has no rollback, so a fault half way through would leave
+earlier members' slots assigned, while checked first, a transient fault fails the run with nothing
+written. The existing `UserNotFoundException` branch around `assign_or_find_slot` **stays** while slots
+exist: a name can have a marker and no Cognito account (a pool user deleted by hand), and it is still
+reported unknown rather than failing the run part-way through the loop. **What the move deletes:** both
+planes' `RecipientUserCheck` statements, the `user_pool_arn` entry in `infra/control-planes.tf` and
+each plane's `COGNITO_USER_POOL_ID`; and `_MAX_RECIPIENT_NAME`'s docstring reason stops being true, so
+it is rewritten.
+
+**The marker is not fenced by IAM, deliberately.** Three control-plane roles write across the whole
+user-space bucket: file-ops `WriteSpaceObjects`, archive `SpaceDataWrite` and results-conversion
+`WriteConvertedFiles`. What keeps each inside the actor's own prefix is its validate-authorize
+containment check, and a defect there could write `X/DO_NOT_DELETE.txt` and make `X` a valid
+recipient. That is accepted, because the same defect already lets a user write anything into another
+person's prefix, which is worse. The portal role is held to `${aws:PrincipalTag/username}/*`, so no
+user can create a marker for another name.
+
+**If the current environment moves first.** Here the browser writes the marker on a user's first
+visit, so a confirmed user who has never opened the file browser has none. Before any check reads
+markers, every existing user must have one: the marker write in `provision_user` is deployed and the
+backfill has run, or existing users read as unknown in the gap. The reconciliation runs both ways.
+Users with no marker are backfilled. Markers with no pool account are deleted, because self-sign-up is
+open in this account and whoever re-registers a deleted name would inherit what was sent to it. From
+then on, deleting a pool user by hand includes deleting their marker. The backfill and
+reconciliation run as the deploy role, which is both on the bucket's allowlist and a Lake Formation
+admin; an operator's own credentials are on neither, and because they write the production bucket the
+commands are handed to Andrew rather than run by a session. The post-confirmation role
+needs `s3:PutObject` on the marker pattern only, and it must join the bucket policy's allowlist —
+without that entry the bucket policy's explicit deny refuses the write at runtime, with a green plan.
+Its timeout goes from 3 to 5 seconds, because a trigger that times out fails the user's confirmation,
+and 5 seconds is the most Cognito waits. In the successor account none of this arises: the
+provisioner writes the marker first (§3.12 item 1).
 
 ### 6.2 First-tenant singleton ownership (was: the Lake Formation IaC overwrite)
 
@@ -2893,8 +3619,8 @@ they already were.
   **driver fleet** in the question (§3.10): under [B] the desktops authenticate through the same
   bridge. It gates Phase 1's whole auth configuration and has a long lead time, so start it on day
   one of the phase.
-- **Choose the username lookup (§6.1)**, starting from what the established pattern already
-  does: keyed on Entra's object id as the federated subject, never transformed from a mail or UPN,
+- **Confirm the username lookup (§6.1)** — the Pre-Token-Generation trigger was chosen on
+  2026-11-16 — against what the established pattern already does: keyed on Entra's object id as the federated subject, never transformed from a mail or UPN,
   and read from a claim no user or portal role can write. Confirm in the same conversation that
   Entra's SCIM sets Identity Center's `externalId` from the object id (Phase 5 maps on it). The
   username keys the S3 prefix and the Glue database name, so it is chosen before the first real
@@ -2949,7 +3675,8 @@ they already were.
     the organization instance only the administrators can create one and assign it, so it needs
     them.
   - **Delete a user's Identity Center session** and see whether a refresh and a re-exchange still
-    succeed (§4.7's open question).
+    succeed. *(The refused-refresh decision no longer waits on this — §4.7, decided 2026-11-16 — but
+    the probe still says whether the administrators' revocation reaches the portal's context.)*
   - **The Entra hop and the `externalId` mapping**, the two G10 inputs the 2026-11-15 run could not
     exercise: Entra upstream of Cognito, and the Identity Center user mapped on `externalId` rather
     than `email` (§6.1).
@@ -2992,8 +3719,9 @@ they already were.
   username as the prefix and making a grant a provisioning step — or **one broad grant narrowed by
   `${identitystore:UserId}` in the location role's own policy**, which is standing but replaces the
   username with an Identity Store id. There is no variable grant scope; the two mechanisms are a
-  grant and a policy. It may split, because the workgroup's user-identity result prefix
-  (`${user_id}`) may move **results** regardless. §3.5 now records that the **prefix** is optional;
+  grant and a policy. *(2026-11-16: results stay keyed on the username, so they take literal grants
+  whichever form the file browser gets — §3.5's workgroup bullet.)* It may split, because the
+  workgroup's user-identity result prefix (`${user_id}`) may move **results** regardless. §3.5 now records that the **prefix** is optional;
   what is still open — and what to establish here — is whether *Override client-side settings* can
   be left off on an IdC workgroup that declines it. *(narrowed again 2026-11-15: an IdC workgroup
   was created with it off — §3.5)* What remains is whether a query then honours a client-side result
@@ -3070,7 +3798,9 @@ and that is fine.
   not "configuration": the index path is an authorization input that has never run live, and
   flattening it to a config flip is how it reaches production untested. It also re-sources
   SPEC-198's route-level membership check, which would otherwise refuse every shared space once the
-  claims are gone.
+  claims are gone. It must land before the bridge flag is set anywhere: the bridge pool has no
+  `custom:shared_space_k` attributes and loses the grant that wrote them, so without it adding a
+  shared-space member fails (§6.1, *The bridge pool as designed*).
   *The paragraph below is why that spec exists; it is retained because it is the argument, not the
   work.*
   SPEC-196 deliberately builds the `shared_space_k` tags from the **token's claims**, and says so as
@@ -3082,18 +3812,21 @@ and that is fine.
   admin bucket, a per-mint latency cost, an availability coupling, and a defined behaviour when the
   read fails (**fail closed** — a missing tag denies, which is the safe direction, but it must be
   chosen rather than inherited). It needs its own equivalence argument, exactly as SPEC-196 says.
-  **Write the spec before this phase, not during it.**
+  **Write its design into this item before this phase, not during it** — as successor-account
+  work it gets no spec (the 2026-11-17 rule, §11), so this plan is where it is designed.
 - Confirm `${aws:PrincipalTag/username}` resolves in a real request — the whole isolation model is
   that one tag, and a session without it matches nothing.
 - **Land the provisioner's deploy-role IAM and its entry in the user-space bucket policy first, in
   their own PR** — an explicit resource-policy deny beats an identity-policy allow, so a role
   missing from `user-space-bucket-policy.json.tftpl` is denied at runtime with a green plan
   (§3.12).
-- **Build and deploy the provisioner** (§3.12): `provision_user`'s existing sequence plus the prefix
-  marker write, behind a new trigger, reading the username list from the admin bucket. It provisions
+- **Build and deploy the provisioner** (§3.12): the prefix marker write **first** (atomic, §3.12
+  item 1), then `provision_user`'s existing sequence, behind a new trigger, reading the username list from the admin bucket. It provisions
   nobody yet — Phase 2 runs it — but it ships here so the run is not the first time it executes.
 - Remove the `pre-signup` and `post-confirmation` **triggers** — sign-in provisions nothing (§2
-  item 7). Under [B] the bridge pool is created without them. **`provision_user` itself is kept** and moves to the
+  item 7). Under [B] the bridge pool is created without them. *Removing* means unwiring them from
+  the pool's `lambda_config`; the functions stay declared until cutover (§6.1, *The bridge pool as
+  designed*). **`provision_user` itself is kept** and moves to the
   provisioner, and `pre_signup.py`'s username rule is not deleted either: it moves, as the
   provisioner's refusal, taking `cpcommon`'s `CATALOG_IDENTIFIER_RE` rather than making a third copy.
 - Remove `ensurePrefixMarker` and every other write the portal makes to establish a prefix (full
@@ -3121,16 +3854,19 @@ and that is fine.
   `aws.cognito.signin.user.admin` scope, no API sign-in flow (`ALLOW_REFRESH_TOKEN_AUTH` alone),
   and the Entra provider as the only supported identity provider. The pool has one identity provider, admin-only user creation and no pre-sign-up
   trigger. **No public SPA client and no local-development client** in this pool — the API accepts
-  all three audiences today — and the API's verifier names the server's client
-  alone.
+  both of today's audiences, the server's and the development client's — and the API's verifier
+  names the server's client alone.
 - **The federated subject is Entra's object id** (§6.1): a persistent SAML `NameID` from `objectid`
   (~~or the OIDC `sub`~~ — pairwise, not the object id, §6.1). Never the UPN or mail, which Entra
-  can reassign to a new hire. **SPEC-265 carries this [B] list as a spec**, with the username lookup
-  as a Pre-Token-Generation trigger reading a per-subject index (§6.1's first shape).
+  can reassign to a new hire. ~~**SPEC-265 carries this [B] list as a spec**~~ — *SPEC-265 was
+  cancelled on 2026-11-17 and its design folded into §6.1, The bridge pool as designed*: the username
+  lookup as a Pre-Token-Generation trigger reading a per-subject identity index, the flag, the SAML
+  provider's settings, the deploy-role grant, and the three things that must land before the flag is
+  set anywhere.
 - **Drop the shared-spaces plane's Cognito grant** (`CognitoMembershipAttributes`), and add the IAM
   test that no portal role can write, link, create or set a password for a user in the bridge pool
   (§6.1). Membership comes from the index in this phase anyway.
-- **Build the username lookup Phase 0 chose (§6.1)** — keyed on the federated subject, not
+- **Build the username lookup (§6.1, the Pre-Token-Generation trigger)** — keyed on the federated subject, not
   transformed from a mail or UPN — and point `local.oidc_username_claim` at the claim it emits. The
   server and the API's verifier both read that one local, so it is a one-line change; left at
   `cognito:username`, a federated user's username is the synthetic `{providerName}_<subject>`.
@@ -3167,7 +3903,11 @@ redirect never carried; read that PR if [A] is ever reopened.
 
 **Verification:** sign in as two real users; confirm from CloudTrail that the expected `username`
 session tag is stamped for each on the assumed role, that neither can reach the other's prefix with
-raw credentials pulled from the session, and that no browser request carries AWS credentials.
+raw credentials pulled from the session, and that no browser request carries AWS credentials. Under
+[B], also confirm that each user's ID token carries the expected username claim and
+`entra_object_id`; that a user missing from the identity index is refused at sign-in, with no Cognito
+screen ever shown; and, with the trigger made to raise, which token-endpoint error a refresh returns
+(§6.1, *The bridge pool as designed*).
 
 **Rollback:** tear the stack down; the account was empty. Nothing in the old account changed.
 
@@ -3276,31 +4016,32 @@ on any IAM role. The design is §3; the work items are here.
   documented set for an IdC workgroup, `lakeformation:query`, `athena:workgroup:read_write` and
   `s3:access_grants:read_write` (§3.10). Phase 0 measured `athena:workgroup:read_write` as the one
   the workgroup refuses a session without (§5.5).
-- **The server exchanges** (§3.5 steps 1 and 1r, §4.7) — a spec of its own, on the Next.js server:
-  `CreateTokenWithIAM` in the callback, the Identity Center tokens in the existing session item
-  under its compare-and-set, the refresh on the provider token's margin and only while that token
-  is valid, the decision on what a refused Identity Center refresh does (§4.7 leaves it open), a
-  failed exchange leaving a session without a context rather than no session, the
-  table of Identity Center refusals and faults, and the context sealed to the bearer's subject and
-  forwarded on the `/api/` pass-through. Deploy-role IAM
+- **The server exchanges** (§3.5 steps 1 and 1r; the design is §4.7 and its *The server's half*),
+  built from this plan rather than a spec, since it can only be built and proved in the client
+  environment: `CreateTokenWithIAM` in the callback, the sealed context and the Identity Center
+  refresh token in the existing session item under its own conditional write, the refresh on the
+  provider token's margin and only while that token is valid, a refused refresh leaving the context
+  absent until the next sign-in (decided 2026-11-16), a failed exchange leaving a session without a
+  context rather than no session, the table of Identity Center refusals and faults, and the context
+  sealed to the bearer's subject and forwarded on the `/api/` pass-through. Deploy-role IAM
   first, then the task role's `sso-oauth:CreateTokenWithIAM` on the application ARN it is given;
   ~~and the application's actor policy naming it~~ the actor policy naming it is the
   administrators' (§4.5), asked for with the role's ARN. The call crosses accounts, which G11
   tests (§5.5).
-- **The API assumes from the context** (§3.5 steps 2 and 3, §3.6) — a second spec, on the API:
-  the carrier role trusting the API's role with `sts:SetContext`, the context **unsealed with the
+- **The API assumes from the context** (§3.5 steps 2 and 3, §3.6; the design is §4.7's *The API's
+  half* and *The interface between the server and the API*), on the API: the carrier role trusting the API's role with `sts:SetContext`, the context **unsealed with the
   verified bearer's subject** (§4.7) and never accepted raw, the route-level choice of the carrier
   session over the portal role, the credential cache keyed on the context, a stale context answered
   with a code other than 401, and the header kept out of every log. It can land before the first,
-  inert while no request carries the header. Both specs are written **after G10**, which ran on
+  inert while no request carries the header. Both halves are designed **after G10**, which ran on
   2026-11-15 and kept `CreateTokenWithIAM` on the server, so §4.7's fallback is not needed. Neither
   is relied on before **G11** has passed (§5.5): if the exchange cannot cross accounts, the server's
-  spec changes at the least.
-- Create the catalog carrier role (§3.6), with the IAM test §3.6's amendment owes. Its allowed
-  actions, across every inline and attached policy, must be a subset of a vendored copy of the
-  allow-list (v12, re-vendored on purpose). Wildcards are forbidden in the role, and so are Allow
-  statements with `NotAction`. The test bounds identity policies only; a resource policy naming the
-  role would grant around it.
+  half changes at the least.
+- **Upgrade the AWS provider to 6.19 or later first** (§4.4, *Building the consumers*); no consumer
+  below can be written against today's pin.
+- Create the catalog carrier role (§3.6), with the allow-set gate §3.6 describes. The test bounds
+  identity policies only; a resource policy naming the role would grant around it, which its second
+  test holds.
 - Create the Lake Formation Identity Center configuration (§4.4) — under this strategy most
   likely a create, not a join. It, the carrier role, the workgroup and the Access Grants instance
   below are the member-account consumers §4.4 creates behind its flag, from the four inputs.
@@ -3359,7 +4100,19 @@ on any IAM role. The design is §3; the work items are here.
 
 **Verification:** two users on the same carrier role see different data; a user with no grant is
 denied. Confirm with raw credentials, not through the UI. Separately, confirm no Identity Center
-token ever reaches the browser — inspect the network trace, not just the code.
+token ever reaches the browser — inspect the network trace, not just the code. Once G11 has passed
+and the sealing key and the API's half are deployed, turn the flag on in the non-production
+environment and record in `docs/testing/e2e.md`: a sign-in stores `present`; a forwarded request
+carries the header and the API's carrier session runs; a forced refresh renews the context; when an
+administrator deletes the test user's Identity Center session, whether the next refresh is refused
+(the identity goes `ended` and data routes answer sign-in-required) or keeps refreshing; and the
+sealed value's and the ID token's real lengths sit inside the interface's allowances (§4.7). **The
+end-to-end check gates the first route that declares the carrier plane**: it passes when a signed-in
+request comes back identity-enhanced (`ListCallerAccessGrants` answers on the session), and when a
+second user's bearer carrying the first user's sealed value answers `IdentityContextMismatch`. It is
+also the run that proves STS populates `identitycenter:InstanceArn` and `identitycenter:ApplicationArn`
+for the carrier's trust (§3.6). A check no signed-in session can run becomes a row in
+`docs/testing/owed.md`.
 
 **Rollback:** the interim plane, which is why the last work item retires it rather than the first.
 Until that step every user still reaches storage and catalog through the shared role and its
@@ -3391,8 +4144,9 @@ freeze. This is the whole reason the old account survives the quiet period.
   time of anything in this list. Ask first, for the Entra application, its protocol and the claims
   it releases — and **ask it with the driver fleet in the question** (§3.10): the client's desktops
   authenticate through the same bridge.
-- **Which claim carries the catalog-safe username (§6.1)**, starting from what the client's
-  established Cognito-and-Entra pattern already carries?
+- **Which claim carries the catalog-safe username (§6.1)?** *Decided 2026-11-16: a
+  Pre-Token-Generation trigger emits it.* What remains is whether the client's established
+  Cognito-and-Entra pattern already carries such a claim.
 - ~~How long may a leaver keep a session (§4.7)?~~ **Decided 2026-11-15: not a concern** — the
   client recovers a leaver's equipment; §4.7 records the premise.
 - **Is the federated subject Entra's object id** (§6.1) — a persistent SAML `NameID` from `objectid`
@@ -3408,11 +4162,14 @@ freeze. This is the whole reason the old account survives the quiet period.
   which is the only plan that needs both in the successor account.
 - **The Access Grants prefix identity** (§3.9): one literal grant per user, or one broad grant
   narrowed by `${identitystore:UserId}` in the **location role's policy**? It decides whether a
-  grant is a provisioning step and whether the username survives as the prefix, and it may split
-  between the file browser and query results. **Sub-question — narrowed 2026-08-19, because §3.5
+  grant is a provisioning step and whether the username survives as the prefix. Query results
+  cannot take the narrowed form while §3.5's 2026-11-16 decision keys them on the username, so the
+  question is now the file browser's. **Sub-question — narrowed 2026-08-19, because §3.5
   answers half of it:** the `${user_id}` prefix is optional; what is still open is whether *Override
   client-side settings* can be left off. *(narrowed again 2026-11-15: an IdC workgroup was created
   with it off — §3.5)* What remains is whether a query then honours a client-side result location.
+  *(2026-11-16: the workgroup is decided as enforcement off, with the username kept as the results
+  prefix; that probe is now the premise the decision rests on — §3.5.)*
   *(The 2026-08-19 wording asked whether the user-identity result prefix could be turned off,
   §3.5.)*
 - Gates P1, P2 and P3 (§5.4). P3 now decides whether §3.9's Access Grants or a permission-set-fed
@@ -3456,9 +4213,10 @@ freeze. This is the whole reason the old account survives the quiet period.
   chosen.
 - Session lifetime: a refresh token can outlive an Identity Center session revocation, so a
   deprovisioned employee could hold a valid portal session. **Decided 2026-11-15: accepted** — the
-  client recovers a leaver's equipment (§4.7 records the premise). Still open: does sign-out need single logout to Entra? Cognito
-  supports single logout for a **SAML** provider, so it depends on G8's protocol, and without it a
-  user who signs out of the portal is passed straight back in by a live Entra session.
+  client recovers a leaver's equipment (§4.7 records the premise). Still open: does sign-out need single logout to Entra? The
+  bridge is SAML (settled 2026-11-16), so Cognito's single logout is available; what remains open is
+  whether to turn it on. Cognito's `/logout` ends the portal's session and not the Entra one, so
+  without it a user who signs out of the portal is passed straight back in by a live Entra session.
 
 **Gating Phase 2:**
 
@@ -3507,11 +4265,25 @@ freeze. This is the whole reason the old account survives the quiet period.
   the master clock (§4.7), and SPEC-257 caps the session at the provider refresh token's life. The
   Identity Center refresh token's lifetime is still undocumented. G10 measured at least three hours
   and four minutes, with no rotation on use. That is a lower bound, not the lifetime, so whether one
-  token lasts a 30-day session is unknown, and what a refused refresh does is open for the Phase 5
-  server spec (§4.7). (Bucket CORS is now this repo's own configuration — §4.6 — so the old
+  token lasts a 30-day session is unknown. What a refused refresh does is decided (2026-11-16): the
+  context is absent until the next sign-in (§4.7). (Bucket CORS is now this repo's own configuration — §4.6 — so the old
   change-request dependency is gone.)
 
 **Gating Phase 5:**
+
+- **Switching the consumers off once they are in use** (§4.4). AWS deletes an Access Grants instance
+  only after its grants and locations, and the runtime issuers (§3.11, §3.12) keep creating grants
+  until their configuration changes. Where the delete-every-grant step runs (inside the override
+  dispatch, before the apply, is the obvious place) and how the issuers are stopped first are open,
+  and so is the fate of routes that already declare the carrier plane, which would answer
+  `IdentityContextUnavailable` permanently once the exchange is off (§4.7's interface).
+- **Recovering from a replaced sealing key** (§4.7, *The key itself*). Until each session's next
+  refresh, its requests answer `IdentityContextMismatch`. Whether the server should refresh at once
+  on seeing a different key ARN, and where in the identity states that write sits, is open.
+- **The shared-space bucket under Access Grants** (§3.9 item 2, §3.11): a registered location on it,
+  whether the user-space location role is widened to it or a second role serves it, that bucket's
+  reserved prefixes, and whether it gains a bucket policy naming its principals as the user-space
+  bucket has (§3.6's amendment).
 
 - ~~**Gate G7 (§3.5, §5.5) — settled in Phase 0 or not?**~~ **Settled 2026-11-15 — it runs** from
   our own identity-enhanced session (§5.5's measurements); §3 stands.
@@ -3681,6 +4453,23 @@ The exchange's split, checked 2026-11-15 (§3.5, §4.7):
 **One line per revision, pointing at where its substance went.** Every correction these announce is
 recorded *in place* in the section it belongs to, which is where a reader should meet it — this list
 exists so the chronology is recoverable, not so anyone works from it.
+
+- **2026-11-17 — client-environment work leaves `docs/specs/`, and five Draft specs fold in here.**
+  Andrew's rule: work meant for after the move into the client environment gets no spec. SPEC-265 to
+  SPEC-269 are cancelled and their design is now in this plan: **§6.1** *The bridge pool as designed*
+  (SPEC-265) and *The recipient check moves to the prefix marker* (SPEC-269); **§4.4** *Building the
+  consumers* (SPEC-266: the provider upgrade, the flag and inputs, the destroy guard, the deploy
+  grant, the server's wiring); **§3.6** the carrier's trust details, permissions and allow-set gate;
+  **§3.9** the location role's permissions and the fence on grants; and **§4.7** *The interface
+  between the server and the API*, *The server's half* (SPEC-268) and *The API's half* (SPEC-267), plus
+  the sealing key's policy. Three decisions recorded in place: the refused-refresh rule (§4.7, Andrew
+  2026-11-16, with Phase 0, Phase 5, §8 and the admin request list rewritten), the workgroup's
+  enforcement off (§3.5, with §3.9 and §8 pointing there), and explicit scrubbing for the
+  `error.stack` hazard (§4.7). Corrected in place: the location role's `aws:SourceArn` names the
+  Access Grants instance, not the location, and its first trust statement needs
+  `sts:SetSourceIdentity` (§3.9, against AWS's page); the browser's 401 behaviour (§4.7, against the
+  code); and "three clients" where there are two (§6.1, Phase 1). Phase 5's work items now point at the
+  plan rather than at specs.
 
 - **2026-11-16, later — the bridge federates over SAML, and SPEC-265 carries Phase 1's [B] list.** Entra's
   OIDC `sub` is pairwise, so only a SAML `NameID` from `objectid` makes the Cognito identity the

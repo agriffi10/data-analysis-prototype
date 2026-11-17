@@ -325,8 +325,10 @@ by SCIM like real users, plus permission for us to sign them in during the check
 - **What you do:** delete that test user's active session in the Identity Center console, at the
   agreed time, and unassign them for the repeat. A few minutes of your time.
 - **Why:** we have not measured what an application sees after an administrator deletes a user's
-  session or unassigns them. Our server's behaviour at that moment is still to be designed, and this
-  check tells us whether your action stops the refresh, the fresh exchange, both or neither.
+  session or unassigns them. If Identity Center refuses the refresh, the portal ends that user's
+  data access until they sign in again; it does not silently request a new token in the background.
+  This check tells us whether your action stops the hourly refresh, a new sign-in's exchange, both
+  or neither.
 
 ---
 
