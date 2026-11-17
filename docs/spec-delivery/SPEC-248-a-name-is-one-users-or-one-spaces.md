@@ -49,8 +49,10 @@ Two merges on 2026-11-17: #1042 (`114f977`) gave both app clients their attribut
 - **Probe after the apply:** `NotAuthorizedException: A client attempted to write unauthorized
   attribute` — **NOT WRITABLE**.
 - **Controls after the apply** (built-in browser; Claude in Chrome was unreachable): through the dev
-  client under `next dev` and through the server client in the deployed portal, `agriffith`'s
-  shared-space listing answered 200 and the session carried the email. A space created after the
+  client under `next dev` (Andrew typed the password) and through the server client in the deployed
+  portal (one click on a warm Cognito cookie, so the code exchange and the tokens were new but the
+  password screen was not reached), `agriffith`'s shared-space listing answered 200 and the session
+  carried the email. A space created after the
   apply, `spec248_slot_check`, went Active, and after a new sign-in its listing answered 200, so the
   plane's admin write still lands. That space is left in place as a test space.
 - **Report** (run 44182806449, 2026-11-17T21:43Z): passed; (a) 0, (a′) 0, (b) 0, (c) 0, (d) 0,

@@ -3183,8 +3183,10 @@ sweep also fails if any shipped Lambda module writes a provider's claim name as 
 > set both lists — `write_attributes = ["email"]` and a `read_attributes` naming `email`,
 > `email_verified` and every `custom:shared_space_k` — so "none of the three clients then in
 > `infra/modules/auth/cognito.tf` sets `read_attributes` or `write_attributes`" below is history for
-> this account. Measured: a user's own `UpdateUserAttributes` on a slot was writable before and
-> refused after. The two rules below still stand for the successor's pool, where federation makes
+> this account. And the inference drawn from it below, that an unset list leaves a custom attribute
+> unwritable, was measured false for this pool: with neither list set, a user's own
+> `UpdateUserAttributes` wrote `custom:shared_space_2`, and with both set the same call was refused.
+> The two rules below still stand for the successor's pool, where federation makes
 > mapped attributes writable. The decision lives in `docs/decisions/identity-and-access/` (*A
 > membership slot is an authorization input only because no app client can write it*).
 
