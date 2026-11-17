@@ -19,8 +19,8 @@ archive serialize~~ **— superseded 2026-09-15: that the restores of ONE archiv
 orders their starts and does not serialize them, since the Pipe starts executions
 `FIRE_AND_FORGET` ([the entry below](the-group-id-orders-the-starts-not-the-runs-and-the-restore-guard-is.md)) —**
 and the archive root's own leading `personal/`/`shared/` segment — the segment SPEC-168
-added precisely because nothing checks a space name against the User Pool — already makes it
-globally unique. The bucket is one constant across every restore this app can make.
+added precisely because a user and a shared space can share a name — already makes it globally
+unique. The bucket is one constant across every restore this app can make.
 
 So the canonical string is `{kind}/{name}/archive/{archiveId}/`, mirroring `arcommon.paths.
 archive_root`, and `docs/testing/e2e.md`'s hand-crafted command was corrected to
@@ -29,6 +29,10 @@ the API reproduces (`apicommon.fifo`). A test pins the derivation and
 names SPEC-168's browser isolation — not the test — as the decision to re-open if it ever fails.
 
 ## History
+
+### 2026-11-17
+
+- **Changed:** The reason for the kind segment is restated: the space create now checks the User Pool, but a user and a space can still share a name through sign-up (SPEC-248).
 
 ### 2026-09-15
 

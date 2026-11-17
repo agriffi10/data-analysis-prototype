@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-248
 title: "A Name Is One User's or One Space's, and Only the Plane Writes a Membership"
 description: "Closes the access gap where a shared-space name could be claimed as a user's Glue database name and any user holding a client secret could write any name into their own membership list, so only the plane writes memberships; sign-up is left out because the target environment has none."
-spec_status: In Progress
+spec_status: Completed
 depends_on: [SPEC-012, SPEC-051, SPEC-056, SPEC-257, SPEC-262]
 ---
 
@@ -292,22 +292,22 @@ After the apply the probe shows the list refusing on that client, and
 
 #### Acceptance Criteria:
 
-- [ ] Before the apply, Andrew runs the probe against the deployed pool through the dev client, as
+- [x] Before the apply, Andrew runs the probe against the deployed pool through the dev client, as
   a test account he names. The outcome is recorded in the delivery doc with the client it signed
   in through and the error code and message quoted, along with the verdict the rule above gives it.
-- [ ] A test in `lambdas/test_session_infrastructure.py` visits every `aws_cognito_user_pool_client` block in every `.tf`
+- [x] A test in `lambdas/test_session_infrastructure.py` visits every `aws_cognito_user_pool_client` block in every `.tf`
   file under `infra/`, as `test_every_rotation_block_states_its_grace_period` visits its blocks,
   and fails, naming the client, unless its `write_attributes` is exactly `["email"]`. It reads the
   list's literal elements, so `concat` or a reference to a local cannot hide a `custom:` entry.
-- [ ] The same test fails, naming the client, unless its `read_attributes` is the reference
+- [x] The same test fails, naming the client, unless its `read_attributes` is the reference
   `local.client_read_attributes`. It fails, naming the local, unless that local with its
   whitespace collapsed is exactly the expression in the Description, and unless the `range(...)` in
   it is character for character the one in the pool schema's `for_each`. The whole expression is
   pinned because the bounds alone prove nothing: a filter on `k`, or a slot name without `custom:`,
   keeps the bounds and drops claims.
-- [ ] The mirror test no longer asserts that the lists are absent, and its other assertions pass
+- [x] The mirror test no longer asserts that the lists are absent, and its other assertions pass
   unchanged.
-- [ ] Seven planted defects each turn that test red by its own message, naming the client or the
+- [x] Seven planted defects each turn that test red by its own message, naming the client or the
   local, and each is reverted. Another test going red beside it does not count. A plant on one
   client also turns the mirror test red, because the dev client then differs from the server
   client; that is expected, and it is why the first two plants are made on the dev client, so a
@@ -320,27 +320,27 @@ After the apply the probe shows the list refusing on that client, and
   - changing the pool schema's `for_each` to `range(1, var.max_shared_memberships + 2)`, which is
     the one plant the range comparison alone catches;
   - adding a client block that declares neither list, in a new `.tf` file beside `cognito.tf`.
-- [ ] The CI plan shows every client updated in place, and neither the pool nor any client
+- [x] The CI plan shows every client updated in place, and neither the pool nor any client
   replaced. A replaced client is a new client id, which would end every session held under the old
   one.
-- [ ] After the apply, the probe returns the "not writable" verdict.
-- [ ] After the apply, `describe-user-pool-client` for every client the module declares returns a
+- [x] After the apply, the probe returns the "not writable" verdict.
+- [x] After the apply, `describe-user-pool-client` for every client the module declares returns a
   `WriteAttributes` of exactly `email` and a `ReadAttributes` naming `email`, `email_verified` and
   every slot.
-- [ ] After the apply, `list-user-pool-clients` returns exactly the clients the module declares,
+- [x] After the apply, `list-user-pool-clients` returns exactly the clients the module declares,
   `server` and `dev`. A client made outside the infrastructure, or one whose destroy never
   completed, keeps the default lists, and nothing in the repository can see it.
-- [ ] After the apply, as the control, a member signs in fresh through each of the two clients, in
+- [x] After the apply, as the control, a member signs in fresh through each of the two clients, in
   a sign-in that starts after the apply. Through each one a listing of their shared space's files
   succeeds, which it cannot without the slot claim, and their email is shown:
   - the server client: in the deployed portal, with the web tier on;
   - the dev client: in the portal under `next dev`, which signs in through the same server routes
     and reaches the same deployed API.
-- [ ] After the apply, a space create or a member add writes a new slot through the plane, and
+- [x] After the apply, a space create or a member add writes a new slot through the plane, and
   that member, signing in fresh, lists the space's files. The control above uses slots written
   before the apply, so without this nothing shows that the write list leaves the plane's admin
   writes alone, and a list that limited them would break every create and add.
-- [ ] If the probe before the apply had any verdict other than "not writable", FR-004's report runs
+- [x] If the probe before the apply had any verdict other than "not writable", FR-004's report runs
   against the deployed account before this spec closes. A slot someone already wrote for
   themselves survives FR-001.
 
@@ -410,26 +410,26 @@ the user ever signs in, so the audit's marker check is what covers the forward d
 
 #### Acceptance Criteria:
 
-- [ ] Unit, with fakes: creating a space named after an existing user makes no
+- [x] Unit, with fakes: creating a space named after an existing user makes no
   `AdminUpdateUserAttributes` call, writes no S3 prefix marker and makes no Glue call. It ends with
   the registry record `failed`, the actor's cache entry `failed` with reason `name already taken`,
   and one notification.
-- [ ] Unit: the same holds for a user in `UNCONFIRMED` status.
-- [ ] Unit: the refusal's cache reason and notification text are byte-identical to those of a
+- [x] Unit: the same holds for a user in `UNCONFIRMED` status.
+- [x] Unit: the refusal's cache reason and notification text are byte-identical to those of a
   create whose name is an existing space.
-- [ ] Unit: a create that has already reserved, and whose name gains a pool user before a retry,
+- [x] Unit: a create that has already reserved, and whose name gains a pool user before a retry,
   ends `failed` on the retry and is never left `provisioning`.
-- [ ] Unit: an `AdminGetUser` fault other than `UserNotFoundException` fails the create as a
+- [x] Unit: an `AdminGetUser` fault other than `UserNotFoundException` fails the create as a
   retryable fault, and makes no slot write and no Glue call.
-- [ ] Unit: a name with no pool user goes on to provision as it does today.
-- [ ] Unit: the reserve collision, the database refusal and the pool refusal each write the reason
+- [x] Unit: a name with no pool user goes on to provision as it does today.
+- [x] Unit: the reserve collision, the database refusal and the pool refusal each write the reason
   `name already taken` and `retryable: false` on the create's own cache entry.
-- [ ] Unit: none of these writes the flag: a reserve that fails with an S3 fault, a reserve whose
+- [x] Unit: none of these writes the flag: a reserve that fails with an S3 fault, a reserve whose
   compare-and-swap runs out of attempts, and a reached membership limit.
-- [ ] Component: a failed create card whose entry carries `retryable: false` offers Dismiss and no
+- [x] Component: a failed create card whose entry carries `retryable: false` offers Dismiss and no
   Retry. One whose reason is `name already taken`, word for word, but which carries no flag still
   offers both, so a build that matches on the sentence fails.
-- [ ] Unit: `revoke_portal_role` makes no `RevokePermissions` call when `owns_database` is `None`,
+- [x] Unit: `revoke_portal_role` makes no `RevokePermissions` call when `owns_database` is `None`,
   and none when it is `False`. It revokes both grants when it is `True`.
 
 ### FR-003: The creator holds no slot until the database is the space's own
@@ -449,14 +449,14 @@ record drops it.
 
 #### Acceptance Criteria:
 
-- [ ] Unit, with fakes: a create whose name has an unmarked existing database is refused, and the
+- [x] Unit, with fakes: a create whose name has an unmarked existing database is refused, and the
   whole run makes **zero** `AdminUpdateUserAttributes` calls. The fake records every call.
   Rolling a slot back afterwards does not satisfy this criterion.
-- [ ] Unit: a create with a fresh name ends `active`, holding a slot, with the database marked for
+- [x] Unit: a create with a fresh name ends `active`, holding a slot, with the database marked for
   the space.
-- [ ] Unit: a create refused for the membership limit ends with the registry `failed` and the
+- [x] Unit: a create refused for the membership limit ends with the registry `failed` and the
   database marked, so `teardown.owns_database` returns `True`.
-- [ ] Moving `assign_or_find_slot` back in front of the database step turns the first criterion red,
+- [x] Moving `assign_or_find_slot` back in front of the database step turns the first criterion red,
   and the move is then reverted.
 
 ### FR-004: One read-only report says what already exists
@@ -513,19 +513,19 @@ built.
 
 #### Acceptance Criteria:
 
-- [ ] Unit, with fakes: each of (a) to (f) lists exactly the planted entries, and each has a case
+- [x] Unit, with fakes: each of (a) to (f) lists exactly the planted entries, and each has a case
   with nothing planted that produces an empty list.
-- [ ] Unit: a refused reservation whose name is a username (a `failed`, never-active record with no
+- [x] Unit: a refused reservation whose name is a username (a `failed`, never-active record with no
   owned database) appears in (a′) and not in (a), and on its own the run passes.
-- [ ] Unit: (c) lists a slot naming a space that does not exist, and a slot naming a deleted space.
+- [x] Unit: (c) lists a slot naming a space that does not exist, and a slot naming a deleted space.
   It does not list a slot backed by a roster that includes the user.
-- [ ] Unit: a failed registry, pool, Glue or Lake Formation read makes the run fail and names the
+- [x] Unit: a failed registry, pool, Glue or Lake Formation read makes the run fail and names the
   read. It never produces a list reported as clean.
-- [ ] Unit: the function makes no write call to S3, Cognito, Glue or Lake Formation. The fakes
+- [x] Unit: the function makes no write call to S3, Cognito, Glue or Lake Formation. The fakes
   record every call and the test asserts that none was a write.
-- [ ] The workflow's exit status is non-zero when any of (a), (b), (c) or (f) has entries, and zero
+- [x] The workflow's exit status is non-zero when any of (a), (b), (c) or (f) has entries, and zero
   when only (a′), (d), (e) or (g) do. A test over the function's result asserts both cases.
-- [ ] The report is run once against the deployed account. The count of every list is
+- [x] The report is run once against the deployed account. The count of every list is
   recorded in the delivery doc, along with the opt-ins in (g). Any entry in (a), (b), (c) or (f)
   is handled by hand and recorded there before this spec closes.
 

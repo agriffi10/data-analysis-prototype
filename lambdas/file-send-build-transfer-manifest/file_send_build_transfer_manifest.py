@@ -66,7 +66,7 @@ def _items(recipients: list, plan: dict) -> list:
     Returns:
       One transfer item per (recipient, object) pair, in the shape ``cpcommon.transfer`` copies
       and attributes: the recipient's ``(kind, name)`` pair travels with every line, because a
-      destination is that pair and nothing stops a shared space being named after a user.
+      destination is that pair and a user and a shared space can share a name.
 
     Raises:
       TerminalError: ``forbidden`` from the destination builder for a recipient with no resolved

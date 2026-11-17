@@ -15,14 +15,14 @@ can fire when something is already wrong.
 
 **The leading kind segment is the entire fix for a real collision.** Receipts live in each space's
 own bucket, where the two namespaces cannot meet; the archive bucket is the first place they do.
-Shared-space names are made unique against the shared-space registry only — **nothing anywhere
-checks a proposed space name against the User Pool** — so a user `alice` and a space `alice` can
-both exist today. Flat, they would share one archive prefix, and since SPEC-170 authorizes a restore
+The space create refuses a name a pool user holds, but sign-up does not consult the shared-space
+registry and names that collided before that check remain, so a user `alice` and a space `alice` can
+still both exist. Flat, they would share one archive prefix, and since SPEC-170 authorizes a restore
 by *space* and then reads whatever sits at that prefix, a member of space `alice` could restore user
-`alice`'s archived files into the shared space. The alternative fix — refusing to create a shared
-space whose name matches an existing username — is **rejected**: it changes a shipped, unrelated
-control plane, it cannot repair names that already exist, and it would make space creation depend on
-the User Pool for a reason unrelated to space creation.
+`alice`'s archived files into the shared space. Refusing to create a shared space whose name matches
+an existing username was rejected here as this layout's fix, and is now built for access reasons
+(SPEC-248); it is still not this layout's fix, because it cannot repair names that already exist and
+does not guard sign-up.
 
 The `{uuid}` is browser-supplied and becomes a path segment in two buckets, so it is validated as a
 UUID v4 **before it is ever concatenated**, at every builder rather than once at the front door, and
@@ -30,6 +30,10 @@ UUID v4 **before it is ever concatenated**, at every builder rather than once at
 second archive under a name that reads identically in every message and every listing.
 
 ## History
+
+### 2026-11-17
+
+- **Changed:** Shared-space creation now refuses a username (SPEC-248), which this entry had rejected as its fix; the kind segment stays, because sign-up and pre-existing names can still collide.
 
 ### 2026-08-12
 

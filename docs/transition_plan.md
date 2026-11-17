@@ -3179,6 +3179,17 @@ verifier's `oidc_username_claim` reads too, and `lambdas/test_session_infrastruc
 either reader stops taking it from there. Changing the username claim is that one line. A fleet
 sweep also fails if any shipped Lambda module writes a provider's claim name as a literal. The full record of what moved and where: `docs/decisions/identity-and-access/`.
 
+> **Superseded in part 2026-11-17 (SPEC-248):** both clients in `infra/modules/auth/cognito.tf` now
+> set both lists — `write_attributes = ["email"]` and a `read_attributes` naming `email`,
+> `email_verified` and every `custom:shared_space_k` — so "none of the three clients then in
+> `infra/modules/auth/cognito.tf` sets `read_attributes` or `write_attributes`" below is history for
+> this account. And the inference drawn from it below, that an unset list leaves a custom attribute
+> unwritable, was measured false for this pool: with neither list set, a user's own
+> `UpdateUserAttributes` wrote `custom:shared_space_2`, and with both set the same call was refused.
+> The two rules below still stand for the successor's pool, where federation makes
+> mapped attributes writable. The decision lives in `docs/decisions/identity-and-access/` (*A
+> membership slot is an authorization input only because no app client can write it*).
+
 **The [B] guardrail is a security control, not hygiene — and the app client cannot be what enforces
 it.** A user who can write the attribute that carries their username can take another user's S3
 prefix and Glue database, and a user who can write `email` can map their token to another person's

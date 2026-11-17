@@ -45,9 +45,10 @@ budget, so this is a real narrowing of isolation, accepted deliberately: the alt
 a copy nobody observed. A Distributed Map cannot partition batches by key, so a per-recipient
 guarantee would mean a Map per recipient — the nested design this decision rejects.
 
-**Attribution keys on `(kind, name)`, never the name alone.** A destination is a pair, and nothing
-in this system stops a shared space being named after a user (the archival arc records the same
-hazard for its key layout). Keyed on the name, one failed object in space `acme` would deny user
+**Attribution keys on `(kind, name)`, never the name alone.** A destination is a pair, and a user and a shared
+space can share a name — the space create refuses a username, but sign-up does not consult the
+registry, and names that already collided remain (the archival arc records the same hazard for its
+key layout). Keyed on the name, one failed object in space `acme` would deny user
 `acme` a table they actually received, and send them a failure notification for it.
 
 **The export is reconciled against the manifest, not merely parsed.** Every unrecognised shape
@@ -133,6 +134,10 @@ so even 50 items sat under half the 256 KB child-execution input limit — and t
 > `COPY_CONCURRENCY` and table-share's per-object cap can no longer be changed independently.**
 
 ## History
+
+### 2026-11-17
+
+- **Changed:** Why attribution keys on the pair is restated: the space create now refuses a username, but sign-up and pre-existing names can still collide (SPEC-248).
 
 ### 2026-09-15
 

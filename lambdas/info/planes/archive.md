@@ -61,8 +61,9 @@ plane's Lambda environment must satisfy; a variable only this plane sets belongs
 archive prefix. **The receipt is a report, not a record** — the same posture as judging a table by
 its shape rather than by the marker it also writes.
 
-**The leading `personal/` / `shared/` segment is not cosmetic.** Nothing anywhere checks a proposed
-shared-space name against the User Pool, so a user `alice` and a space `alice` can both exist. Flat,
+**The leading `personal/` / `shared/` segment is not cosmetic.** The space create refuses a name
+a pool user holds, but sign-up does not consult the registry and older names may already collide, so
+a user `alice` and a space `alice` can both exist. Flat,
 they would share one archive prefix — and since restore authorizes by *space* and then reads whatever
 sits there, a member of space `alice` could restore user `alice`'s files. Receipts need no such
 segment: they live in each space's own bucket.

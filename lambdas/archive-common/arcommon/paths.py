@@ -9,9 +9,9 @@ rather than by the marker it also writes.
 
 **THE LEADING ``personal/`` / ``shared/`` SEGMENT IS NOT COSMETIC, and this is the module that
 would be wrong without it.** Receipts sit in each space's own bucket, where the two namespaces
-cannot meet. The archive bucket is the first place they do. Shared-space names are made unique
-against the shared-space registry only — **nothing anywhere checks a proposed space name against
-the User Pool** — so a user ``alice`` and a space ``alice`` can both exist today. Flat, they
+cannot meet. The archive bucket is the first place they do. The space create refuses a name a pool
+user holds, but sign-up does not consult the shared-space registry and names that collided earlier
+remain, so a user ``alice`` and a space ``alice`` can both exist. Flat, they
 would share one archive prefix; and because a restore is authorized by SPACE and then reads
 whatever sits at that prefix, a member of space ``alice`` could restore user ``alice``'s files
 into the shared space. The kind segment is the entire fix and costs nothing else.

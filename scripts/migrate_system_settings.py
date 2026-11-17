@@ -391,8 +391,8 @@ def empty_record(run_id: str) -> Record:
 def recorded_id(bucket: str, key: str) -> str:
     """Names one object in the record, unambiguously across both space buckets.
 
-    A space name is unique WITHIN a bucket and not across the two — nothing checks a shared space's
-    name against the User Pool, so a user ``alice`` and a shared space ``alice`` can both exist, and
+    A space name is unique WITHIN a bucket and not across the two — sign-up does not consult the
+    shared-space registry, so a user ``alice`` and a shared space ``alice`` can both exist, and
     each may hold ``alice/athenaresults/q1.csv``. Keyed by the S3 key alone the two collapse into
     one entry: the ETag re-verify then refuses one of them, so nothing is lost, but a source IS
     deleted while the run reports it was not. On the one mode that cannot be undone, an audit trail

@@ -527,9 +527,9 @@ def copy_batch(
 
     Returns:
       ``{"copied": n, "failures": [{<echoed fields>, "reason": …}, …]}``. Where a caller echoes a
-      destination it echoes the ``(kind, name)`` PAIR, because a destination is that pair — nothing
-      stops a shared space being named after a user, and attributing on the name alone would deny
-      one of them a transfer the other lost.
+      destination it echoes the ``(kind, name)`` PAIR, because a destination is that pair — a user and
+      a shared space can share a name, since sign-up does not consult the registry, and attributing
+      on the name alone would deny one of them a transfer the other lost.
 
     Raises:
       TransientError: When any item failed retryably, after every in-flight copy has settled.

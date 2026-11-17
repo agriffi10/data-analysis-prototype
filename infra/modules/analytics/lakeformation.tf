@@ -25,8 +25,10 @@ resource "aws_lakeformation_data_lake_settings" "this" {
 }
 
 # ── Hybrid-mode registration of the user-space bucket ──────
-# HYBRID, so the same data is reachable by direct S3 IAM (the file browser) and by LF
-# credential vending (the portal role for analytics).
+# HYBRID, so the same data is reachable by direct S3 IAM. Lake Formation vends credentials only to a
+# principal opted in over the location, and the infrastructure opts none in: the portal role reads
+# the objects through IAM for analytics too, and Lake Formation governs the catalog alone. An opt-in
+# made outside it would not show here; the name-collision report's opt-in list reads the account.
 #
 # ⚠ DO NOT FLIP THIS TO ENFORCED without opting in EVERY principal first — it would break the
 # file browser's direct S3 access. README.md.
