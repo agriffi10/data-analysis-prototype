@@ -10,6 +10,7 @@ environment must carry exactly the set `cpcommon.config` declares, because every
 this repo has — apply, deploy, and the suite itself — is green against a thin one.
 """
 
+import ast
 import json
 import os
 import pathlib
@@ -119,6 +120,266 @@ def test_an_empty_result_never_overwrites_the_existing_document(s3):
 
     assert fake.puts == []
     assert result == {"published": False, "username_count": 0}
+
+
+# -- FR-007: the document is never an authorization input --------------------------------
+#
+# A name's presence in the directory grants nothing; every existence check stays against the User
+# Pool. A control plane that started reading the document would be trusting a list that is up to a
+# day stale and missing every user not yet provisioned.
+
+DIRECTORY_MARKERS = ("usernames.json", "_directory/", "DIRECTORY_PREFIX", "DIRECTORY_KEY")
+
+# The one production module allowed to open the document. It serves it to the browser, which is
+# where the read always happened, and `ROUTE_SURFACE` holds it to deciding nothing from it.
+DIRECTORY_ROUTE = pathlib.Path("api") / "routes" / "user_directory.py"
+
+# The only module allowed to import that route: the dispatcher, which passes its answer through.
+ROUTE_DISPATCHER = pathlib.Path("api") / "router.py"
+
+# Everything the route imports and every attribute it reaches, pinned whole. Guessing the names of
+# authorization helpers missed the real ones and any aliased import; an exact surface turns every
+# new capability into a red test that someone has to read.
+ROUTE_SURFACE = frozenset(
+    {
+        "apicommon.config.user_space_bucket",
+        "apicommon.context.RequestContext",
+        "apicommon.identity",
+        "cpcommon.config.CATALOG_IDENTIFIER_RE",
+        "cpcommon.observability",
+        "json",
+        "typing.Any",
+        "acting_as",
+        "aws_error_code",
+        "fullmatch",
+        "get",
+        "get_object",
+        "loads",
+        "read",
+        "stamp",
+        "user_client",
+        "warning",
+    }
+)
+
+
+def _code_tokens(tree):
+    """The strings and identifiers a module's code uses, leaving out its prose.
+
+    A docstring or a bare string statement is prose; so is a comment, which the parser drops. A
+    module explaining that it refuses `_directory/usernames.json` is the opposite of reading it,
+    and a tripwire that fires on an explanation is one somebody deletes.
+
+    Args:
+      tree: A parsed module.
+
+    Returns:
+      Every string or bytes constant outside a bare expression statement, and every name,
+      attribute and imported name.
+
+    Raises:
+      None.
+    """
+    prose = {
+        id(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+    }
+    tokens = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and id(node) not in prose:
+            if isinstance(node.value, str):
+                tokens.add(node.value)
+            elif isinstance(node.value, bytes):
+                tokens.add(node.value.decode("utf-8", "replace"))
+        elif isinstance(node, ast.Name):
+            tokens.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            tokens.add(node.attr)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            tokens.update(alias.name for alias in node.names)
+    return tokens
+
+
+def _imports_the_route(tree):
+    """Whether a parsed module imports the directory route, in any import form.
+
+    The module name comes from `DIRECTORY_ROUTE`, so moving the route and re-pointing that constant
+    keeps this check aimed at it.
+
+    Args:
+      tree: A parsed module.
+
+    Returns:
+      True when an `import` or `from ... import` statement names the route module.
+
+    Raises:
+      None.
+    """
+    route = DIRECTORY_ROUTE.stem
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(alias.name.split(".")[-1] == route for alias in node.names):
+                return True
+        elif isinstance(node, ast.ImportFrom):
+            if (node.module or "").split(".")[-1] == route:
+                return True
+            if any(alias.name == route for alias in node.names):
+                return True
+    return False
+
+
+def _directory_readers(root):
+    """Production modules under `root` that read the directory, other than its writer and server.
+
+    A module reads it by using the key, the prefix or the key constants in its code, or by
+    importing the route that serves it and so taking the list second-hand. `test_*.py` and
+    `conftest.py` are skipped by shape rather than allowlisted by name: a suite that names the key
+    is asserting which object a route opens or that a Deny covers it, which is the opposite of
+    reading it, and a per-file allowlist grew a row every time a new suite did that. Other test
+    helpers, such as `fakes.py`, are scanned like production code. The prefix is matched WITH its
+    slash, because a bare `_directory` is a substring of innocent names. A key handed in through
+    configuration is out of reach; no such variable exists.
+
+    Args:
+      root: The `lambdas/` tree to scan.
+
+    Returns:
+      Each offender as `path: what it used`, relative to `root`, sorted.
+
+    Raises:
+      SyntaxError: If a production module is not valid Python.
+    """
+    exempt = {pathlib.Path("user-directory-build") / "build_directory.py", DIRECTORY_ROUTE}
+    offenders = []
+    for path in root.rglob("*.py"):
+        relative = path.relative_to(root)
+        if relative in exempt or path.name.startswith("test_") or path.name == "conftest.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        tokens = _code_tokens(tree)
+        used = sorted(m for m in DIRECTORY_MARKERS if any(m in token for token in tokens))
+        if relative != ROUTE_DISPATCHER and _imports_the_route(tree):
+            used.append(f"imports {DIRECTORY_ROUTE.stem}")
+        if used:
+            offenders.append(f"{relative}: {', '.join(used)}")
+    return sorted(offenders)
+
+
+def _route_surface(source):
+    """What a module can reach: every import, fully dotted, and every attribute it names.
+
+    Read from the syntax tree, never the text, so a docstring explaining why the route needs no
+    check of its own does not count as reaching for one.
+
+    Args:
+      source: Python source text.
+
+    Returns:
+      The dotted import targets and attribute names.
+
+    Raises:
+      SyntaxError: If `source` is not valid Python.
+    """
+    surface = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            surface.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            surface.update(f"{node.module}.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.Attribute):
+            surface.add(node.attr)
+    return surface
+
+
+def _route_drift(source):
+    """How a module's reach differs from the route's pinned surface, in either direction.
+
+    Args:
+      source: Python source text.
+
+    Returns:
+      The sorted names reached but not pinned, or pinned but no longer reached.
+
+    Raises:
+      SyntaxError: If `source` is not valid Python.
+    """
+    return sorted(_route_surface(source) ^ ROUTE_SURFACE)
+
+
+def test_no_production_lambda_but_the_builder_and_its_route_reads_the_directory():
+    offenders = _directory_readers(LAMBDAS)
+    assert offenders == [], (
+        f"these modules read the username directory: {offenders}. It is advisory and never an "
+        "authorization input; ask the User Pool instead"
+    )
+
+
+def test_the_route_that_serves_the_directory_reaches_only_what_is_pinned():
+    drift = _route_drift((LAMBDAS / DIRECTORY_ROUTE).read_text(encoding="utf-8"))
+    assert drift == [], (
+        f"the directory route's reach changed by {drift}. It serves the document and decides "
+        "nothing from it; if the change decides nothing either, re-pin ROUTE_SURFACE"
+    )
+
+
+@pytest.mark.parametrize(
+    ("reader", "used"),
+    [(f"KEY = '{marker}'\n", marker) for marker in DIRECTORY_MARKERS[:2]]
+    + [
+        ("KEY = b'_directory/usernames.json'.decode()\n", "_directory/, usernames.json"),
+        ("key = config.DIRECTORY_PREFIX\n", "DIRECTORY_PREFIX"),
+        ("key = DIRECTORY_KEY\n", "DIRECTORY_KEY"),
+        ("from build_directory import DIRECTORY_KEY as key\n", "DIRECTORY_KEY"),
+        ("from routes.user_directory import _parse as parse\n", "imports user_directory"),
+        ("from routes import (\n    user_directory,\n)\n", "imports user_directory"),
+        ("import routes.user_directory as served\n", "imports user_directory"),
+    ],
+)
+def test_the_tripwire_names_a_planted_reader_and_only_it(tmp_path, reader, used):
+    """One planted reader per way of reading, beside every shape the guard must stay silent on.
+
+    The silent shapes are a suite naming the key, the exempt route, the dispatcher importing it, a
+    docstring and a comment explaining the directory, and a bare `_directory`.
+    """
+    planted = {
+        pathlib.Path("some-plane") / "handler.py": reader,
+        pathlib.Path("some-plane") / "test_handler.py": "KEY = '_directory/usernames.json'\n",
+        pathlib.Path("some-plane") / "conftest.py": "from routes.user_directory import x\n",
+        pathlib.Path("some-plane") / "explains.py": (
+            '"""Refuses `_directory/usernames.json` as a user."""\n'
+            "# never reads DIRECTORY_KEY\n"
+            "RESERVED = ('_directory', '_config')\n"
+        ),
+        DIRECTORY_ROUTE: "KEY = '_directory/usernames.json'\n",
+        ROUTE_DISPATCHER: "from routes.user_directory import user_directory\n",
+        pathlib.Path("deploy") / "matrix.py": "CHECK = 'every_lambda_directory_is_listed'\n",
+    }
+    for relative, text in planted.items():
+        (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / relative).write_text(text, encoding="utf-8")
+
+    assert _directory_readers(tmp_path) == [f"{pathlib.Path('some-plane') / 'handler.py'}: {used}"]
+
+
+def test_the_route_surface_counts_aliased_imports_and_calls_but_not_prose():
+    reaching = (
+        "import json\n"
+        "from cpcommon.cognito import user_exists as known\n"
+        "def handler(client, name):\n"
+        "    return known(name) and client.admin_get_user(Username=name)\n"
+    )
+    explaining = '"""Needs no admin_get_user or user_exists: the grant already authorizes."""\n'
+
+    assert _route_surface(reaching) == {"json", "cpcommon.cognito.user_exists", "admin_get_user"}
+    assert _route_surface(explaining) == set()
+
+
+def test_the_route_pin_reddens_on_a_new_reach():
+    route = (LAMBDAS / DIRECTORY_ROUTE).read_text(encoding="utf-8")
+    widened = route + "from cpcommon.cognito import user_exists as known\n"
+
+    assert "cpcommon.cognito.user_exists" in _route_drift(widened)
 
 
 # -- The deployed environment matches what config.py declares ---------------------------

@@ -65,10 +65,12 @@ indefinitely on any surface reachable while signed out.
 - **`lib/env.ts`** — `VITE_ENVIRONMENT` joins `OPTIONAL_ENV`. Optional because its degraded path is
   total: unset resolves the document's own `defaults` and still reports `'ready'`.
 - **`ci.yml`** — `ruff check lambdas/` → `ruff check lambdas/ scripts/`, plus the validator step.
-- **SPEC-146's `test_no_other_lambda_references_the_directory`** gained a second allowlist entry.
-  `lambdas/test_feature_flags_config.py` names `_directory/usernames.json` to explain why the publish
+- **SPEC-146's username-directory tripwire** gained a second allowlist entry.
+  `lambdas/test_feature_flags_config.py` named `_directory/usernames.json` to explain why the publish
   addresses one exact key and never syncs — the reasoning is the point, and the tripwire's real
-  subject (a control plane treating the directory as an authorization input) is untouched.
+  subject (a control plane treating the directory as an authorization input) is untouched. *The
+  allowlist is gone: the tripwire was deleted in a later suite cut, and its restored form exempts
+  every test module by shape, so this entry needs no row.*
 
 ## The accepted risk, stated plainly
 

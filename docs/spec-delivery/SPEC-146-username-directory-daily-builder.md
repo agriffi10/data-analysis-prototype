@@ -26,10 +26,11 @@ in front of people.
 - **`publish()` carries its own empty-list guard even though `handler` already decides.** The
   refusal is a property of publishing, not of one call site; a second caller added later would
   otherwise inherit no protection against silent wholesale erasure.
-- **The FR-007 tripwire allowlists `dqcommon/config.py`.** That module names `_directory` as a
-  *reserved* prefix — the opposite of reading it — so it is exempted by name rather than by
-  weakening the pattern. The pattern matches `_directory/` **with its slash**, because a bare
-  `_directory` is a substring of `test_every_lambda_directory_is_in_the_deploy_matrix`.
+- **The FR-007 tripwire matches `_directory/` with its slash**, because a bare `_directory` is a
+  substring of innocent names, and `dqcommon/config.py` names `_directory` bare as a *reserved*
+  prefix — the opposite of reading it. *It first shipped with that module allowlisted by name; the
+  tripwire was later deleted in a suite cut and restored with test modules exempt by shape and only
+  the builder and the API route that serves the document exempt by name.*
 - **No `PLANES` entry in `test_instrumentation_coverage.py`**, as FR-008 requires. `Plane.modules()`
   globs the four control planes, so `user-directory-build` matches none and is asserted by nothing —
   the same as every other singleton. The decorator and `init` are pinned by this module's own tests.
