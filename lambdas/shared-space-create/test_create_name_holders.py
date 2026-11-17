@@ -193,12 +193,19 @@ def _membership_limit(_monkeypatch, _s3, cognito):
         cognito.attrs[f"custom:shared_space_{k}"] = f"space_{k}"
 
 
-@pytest.mark.parametrize("fail", [_reserve_s3_fault, _reserve_cas_exhausted, _membership_limit])
-def test_a_failure_that_is_not_a_taken_name_keeps_retry(monkeypatch, fail):
+@pytest.mark.parametrize(
+    "fail, raised, match",
+    [
+        pytest.param(_reserve_s3_fault, FakeClientError, None, id="reserve-s3-fault"),
+        pytest.param(_reserve_cas_exhausted, RuntimeError, "exhausted attempts", id="cas-exhausted"),
+        pytest.param(_membership_limit, reg.ProvisioningError, "membership limit reached", id="membership-limit"),
+    ],
+)
+def test_a_failure_that_is_not_a_taken_name_keeps_retry(monkeypatch, fail, raised, match):
     s3, _glue, _lf, cognito = _install()
     fail(monkeypatch, s3, cognito)
 
-    with pytest.raises(Exception) as caught:
+    with pytest.raises(raised, match=match) as caught:
         c.create_space("sales", "alice", "req-1")
 
     assert not isinstance(caught.value, reg.NameTaken)
