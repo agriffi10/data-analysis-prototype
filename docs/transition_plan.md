@@ -998,10 +998,13 @@ architecture today, and it is an account-wide singleton to own in the coordinati
    location. ~~an `aws:SourceArn` naming the location~~ — *corrected 2026-11-17 against AWS's
    "Register a location" page, whose sample names the instance.* For an Identity Center instance it
    needs a **second statement** granting **`sts:SetContext`**, beside the first and not folded into
-   it, conditioned on `ForAllValues:ArnEquals` over `sts:RequestContextProviders` =
-   `arn:aws:iam::aws:contextProvider/IdentityCenter`. AWS's page says the Identity Center case
-   "includes a second statement" but, as fetched on 2026-11-17, never prints it, so that statement's
-   exact shape is an owed check on the first apply against a real instance.
+   it. AWS's page says the Identity Center case "includes a second statement" but, as fetched on
+   2026-11-17, never prints it, so its exact shape is an owed check on the first apply against a real
+   instance. Until then our requirement is that it carries the same confused-deputy guard as the
+   first, `aws:SourceAccount` and the instance's `aws:SourceArn`, plus `ForAllValues:ArnEquals` over
+   `sts:RequestContextProviders` = `arn:aws:iam::aws:contextProvider/IdentityCenter` with a `Null`
+   false guard beside it, because a bare `ForAllValues` is true when the key is absent (the same
+   hazard §3.6 guards against on the carrier).
    The location role's **permissions** cover object read, write and delete, `ListBucket`,
    `AbortMultipartUpload` and `ListMultipartUploadParts` on the user-space bucket alone. They never
    include `ListBucketMultipartUploads`, which ignores `s3:prefix`. The policy carries an explicit
@@ -2033,14 +2036,19 @@ applies. The apply step becomes one step that does four things in order: `tofu p
 -json` to a file rather than a pipe, the guard, and `tofu apply` of that saved plan, both the plan and
 the apply carrying `-lock-timeout`. It stays one step because every planning or applying step must
 start with `tf_var_guard.py` and carry `REPO_VARS`, and a second step with copied `TF_VAR_` values
-could disagree with the plan. The guard lives in `.github/scripts/` beside the others. It keys on
-resource type at any address, never on a module path, because a `moved` block can relocate a
-singleton and a later change would then delete it at an address a path match ignores. It refuses any
-change whose actions include `delete` (replacements in either order included); a `forget`, which drops
-the singleton from state so the next switch-on collides with it; and an update that changes
-`identity_center_arn` or `instance_arn`, where an attribute counts as changed when `after_unknown`
-marks it, because an unknown value is dropped from `after` rather than set to null. It fails closed on
-a missing or unparseable plan, or one with no `format_version`, and a plan with no changes is silent.
+could disagree with the plan. The guard lives in `.github/scripts/` beside the others. **It guards
+exactly two resource types, `aws_s3control_access_grants_instance` and
+`aws_lakeformation_identity_center_configuration`**, at any address, never by module path, because a
+`moved` block can relocate a singleton and a later change would then delete it at an address a path
+match ignores. On those two types it refuses any change whose actions include `delete` (replacements
+in either order included); a `forget`, which drops the singleton from state so the next switch-on
+collides with it; and an update that changes `identity_center_arn` or `instance_arn`, where an
+attribute counts as changed when `after_unknown` marks it, because an unknown value is dropped from
+`after` rather than set to null. It is silent on everything else: a plan with no changes, a `delete`
+of an unguarded type such as the Identity Center workgroup or a Lambda, and an update to a guarded
+type that changes only its tags. Refusing every delete would turn ordinary merges red. It fails closed
+on a missing or unparseable plan, or one with no `format_version`. The plan and the apply each carry
+`-lock-timeout=10m`.
 The override is a `workflow_dispatch` input, `allow_identity_center_destroy`, defaulting to false. A
 push never carries it, so **a merge that switches the consumers off turns `main` red by design**, and
 the fix is the dispatch, never a revert. Being a gate, it owes a fixture corpus asserting each
@@ -2056,7 +2064,22 @@ create, read, update and delete at the pinned provider version, from AWS's docum
 each on-behalf call, and from a simulate for each action placed on `Resource: "*"`. The first-use
 resources sit behind a `time_sleep` keyed on the grant's body (`infra/info/deploy-role-iam.md`). Only
 the same-account half can be proved here; the cross-account half, those calls against an
-organization instance in another account, is owed.
+organization instance in another account, is owed. The new managed policies (this one, and the
+bridge's in §6.1) count against the deploy role's attachment ceiling, which
+`lambdas/test_feedback_deploy_grant.py` asserts at or below `MAX_ATTACHED_MANAGED_POLICIES` (20);
+check the headroom before adding them.
+
+**Two invariants beside the switch.** The location role's entry on the user-space bucket policy, a
+constructed ARN in root `locals`, is present whatever the switch says, as is the API role's grant on
+the carrier. And the existing portal workgroup in `infra/modules/analytics/`, with
+`aws_lakeformation_data_lake_settings`, is untouched by any of this; the Identity Center workgroup is a
+second one beside it.
+
+**Decision files owed when this is built**, each under `docs/decisions/`: the workgroup decision
+(§3.5) under `analytics/`; *the carrier role is bounded by its own policy, because the allow-list is
+not a fence* under `identity-and-access/`; and *we consume the client's Identity Center from four
+inputs and build none of it, and switching the consumers off takes a dispatch override* under
+`infrastructure/`. The `error.stack` scrub decision (§4.7) is the fourth.
 
 **Proving apply and destroy against a stand-in.** Before the client's environment, the consumers'
 apply and destroy are proved against a throwaway account instance (§4.5's *Testing*), under the PR
@@ -2334,8 +2357,8 @@ plainly. First, the deploy role is the trust root, because `kms:PutKeyPolicy` le
 either side. Second, `aws:PrincipalArn` matches a role by name, not by unique id, so while the task
 role does not exist anyone able to create a role of that name would gain Encrypt; that is accepted
 only because no identity policy outside the deploy role's grants `iam:CreateRole`, and a test holds
-it. Losing the key is accepted too: a sealed context lives at most an hour, so a replacement key costs
-each session one re-seal.
+it. Losing administration of the key with the deploy role is accepted, and so is losing the key
+itself: a sealed context lives at most an hour, so a replacement key costs each session one re-seal.
 
 The cost is one `Decrypt` per request on the API, less what its cache saves, and one `Encrypt` per
 context on the server. An HMAC under a shared key was weighed and is not simpler: it needs the same
@@ -2561,8 +2584,9 @@ every identity state.
 **Size.** The API refuses a sealed value over 4,096 characters. The server's own allowance is 3,416
 characters: the base64 of 2,560 bytes, which is a 2,048-character context plus a deliberate 512-byte
 allowance for KMS's undocumented ciphertext overhead. With a 2,000-character request line and a
-4,096-byte bearer, that stays under the HTTP API's 10,240 bytes. The real lengths are measured live
-(Phase 5's verification).
+4,096-byte bearer, that stays under the HTTP API's 10,240 bytes. Phase 0's contexts were 1,588 to
+1,668 characters; the real lengths in the client's instance are measured live (Phase 5's
+verification).
 
 On a route that needs a context, the API answers in this order, and **none is 401**:
 
@@ -2619,13 +2643,16 @@ a new value each time and defeat its cache. A seal that fails or times out is a 
 refusal. An ID token with no `sub` makes no exchange and no refresh at all, because a context sealed
 to nothing could not be opened. The server cannot open what it stored: the task role's existing KMS
 statement works only through DynamoDB and only for the session table, and the sealing key's policy
-denies the task role `Decrypt` regardless. No `kms:Encrypt` statement is added to the task role,
+denies the task role `Decrypt` regardless. A test over the IaC holds the first half: every
+decrypt-capable statement on the task role carries the DynamoDB `kms:ViaService` condition and the
+session table's name. No `kms:Encrypt` statement is added to the task role,
 because the sealing key's own policy names it.
 
 **Refusals and faults.** `CreateTokenWithIAM` errors are sorted by the SDK's exception name. A refusal
 is Identity Center declining this user or this token; a fault is anything the user did not cause.
 Configuration faults are faults, logged as `configuration`, because signing in again cannot fix them.
-At sign-in every row, refusal or fault, writes the identity `pending` and is retried. On a refresh a
+At sign-in every row, refusal or fault, writes the identity `pending` with `retryAt` 300 seconds on,
+and is retried. On a refresh a
 refusal writes `ended` and a fault takes the fault branch.
 
 - **Refusals:** `InvalidGrantException`, `ExpiredTokenException`, `AccessDeniedException`.
@@ -2710,7 +2737,8 @@ together with the Tech Stack AWS row in `CLAUDE.md`, the server's `no-restricted
 shape test and `check:bundle`. One identity module is the only importer of the two packages, as the
 store is of DynamoDB's, and the browser bundle still holds no AWS client.
 
-**Logging.** Each failure logs a fixed string naming its row of the table above and nothing else. No
+**Logging.** Each failure logs a fixed string naming its row of the table above (`refused`,
+`configuration`, `fault`, `timeout`, `no-context`, `seal`, `no-sub`, `bad-expiry`) and nothing else. No
 part of the assertion, the Identity Center refresh token, the response's other tokens, the raw
 context, an error's message or its stack appears in any log, on the exchange, the refresh or the
 retry.
@@ -3193,8 +3221,11 @@ and no portal role may write it (the guardrail above).
 **How the trigger validates, and what it emits.** It trusts a subject only when
 `cognito:user_status` is `EXTERNAL_PROVIDER`, so an administrator-created local user named like a
 federated one does not pass. `userName` must begin with the literal `{provider name}_`, taken from
-configuration and compared case-insensitively, never as a pattern. The remainder, lowercased, must be
-a GUID, so an Entra `NameID` misconfigured to a UPN fails here. On success it adds two claims through
+configuration (`ENTRA_PROVIDER_NAME`, which defaults to `unwired` while the flag is unset, so the
+unwired function still has a prefix to test) and compared case-insensitively, never as a pattern. The
+remainder, lowercased, must match
+`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, so an Entra `NameID` misconfigured to a
+UPN fails here. On success it adds two claims through
 `claimsAndScopeOverrideDetails.idTokenGeneration.claimsToAddOrOverride`: the username under the name
 in `local.oidc_username_claim`, which is `portal_username` under the bridge and `cognito:username`
 otherwise, and the object id under `entra_object_id`. Terraform renders the trigger's claim name from
@@ -3205,8 +3236,8 @@ refuses — the user is not federated, the subject is not an object id, the subj
 or the entry is invalid — by adding no claim and returning the event unchanged. The server already
 refuses a sign-in whose ID token lacks the username claim (`handlers.ts`) and treats a refreshed
 token without it as an ended session (`session.ts`, `active`), and the API's verifier rejects that
-token too. The trigger logs one line with a reason code and the subject, and never another entry's
-username. Any S3 error other than a missing key is raised as a fault, which fails that sign-in or
+token too. The trigger logs one line with a reason code (`not_federated`, `subject_not_object_id`,
+`not_on_index`, `invalid_entry`) and the subject, and never another entry's username. Any S3 error other than a missing key is raised as a fault, which fails that sign-in or
 refresh at Cognito. Which token-endpoint error a raised trigger produces on refresh is unmeasured; if
 it is `invalid_grant`, the server ends the session, so an S3 fault signs the user out. That is
 accepted, because it fails closed and the next sign-in succeeds once S3 answers.
@@ -3313,7 +3344,12 @@ user-space bucket. File send and table share already hold `GetObject` on `bucket
 `s3:GetObject` on `*/DO_NOT_DELETE.txt`. **Add-members resolves existence for every requested name
 before its slot loop begins**: the loop has no rollback, so a fault half way through would leave
 earlier members' slots assigned, while checked first, a transient fault fails the run with nothing
-written.
+written. The existing `UserNotFoundException` branch around `assign_or_find_slot` **stays** while slots
+exist: a name can have a marker and no Cognito account (a pool user deleted by hand), and it is still
+reported unknown rather than failing the run part-way through the loop. **What the move deletes:** both
+planes' `RecipientUserCheck` statements, the `user_pool_arn` entry in `infra/control-planes.tf` and
+each plane's `COGNITO_USER_POOL_ID`; and `_MAX_RECIPIENT_NAME`'s docstring reason stops being true, so
+it is rewritten.
 
 **The marker is not fenced by IAM, deliberately.** Three control-plane roles write across the whole
 user-space bucket: file-ops `WriteSpaceObjects`, archive `SpaceDataWrite` and results-conversion
@@ -3329,7 +3365,10 @@ markers, every existing user must have one: the marker write in `provision_user`
 backfill has run, or existing users read as unknown in the gap. The reconciliation runs both ways.
 Users with no marker are backfilled. Markers with no pool account are deleted, because self-sign-up is
 open in this account and whoever re-registers a deleted name would inherit what was sent to it. From
-then on, deleting a pool user by hand includes deleting their marker. The post-confirmation role
+then on, deleting a pool user by hand includes deleting their marker. The backfill and
+reconciliation run as the deploy role, which is both on the bucket's allowlist and a Lake Formation
+admin; an operator's own credentials are on neither, and because they write the production bucket the
+commands are handed to Andrew rather than run by a session. The post-confirmation role
 needs `s3:PutObject` on the marker pattern only, and it must join the bucket policy's allowlist —
 without that entry the bucket policy's explicit deny refuses the write at runtime, with a green plan.
 Its timeout goes from 3 to 5 seconds, because a trigger that times out fails the user's confirmation,
