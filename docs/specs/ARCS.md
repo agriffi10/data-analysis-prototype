@@ -3685,7 +3685,8 @@ and `infrastructure/the-nginx-configuration-reproduces-cloudfronts-jobs-and-thre
 > for after the move into the client environment gets no spec, so both specs and the server-exchange
 > spec are tombstones and their design is in `docs/transition_plan.md`: the consumers in §4.4
 > (*Building the consumers*), the carrier role in §3.6, the location role and the fence on grants in
-> §3.9, and the server's half, the API's half and the interface between them in §4.7. The text below
+> §3.9, the sealing key in §4.7's *The key itself*, and the server's half, the API's half and the
+> interface between them in §4.7. The text below
 > is the arc as it stood when cancelled, kept for the reasoning; read the plan for the design.
 
 **Why it exists.** Phase 5 of `transition_plan.md` moves data access onto the user's Identity Center

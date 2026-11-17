@@ -42,7 +42,7 @@ from the identity context the server forwards. Two pieces of compute, each doing
 does, so Phase 5 adds one call to each rather than a component (§4.7 carries the split and the
 alternatives it beat). The work that bridges the gap is named where it lands: gate G10 — the
 exchange split, tested — in Phase 0, the Variant B items in Phase 1, and Phase 5's two exchange
-specs, written after G10.
+halves (§4.7), designed after G10.
 
 **2026-11-15, later the same day: Variant B is chosen.** The client already has an established
 pattern of Cognito federated to Entra ID, and building on it is simpler than registering the
@@ -583,7 +583,7 @@ shared spaces — crosses this revision unchanged. That is what makes them safe 
                      the shape AWS's own Entra walkthrough uses. Verified 2026-08-19)
                     — the one the callback's code exchange just returned. Each assertion
                       exchanges once; a later, refreshed Cognito ID token also exchanges
-                      (measured 2026-11-15), which matters only to §4.7's open question
+                      (measured 2026-11-15), which §4.7's refused-refresh decision declines to use
    → IdC validates the signature against the TTI's JWKS, checks the audience,
      maps the configured claim (typically `email`) to exactly ONE IdC user
    → returns accessToken, refreshToken (when the grant is enabled), idToken, and
@@ -912,7 +912,7 @@ says. It is NOT what Phase 0 measured on 2026-11-15; see the amendment below.)*
 > object access to every principal it does not name (§3.12 item 5), so the obligation there is to
 > keep the carrier role off that list, and to put the Access Grants location role on it, because
 > vended credentials act as that role (Phase 5's Access Grants item). The shared-space bucket has no
-> such policy, and whether it gains one is that spec's call. This also unsettles the reason §3.4 and
+> such policy, and whether it gains one is Phase 5's Access Grants item's call. This also unsettles the reason §3.4 and
 > §3.9 give for Access Grants, the P1-implies-P3 tension in §5, and the allow-list's role in the
 > actor contract (`docs/specs/ARCS.md`). Neither is decided here.
 
@@ -1014,13 +1014,20 @@ architecture today, and it is an account-wide singleton to own in the coordinati
    flags, because the location role is on the bucket policy's exception list. One gap is accepted: a
    listing with no prefix, or an empty one, matches no `s3:prefix` condition, so it would return those
    key names, though not their contents. Only a grant scoped to the location root can make such a
-   listing, and that grant already exposes every user's keys. Athena's result writes on the Identity
+   listing, and that grant already exposes every user's keys unless the role-policy narrowing below
+   applies. These permissions are on the user-space bucket; §3.11's per-(member, space) grants need a
+   registered location on the shared-space bucket too, and whether this role is widened to it or a
+   second role serves it is §3.11's to settle, with that bucket's own reserved prefixes. Athena's result writes on the Identity
    Center workgroup also go through Access Grants, as the same role.
 3. **Create grants**: bind an **Identity Center user or group** to a **prefix** with
    `READ` / `WRITE` / `READWRITE`. **The fence on grants has three rules.** Only the deploy role may
    call `s3:CreateAccessGrant`; no other identity policy grants it. Grantees are directory users and
    groups only, never an IAM principal, because a grant to the carrier role would apply to every
-   user's carrier session. And no grant is ever scoped to the location root.
+   user's carrier session. And no grant is scoped to the location root **unless** Phase 0 chooses
+   the role-policy-narrowed form (below, and Phase 0's *Decide the Access Grants prefix identity*),
+   in which case that one standing grant is the root grant, the location role's permissions narrow
+   it by `${identitystore:UserId}`, and the `_*` Deny above still holds. Under the literal per-user
+   form, a root grant is a defect. This fence does not decide between the two forms; Phase 0 does.
 
 **The backend calls `GetDataAccess` on the user's identity-enhanced session and gets back
 prefix-scoped temporary credentials.** From there the bytes reach the browser the way Arc B already
@@ -2051,8 +2058,15 @@ on a missing or unparseable plan, or one with no `format_version`. The plan and 
 `-lock-timeout=10m`.
 The override is a `workflow_dispatch` input, `allow_identity_center_destroy`, defaulting to false. A
 push never carries it, so **a merge that switches the consumers off turns `main` red by design**, and
-the fix is the dispatch, never a revert. Being a gate, it owes a fixture corpus asserting each
-refusal's reason, cases that assert silence, and one mutation per rule.
+the fix is the dispatch, never a revert. The trigger is the repository variable, not code: once it
+reads `"false"`, every later apply refuses until someone runs the override dispatch, so the operator
+runs the dispatch straight after flipping it. **AWS deletes an Access Grants instance only once its
+grants and locations are deleted and its Identity Center association is removed**
+(`DeleteAccessGrantsInstance`), and the per-user grants (§3.12) and per-(member, space) grants
+(§3.11) are made outside Terraform, so in any real environment the override destroy fails mid-apply
+unless a revoke-all-grants step runs first. Switching off therefore begins with that step. Being a
+gate, it owes a fixture corpus asserting each refusal's reason, cases that assert silence, and one
+mutation per rule.
 
 **The deploy role's grant covers calls made on our behalf.** It lands in its own pull request and
 applies green before any consumer. Associating Access Grants, creating Lake Formation's configuration
@@ -2079,7 +2093,12 @@ second one beside it.
 (§3.5) under `analytics/`; *the carrier role is bounded by its own policy, because the allow-list is
 not a fence* under `identity-and-access/`; and *we consume the client's Identity Center from four
 inputs and build none of it, and switching the consumers off takes a dispatch override* under
-`infrastructure/`. The `error.stack` scrub decision (§4.7) is the fourth.
+`infrastructure/`. The others this plan records, written as decision files when built: the
+refused-refresh rule (§4.7) and the explicit `error.stack` scrub (§4.7) under `identity-and-access/`;
+the username lookup as a Pre-Token-Generation trigger (§6.1); the in-place rewrite of
+`two-credential-planes-declared-per-route-defaulting-to-the-user-plane.md` for three planes (§4.7,
+*The API's half*); and the reversed existence-check clause of
+`the-username-directory-is-built-from-s3-not-cognito.md` (§6.1).
 
 **Proving apply and destroy against a stand-in.** Before the client's environment, the consumers'
 apply and destroy are proved against a throwaway account instance (§4.5's *Testing*), under the PR
@@ -2087,8 +2106,9 @@ queue lock. Set the four inputs and turn the flag on, dispatch the deploy and re
 the flag off and dispatch without the override, recording the guard's refusal. Dispatch again with
 the override and confirm that the Access Grants instance, the Lake Formation configuration and the
 workgroup read back as absent. If an Access Grants instance can be planted first, the same run
-records the apply refusing to adopt it. The run cannot prove the cross-account calls, or that STS
-populates the carrier's two Identity Center keys.
+records the apply refusing to adopt it. Plant one grant outside Terraform before the destroy, so the
+run also proves the revoke-all-grants step. The run cannot prove the cross-account calls, or that
+STS populates the carrier's two Identity Center keys.
 
 ### 4.5 A third counterparty — unchanged
 
@@ -2358,7 +2378,11 @@ either side. Second, `aws:PrincipalArn` matches a role by name, not by unique id
 role does not exist anyone able to create a role of that name would gain Encrypt; that is accepted
 only because no identity policy outside the deploy role's grants `iam:CreateRole`, and a test holds
 it. Losing administration of the key with the deploy role is accepted, and so is losing the key
-itself: a sealed context lives at most an hour, so a replacement key costs each session one re-seal.
+itself: a sealed context lives at most an hour, so a replacement key costs each session one re-seal,
+but until that session's next refresh its requests carry a value sealed under the old key, which the
+pinned `KeyId` answers as `IdentityContextMismatch`. So the server re-seals at once when the key ARN
+it is configured with differs from the one a stored context was sealed under, and stores that ARN
+beside the sealed value.
 
 The cost is one `Decrypt` per request on the API, less what its cache saves, and one `Encrypt` per
 context on the server. An HMAC under a shared key was weighed and is not simpler: it needs the same
@@ -2523,7 +2547,8 @@ Identity Center refresh token, and the session's absolute expiry. Decide deliber
 experiences when each expires, rather than letting the shortest one produce a confusing failure.
 **Under [B], Cognito is the master clock, and Entra does not end a session by itself.** Keep
 refreshing the provider's token even though Identity Center has its own refresh token, so the
-session item — Identity Center tokens included — goes when Cognito refuses a refresh. But a Cognito
+session item — the sealed context and the Identity Center refresh token included — goes when
+Cognito refuses a refresh. But a Cognito
 refresh does not consult Entra: AWS's refresh-token page describes none, and nothing else in its
 documentation has one, so Phase 0 confirms it rather than this page assuming more. **So a user Entra
 disables keeps a portal session until Cognito's refresh token runs out** — 30 days as SPEC-257 set
@@ -2611,7 +2636,10 @@ configuration fault in the identity layer. `ApiUnavailable` is today's 503, made
 mismatch, "Your data access couldn't be confirmed. Sign out and sign in again; if this keeps
 happening, contact your administrator."; for sign-in required, "Your data access has ended for this
 session. Sign out and sign in again to restore it."; and for unavailable, "Your data access isn't
-ready yet. Try again in a moment."
+ready yet. Try again in a moment." With the exchange switched off, a carrier route would answer
+`IdentityContextUnavailable` permanently, so **no route declares the carrier plane in a release that
+reaches an environment whose flag is off**: the flag goes on everywhere the release deploys first,
+non-production before production, and the first carrier route ships after.
 
 #### The server's half
 
@@ -2676,6 +2704,9 @@ after a fault; **`pending`**, a `retryAt` and no exchange before it; **`ended`**
 **`unreadable`**, what the store adapter reads when an identity attribute is present but does not
 parse. Every identity write goes through one function that refuses any transition not in this list:
 
+- the sign-in callback creates the item with the identity `present`, or `pending` with `retryAt`
+  300 seconds on: the creating put is the one write that carries both the tokens and the identity,
+  because there is nothing yet to roll back;
 - no attribute becomes `pending`, with a jittered `retryAt`, on the first load that sees it;
 - `pending` becomes `pending` with a later `retryAt`, by a retry's claim;
 - `pending` becomes `present`, by a retry's successful exchange;
@@ -3169,7 +3200,8 @@ the identity index (*The bridge pool as designed*, below); a user attribute is n
 guardrail covers all of these. No portal role may hold any `cognito-idp:` action — while the
 recipient checks still use Cognito the exceptions are `AdminGetUser` and `ListUsers`, and moving
 those checks to S3 (*The recipient check moves to the prefix marker*, below) lets the test allow none.
-No portal role may write to `{admin bucket}/identity-index/*`, and none may hold `lambda:Update*`,
+No portal role but the provisioner's (§3.12), the index's one writer, may write to
+`{admin bucket}/identity-index/*`, and none may hold `lambda:Update*`,
 `lambda:PutFunction*`, `lambda:AddPermission` or `lambda:DeleteFunction` on the trigger. The test takes
 its population from the tree: every `templatefile` bound to a role-policy argument, with a named
 exclusion set holding the deploy role, bucket policies, flow logs and the LF registration role, and
@@ -3177,7 +3209,10 @@ every `.json.tftpl` must be in one set or the other. Placeholders are rendered f
 that bind them, never as `*`. Matching is case-insensitive and wildcard-aware in both directions, and
 a `NotAction` or `NotResource` Allow counts as a grant; a Deny does not. Five plane templates hold
 `{admin}/*` statements today, and all five are Denies. The `CognitoMembershipAttributes` statement
-moves into its own policy, attached only while the bridge flag is null.
+moves into its own policy, attached only while the bridge flag is null, so the test is mode-aware:
+it reads each policy's attachment per `local.identity_mode`, and in cognito mode that one policy is
+outside the bridge's population. A conditional guard owes both branches, so a fixture proves it
+refuses the statement when the policy is attached under the bridge.
 
 A test over the IaC holding both rules for every client is cheap, and it is the only thing that
 would catch a third client added carelessly. **It must assert presence, not absence:** a client that
@@ -3768,15 +3803,16 @@ and that is fine.
   admin bucket, a per-mint latency cost, an availability coupling, and a defined behaviour when the
   read fails (**fail closed** — a missing tag denies, which is the safe direction, but it must be
   chosen rather than inherited). It needs its own equivalence argument, exactly as SPEC-196 says.
-  **Write the spec before this phase, not during it.**
+  **Write its design into this item before this phase, not during it** — as successor-account
+  work it gets no spec (the 2026-11-17 rule, §11), so this plan is where it is designed.
 - Confirm `${aws:PrincipalTag/username}` resolves in a real request — the whole isolation model is
   that one tag, and a session without it matches nothing.
 - **Land the provisioner's deploy-role IAM and its entry in the user-space bucket policy first, in
   their own PR** — an explicit resource-policy deny beats an identity-policy allow, so a role
   missing from `user-space-bucket-policy.json.tftpl` is denied at runtime with a green plan
   (§3.12).
-- **Build and deploy the provisioner** (§3.12): `provision_user`'s existing sequence plus the prefix
-  marker write, behind a new trigger, reading the username list from the admin bucket. It provisions
+- **Build and deploy the provisioner** (§3.12): the prefix marker write **first** (atomic, §3.12
+  item 1), then `provision_user`'s existing sequence, behind a new trigger, reading the username list from the admin bucket. It provisions
   nobody yet — Phase 2 runs it — but it ships here so the run is not the first time it executes.
 - Remove the `pre-signup` and `post-confirmation` **triggers** — sign-in provisions nothing (§2
   item 7). Under [B] the bridge pool is created without them. *Removing* means unwiring them from

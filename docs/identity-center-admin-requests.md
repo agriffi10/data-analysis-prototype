@@ -325,9 +325,9 @@ by SCIM like real users, plus permission for us to sign them in during the check
 - **What you do:** delete that test user's active session in the Identity Center console, at the
   agreed time, and unassign them for the repeat. A few minutes of your time.
 - **Why:** we have not measured what an application sees after an administrator deletes a user's
-  session or unassigns them. If a refresh is refused, our server stops forwarding the user's data
-  access until they sign in again rather than quietly exchanging a fresh token, and this check tells
-  us whether your action stops the refresh, the fresh exchange, both or neither.
+  session or unassigns them. If Identity Center refuses the refresh, the portal ends that user's
+  data access until they sign in again; it does not silently request a new token in the background.
+  This check tells us whether your action stops the refresh, the fresh exchange, both or neither.
 
 ---
 
@@ -366,6 +366,8 @@ your instance.
 - Call `sso-oauth:CreateTokenWithIAM` (the exchange in item 5).
 - Call `identitystore` read actions, to look up users and groups when we make grants.
 - Call the `sso` actions those registrations use.
+- Create the AWS RAM resource share that Lake Formation's Identity Center configuration creates
+  as part of its setup.
 
 AWS documents an SCP pattern that denies the `sso`, `sso-oauth` and `identitystore` action families
 outside designated accounts, and an instance setting that shares identity information only with the
