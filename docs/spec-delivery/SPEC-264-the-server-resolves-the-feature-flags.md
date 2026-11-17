@@ -54,3 +54,4 @@ window, the seed's `updatedAt`, the auth-loading `'ready'`, PortalMount's pass-t
 fallback's nav check. The execution review also ran the standalone build against a stubbed store and
 API: the HTML carried the set, `/query` answered with the mount, and a signed-out load carried none.
 The FR-006 live check is **owed**: the web tier was off when this landed (`docs/testing/owed.md`).
+Help and guides: nothing user-facing changed, since the same pages render and only sooner.

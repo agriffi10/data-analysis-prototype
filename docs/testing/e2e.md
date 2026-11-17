@@ -1307,9 +1307,10 @@ the hour on one tab.
 1. Run the precondition row's two reads at the top of this file now, and note the image tag.
    Set `environments.prod` to `{"query": false, "dataQuality": false}`. Merge, wait for **Publish
    Config**. **Do not redeploy the app** — that is the point.
-2. Hard-reload, wait a minute and hard-reload again: the server answers from the set it holds and
-   refreshes it in the background once it is a minute old, so the first reload after a publish can
-   still carry the old set. `/query` typed in is answered by the server itself, in the HTML, with no
+2. Hard-reload until the HTML's set carries the change. The server answers from the set it holds:
+   a reload once that set is a minute old only starts its refresh and still carries the old set, and
+   the next reload on the same task carries the new one. Each task holds its own, so with several
+   running it takes a few more. `/query` typed in is answered by the server itself, in the HTML, with no
    Query chunk loaded. Expect:
 
    | Where | Expect |
