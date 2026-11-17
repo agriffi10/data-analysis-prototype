@@ -73,6 +73,11 @@ was published.
 | medium | `dompurify` | runtime (via monaco) | GHSA-55q2-fjhq-7xh7 — `IN_PLACE` hook removal leaves a detached subtree executable | **defer** |
 | low | `dompurify` | runtime (via monaco) | GHSA-c2j3-45gr-mqc4 — `CUSTOM_ELEMENT_HANDLING` bypasses `afterSanitizeElements` | **defer** |
 | low | `dompurify` | runtime (via monaco) | GHSA-vxr8-fq34-vvx9 — Trusted Types policy survives `clearConfig()` | **defer** |
+| critical | `dompurify` | runtime (via monaco) | GHSA-cg2g-xh64-v4q7 — `SAFE_FOR_TEMPLATES` with a DOM output mode leaves split template expressions in an attached shadow root | **defer** (2026-11-17) — not reachable, see the notes |
+| high | `dompurify` | runtime (via monaco) | GHSA-mrv2-3pqr-j5jr — an `IN_PLACE` hook that removes a parent or sibling leaves that subtree's handlers armed | **defer** (2026-11-17) — not reachable, see the notes |
+| low | `dompurify` | runtime (via monaco) | GHSA-c6gr-qvv4-5v3f — the SMIL `attributeName=href` guard is skipped under `PARSER_MEDIA_TYPE: application/xhtml+xml` | **defer** (2026-11-17) — not reachable, see the notes |
+| low | `dompurify` | runtime (via monaco) | GHSA-6688-9rhm-gjv2 — `IN_PLACE` returns a force-removed rawtext root whose text still carries markup | **defer** (2026-11-17) — not reachable, see the notes |
+| medium | `minimatch` | build | GHSA-g3hv-75wg-m249 — DoS via globparts amplification | **FIXED** (11.0.9, 2026-11-17) — from 10.2.6, through `eslint` 10.15.0 and `typescript-eslint` 8.73.0 |
 | high | `postcss` | build | GHSA-r28c-9q8g-f849 — path traversal via `sourceMappingURL` | ~~fix~~ **DONE 2026-08-03** — 8.5.15 → 8.5.25 |
 | high | `nanoid` | build | GHSA-2v37-7h3g-55p8 — custom generators loop indefinitely when `size` is zero | ~~fix~~ **DONE 2026-08-30** — 3.3.17 → 3.3.18 |
 | high | `brace-expansion` | build | GHSA-mh99-v99m-4gvg — OOM via unbounded expansion | ~~fix~~ **DONE 2026-08-03** — 5.0.7 → 5.0.9 |
@@ -144,8 +149,9 @@ Notes that change the priority order:
   Taking it would ship an older DOMPurify to the browser and read clean.
 
   **Re-examined 2026-08-05, still deferred — and now with the reason the `overrides` route is
-  closed.** `monaco-editor@0.56.0` (still the latest release; everything published after it is a
-  `-dev-` prerelease) pins `dompurify: '3.4.8'` **exactly**, so Dependabot has no in-range update to
+  closed.** `monaco-editor@0.56.0` (on that date still the latest release, with everything
+  published after it a `-dev-` prerelease; *neither is true since 0.57.0 shipped on 2026-09-24, see
+  the 2026-11-17 paragraph below*) pins `dompurify: '3.4.8'` **exactly**, so Dependabot has no in-range update to
   open a PR with — which is why four alerts sit open with no PR rather than being ignored.
   `dompurify` 3.4.13 clears all four **alerts** — not the shipped code, per above — but **npm will
   not apply a newly-added `overrides` entry
@@ -158,6 +164,54 @@ Notes that change the priority order:
   It also explains this file's earlier note that an `overrides` block "silently did nothing" —
   npm's behaviour, not a malformed entry. **Do the refresh on its own merits if ever; it is not a
   security fix, and monaco moving is the only thing that is.**
+
+  **Four more arrived in October 2026 and were assessed on 2026-11-17: deferred by the same
+  method, and none reaches the portal.** They are GHSA-cg2g-xh64-v4q7 (critical),
+  GHSA-mrv2-3pqr-j5jr (high), GHSA-c6gr-qvv4-5v3f and GHSA-6688-9rhm-gjv2 (both low). Each one
+  needs a DOMPurify option that monaco's call site cannot set. `domSanitize.js` is still the only
+  module importing the vendored copy, it never calls `setConfig`, and its two `purify.sanitize`
+  calls pass `{ ...resolvedConfig, RETURN_DOM_FRAGMENT: true }` (the `safeSetInnerHtml` path) or
+  `{ ...resolvedConfig, RETURN_TRUSTED_TYPE: true }` (the `sanitizeHtml` path). `resolvedConfig`
+  is a spread of a frozen three-key default (`ALLOWED_TAGS`, `ALLOWED_ATTR`,
+  `ALLOW_UNKNOWN_PROTOCOLS`) in which only the first two are ever reassigned, so the set of option
+  *keys* DOMPurify can receive is closed whatever a caller passes; a caller chooses only the tag and
+  attribute allowlists, and none of these four advisories turns on an allowlist alone. A probe that
+  wrapped `purify.sanitize` and handed both entry points a config naming `SAFE_FOR_TEMPLATES`,
+  `IN_PLACE`, `PARSER_MEDIA_TYPE` and `RETURN_DOM` saw none of them arrive. Every caller also passes a string: the
+  markdown renderer's HTML output, and in `button.js` the `innerHTML` of a rendered `<p>`. The
+  vendored copy forces `IN_PLACE` off for string input on its own (`if (typeof dirty === 'string')
+  IN_PLACE = false`), which is a second barrier independent of the config.
+
+  - *GHSA-cg2g (critical)* needs `SAFE_FOR_TEMPLATES` together with a DOM-returning mode, a node
+    carrying an attached shadow root, and a template engine evaluating the result. Monaco supplies
+    the DOM-returning mode and nothing else. `SAFE_FOR_TEMPLATES` is never set; a string input is
+    parsed with `DOMParser.parseFromString`, which builds no declarative shadow root (the advisory
+    names `setHTMLUnsafe` and `parseHTMLUnsafe` as the routes that do); and the fragment goes into
+    an editor widget through `reset()`, not into a template engine.
+  - *GHSA-mrv2 (high)* needs `IN_PLACE` and a hook that removes a node other than its own. Monaco
+    registers three hooks, and none qualifies. `afterSanitizeAttributes` only removes attributes.
+    `uponSanitizeAttribute` hands each attribute to a caller's `shouldKeep` predicate, and the only
+    predicates that ship (in `markdownRenderer.js`, for `style` and `class`) test a regex and touch
+    no node. The plaintext hook on `uponSanitizeElement` replaces the node it was called for, or for
+    a comment inserts a text node before it, and never removes a parent or a sibling. The
+    harm is a handler in the caller's live tree firing after `sanitize()` returns; without
+    `IN_PLACE` there is no caller tree, since DOMPurify parses the string into a document of its
+    own and hands back a new fragment or string.
+  - *GHSA-c6gr (low)* needs `PARSER_MEDIA_TYPE: 'application/xhtml+xml'`, which is never set. In
+    the default `text/html` mode the advisory itself says the guard works.
+  - *GHSA-6688 (low)* needs `IN_PLACE` on a node input, which both barriers above rule out.
+
+  **Monaco has moved, but not far enough for these four.** `monaco-editor@0.57.0` (2026-09-24,
+  the current `latest`) declares `dompurify: '3.4.15'` and vendors 3.4.15, verified by reading the
+  vendored file's `version` from the packed tarball. That is past the 3.4.13 that clears the four
+  deferred above, so it is the forward fix the earlier revisit was waiting on, and nobody noticed
+  it ship. It clears none of the October four: GHSA-6688 is fixed in 3.4.16 and the other three in
+  3.4.17. Only the `0.58.0-dev-20261111` prerelease vendors 3.4.17. Both newer call sites keep the
+  structure argued above: they route the same two spreads through a `sanitizeSurvivingStalePolicy`
+  wrapper whose only addition is `TRUSTED_TYPES_POLICY`, on a retry after a stale Trusted Types
+  policy, so the reachability argument survives either bump. **Revisit
+  at `monaco-editor@0.58.0` stable**, which would clear all eight in shipped code; taking 0.57.0
+  before then clears the older four and is a monaco minor on the Query route, with its own checks.
 - **`postcss` and `brace-expansion` are build-time.** Both exploits need untrusted input — a
   hostile stylesheet, a hostile glob — and both inputs are this repo's own source. Real supply-chain
   hygiene, no runtime exposure. Both have non-breaking fixes, so they are cheap to clear.
@@ -198,6 +252,22 @@ Notes that change the priority order:
   the tree regardless, inlined in the postcss that `prettier@3.8.5` vendors into both
   `plugins/postcss.js` and `plugins/postcss.mjs` — dev-only, no lockfile entry pointing at either,
   never alerted on, and the `size` never ours to pass.
+
+- **`minimatch` — build-time, and fixed on 2026-11-17, but not by `npm update`.** GHSA-g3hv-75wg-m249
+  is patched only in 11.0.1, and every dependent on 2026-11-17 declared `^10.x` (`eslint` 10.10.0,
+  `@eslint/config-array` 0.23.5, `@typescript-eslint/typescript-estree` 8.70.0), so the fix needed
+  the linters to move: `eslint` 10.15.0 and `typescript-eslint` 8.73.0 both require `^11`. The
+  amplification runs only when a caller sets `optimizationLevel` to 2 or more, and none of the three
+  callers sets it: each passes options like `{ dot: true }`, so minimatch's default of 1 applies.
+  The globs themselves come from this repository's ESLint configuration, the `eslint .` command line
+  and the shareable configs it loads from `node_modules`, none of them attacker input. There was no
+  exposure, and the bump is hygiene. **`npm update eslint
+  typescript-eslint` fails ERESOLVE** on the TypeScript peer split that `CLAUDE.md` records. What
+  worked was `npm uninstall -w apps/portal typescript`, then installing the two linters, then
+  installing `typescript@~7.0.2` last in its own command. The lockfile diff is the linter chain,
+  `minimatch` 11.0.9 with its new `@isaacs/nonrecursive-glob-match` dependency, and
+  `brace-expansion` 5.0.13; both TypeScript copies (7.0.2 in the workspace, 6.0.3 at the root) are
+  unchanged.
 
 ### Dependencies — Python
 
