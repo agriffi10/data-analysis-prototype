@@ -2,7 +2,7 @@
 type: Spec
 id: SPEC-248
 title: "A Name Is One User's or One Space's, and Only the Plane Writes a Membership"
-description: "Closes the access gap where a shared-space name could be claimed as a user's Glue database name and anyone could write any name into their own membership list, so only the plane writes memberships; sign-up is left out because the target environment has none."
+description: "Closes the access gap where a shared-space name could be claimed as a user's Glue database name and any user holding a client secret could write any name into their own membership list, so only the plane writes memberships; sign-up is left out because the target environment has none."
 spec_status: Draft
 depends_on: [SPEC-012, SPEC-051, SPEC-056, SPEC-257, SPEC-262]
 ---
@@ -32,8 +32,8 @@ This spec closes the access half on the side of spaces and memberships. It has t
 - A person creating a space must not be able to name it after a user and so reach that user's
   catalog, not even for the few hundred milliseconds before the create is refused.
 - Above all, no one may write a space's name or a user's name into their own account's membership
-  list. The evidence below says that today anyone can, including someone who has not signed in yet
-  and does it at sign-up.
+  list. The evidence below says that today any user who holds an app client's secret can, and that
+  a stranger signing up through managed login perhaps can.
 - Nobody should notice any of this except a person trying one of these things. That person is
   refused with the same short sentence whichever name they collided with.
 
@@ -127,24 +127,25 @@ again at `81fb468e`, after SPEC-262 completed, for the two clients that are left
   - **Reads follow the "all attributes" default.** The deployed ID token carries
     `custom:shared_space_k`, and Cognito includes a claim only for an attribute the client can
     read. Nothing suggests writes behave differently.
-  - **Three paths write, and they need different things.**
-    - `UpdateUserAttributes` needs an access token carrying `aws.cognito.signin.user.admin`. The
-      tokens the portal server holds come from the authorization-code flow with the scopes
-      `openid`, `email` and `profile`, so they do not carry it. A token from `ALLOW_USER_SRP_AUTH`
-      does, and both clients allow that flow.
-    - `SignUp` takes attributes, subject to the same write list.
-    - Both clients have a secret, and an API request to such a client must carry a hash of it (AWS
-      developer guide, *Computing secret hash values*, which lists `SignUp` and `InitiateAuth`). So
-      the two API paths above are open to whoever holds a secret: the server, and anyone who can
-      read the dev client's parameter, which is every developer who signs in under `next dev`. Any
-      such person who is also a user can write their own slot with `InitiateAuth` by SRP and then
-      `UpdateUserAttributes`, and can sign up a new account already carrying
+  - **Who holds a secret.** Both clients have one, and an API request to such a client must carry
+    a hash of it (AWS developer guide, *Computing secret hash values*, which lists `SignUp` and
+    `InitiateAuth`). The secrets are held by the server, by anyone who can read either secret's
+    SSM parameter (the server client's own, or the dev client's, which every developer reads to
+    run `next dev`), and by anyone who can read Terraform state, which holds both.
+  - **Three paths write.**
+    - **`UpdateUserAttributes`, by a user who holds a secret.** It needs an access token carrying
+      `aws.cognito.signin.user.admin`. The tokens the portal server holds come from the
+      authorization-code flow with the scopes `openid`, `email` and `profile`, so they do not carry
+      it. A token from `InitiateAuth` by `ALLOW_USER_SRP_AUTH` does, both clients allow that flow,
+      and it needs the secret hash. So any user holding a secret can write their own slot.
+    - **`SignUp`, by anyone who holds a secret.** It takes attributes, subject to the same write
+      list, and with the secret hash it can create an account already carrying
       `custom:shared_space_1 = <any space>`.
-    - Sign-up through the managed-login page needs no secret and stays open to everyone in the
-      current account. Whether a crafted form can carry a `custom:` attribute through it is not
-      measured, and neither is whether the write list governs it. So the sign-up path still open
-      to strangers is the one this spec knows least about, and it is left with the rest of sign-up
-      (Out of Scope).
+    - **Sign-up through the managed-login page, by anyone.** It needs no secret and stays open to
+      everyone in the current account. Whether a crafted form can carry a `custom:` attribute
+      through it is not measured, and neither is whether the write list governs it. So the
+      sign-up path still open to strangers is the one this spec knows least about, and it is left
+      with the rest of sign-up (Out of Scope).
   - **So destroying the public client narrowed this and did not close it.** FR-001 is still
     needed: it shuts the path that is measured, a user writing their own slot, for everyone who
     holds a secret.
@@ -214,13 +215,13 @@ again at `81fb468e`, after SPEC-262 completed, for the two clients that are left
   need a migration.
 - **A backfill that marks the databases of spaces created before the marker.** Decided against in
   FR-004.
-- **Removing `ALLOW_USER_SRP_AUTH`.** It is not what the slot write depends on, because `SignUp`
-  writes attributes with no token at all, only the client's secret hash, and managed login's
-  sign-up needs not even that. FR-001's write list closes `UpdateUserAttributes`,
-  which is measured, and is documented to close `SignUp`, which is left unmeasured along with the
-  rest of sign-up. Removing it
-  would also stop self-deletion through `DeleteUser`, but nothing has measured that Managed Login
-  works without it.
+- **Removing `ALLOW_USER_SRP_AUTH`.** It is what `UpdateUserAttributes` depends on, since nothing
+  else yields a token with `aws.cognito.signin.user.admin`, so removing it would be a second layer
+  behind FR-001's write list on that path. It is kept for three reasons. FR-001's probe signs in by
+  SRP, so removing it first would leave the write list's premise unmeasured. The write list closes
+  the path on its own, and the probe after the apply shows that it does. And removing it would
+  also stop self-deletion through `DeleteUser`, while nothing has measured that Managed Login works
+  without it. It does nothing for `SignUp` or managed-login sign-up, which take no token.
 - **Fixing what the report finds.** Clearing a self-written slot, resolving a collision, or
   dropping a leftover database is done by hand and recorded. The report writes nothing.
 - The archive and table-share keys' own versions of this hazard, named in the audit's register
@@ -307,9 +308,12 @@ After the apply the probe shows the list refusing on that client, and
 - [ ] The mirror test no longer asserts that the lists are absent, and its other assertions pass
   unchanged.
 - [ ] Seven planted defects each turn that test red by its own message, naming the client or the
-  local, and each is reverted. Another test going red beside it does not count.
-  - deleting `write_attributes` from one client;
-  - adding `"custom:shared_space_1"` to one client's;
+  local, and each is reverted. Another test going red beside it does not count. A plant on one
+  client also turns the mirror test red, because the dev client then differs from the server
+  client; that is expected, and it is why the first two plants are made on the dev client, so a
+  test that read only the server client and leaned on the mirror for the other would stay green.
+  - deleting `write_attributes` from the dev client;
+  - adding `"custom:shared_space_1"` to the dev client's;
   - changing the local's range to `range(1, var.max_shared_memberships)`, one short;
   - adding `if k != 3` to the local's comprehension;
   - dropping `custom:` from the local's slot name;
@@ -578,9 +582,10 @@ apps/portal/src/features/
 - Andrew runs the probe against the deployed pool, and the outcome is recorded.
 - Add both attribute lists to every client and the test over `cognito.tf`, and delete the mirror
   test's absent-lists assertion.
-- In the same change, correct the two `cognito.tf` comments the lists make wrong or make true: the
-  one above the server client, which says neither client carries a read list, and the slot
-  comment's "Only the orchestrator role writes these".
+- In the same change, correct the `cognito.tf` comments the lists make wrong or make true, or that
+  SPEC-262 left wrong: the one above the server client, which says neither client carries a read
+  list, the slot comment's "Only the orchestrator role writes these", and the dev client's "A third
+  client", which has been the second since the public client was destroyed.
 - Apply, re-run the probe, and read every client's lists.
 - Switch the web tier on through the repository variable and CI, run the fresh-sign-in control
   through the server client in the portal and through the dev client under `next dev`, and switch
