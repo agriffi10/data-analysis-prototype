@@ -64,9 +64,9 @@ def _failed_item_counts(event, accepted: int) -> Counter:
         either expected or impossible.
 
     Returns:
-      Failed item counts keyed by ``(kind, name)``. A destination is that pair: nothing stops a
-      shared space being named after a user, so counting on the name alone would deny one of
-      them a copy the other lost.
+      Failed item counts keyed by ``(kind, name)``. A destination is that pair: a user and a
+      shared space can share a name, so counting on the name alone would deny one of them a copy
+      the other lost.
 
     Raises:
       TerminalError: ``transfer_results_unreadable`` when a recipient was accepted but no

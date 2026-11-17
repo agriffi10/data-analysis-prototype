@@ -37,6 +37,19 @@ Two merges on 2026-11-17: #1042 (`114f977`) gave both app clients their attribut
 - **The eight-template statement comparison** in `lambdas/test_plane_grants_one_template.py` was
   retired, as its own docstring said the first deliberate plane-grant change would retire it.
 
+## What changed from earlier specs?
+
+- **The create verb's order** (SPEC-051, and the 2026-09-26 audit): the pool check now runs after
+  the reservation, and the creator's slot is assigned after the database step, not first. A
+  membership-limit refusal therefore leaves a marked database, which the failed record's teardown drops.
+- **The teardown revoke** (the audit) acts only on a database the space owns, no longer on a missing one.
+- **The connections card** (SPEC-052) drops Retry on a failed create flagged `retryable: false`.
+- **SPEC-262's mirror test** no longer asserts that the clients carry no attribute lists.
+- **The archive key layout's rejected alternative** (SPEC-168) is now built, for access rather than
+  for the layout; that decision, the restore group-id and copy-attribution decisions, the archive plane
+  page, ARCS and five docstrings were reworded where they said nothing checks a space name against the
+  User Pool. The kind segment and the `(kind, name)` pair stay: sign-up can still collide.
+
 ## Live results
 
 - **Probe before the apply** (Andrew, dev client, SRP, user `agriffith`, an empty slot set to `""`):

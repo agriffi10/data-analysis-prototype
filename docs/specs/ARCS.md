@@ -1176,6 +1176,12 @@ share one archive prefix, and since restore authorizes by space and then reads w
 member of space `alice` could restore user `alice`'s files into the shared space. The leading
 `personal/` / `shared/` segment is the entire fix.
 
+> **Superseded in part 2026-11-17 (SPEC-248):** the space create now refuses a name a pool user
+> holds, so "nothing checks a proposed space name against the User Pool" no longer holds. A user and
+> a space can still share a name — sign-up does not consult the registry, and names that already
+> collided remain — so the kind segment stays. The decision lives in `docs/decisions/control-planes/`
+> (*A name is one user's or one space's*).
+
 **The restore guard is absolute.** Any occupied destination key refuses the whole restore and names a
 bounded sample of the collisions — no skip, no overwrite, no partial restore around an obstacle. It
 runs before `RestoreObject` because retrieval is billed and cannot be cancelled. Its asymmetry with

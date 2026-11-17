@@ -51,9 +51,9 @@ def _failed_item_counts(event) -> Counter:
       event: The request, carrying the ``transfer`` block and the Map state's output.
 
     Returns:
-      Failed item counts keyed by ``(kind, name)`` — a destination is that pair, and nothing stops
-      a shared space being named after a user, so counting on the name alone would deny one of them
-      a copy the other lost.
+      Failed item counts keyed by ``(kind, name)`` — a destination is that pair, and a user and a
+      shared space can share a name, so counting on the name alone would deny one of them a copy
+      the other lost.
 
     Raises:
       TerminalError: ``transfer_results_unreadable`` when the Map ran but its export cannot be

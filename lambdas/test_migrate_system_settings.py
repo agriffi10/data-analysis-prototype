@@ -1159,8 +1159,7 @@ def test_verify_covers_every_storage_class_present(switched):
 def test_two_spaces_of_the_same_name_in_different_buckets_do_not_collapse(switched):
     """A user ``alice`` and a shared space ``alice`` can both exist, and both hold the same key.
 
-    Nothing checks a proposed shared-space name against the User Pool, so the two namespaces meet
-    here. Keyed by the S3 key alone their records collapse into one entry: the ETag re-verify then
+    Sign-up does not consult the shared-space registry, so the two namespaces can meet here. Keyed by the S3 key alone their records collapse into one entry: the ETag re-verify then
     refuses one of them, so no data is lost, but a source IS deleted while the run reports it was
     not — a wrong audit trail on the one mode that cannot be undone.
 
