@@ -854,15 +854,35 @@ def test_every_app_client_declares_both_attribute_lists() -> None:
     local's whole expression is pinned and its range is held to the pool schema's character for
     character — a filter on ``k`` or a slot name without ``custom:`` keeps the bounds and drops claims.
     The sweep covers every ``.tf`` file, so a client added anywhere is held too, and every client must
-    sit in the auth module, where the local it names is the one read here.
+    sit in the auth module, where the local it names is the one read here. It refuses what it cannot
+    read: JSON syntax, and OpenTofu's own ``.tofu`` files, which are loaded too and make a same-named
+    ``.tf`` file be ignored, so the file read here would not be the one applied. It refuses a client
+    resource of another type, which the per-type split cannot see, and ``ignore_changes`` on a client,
+    which would leave an existing client's lists as they were while the source read here changed.
     """
-    json_sources = [
+    unread = [
         str(p.relative_to(INFRA))
-        for p in INFRA.rglob("*.tf.json")
+        for pattern in ("*.tf.json", "*.tofu", "*.tofu.json")
+        for p in INFRA.rglob(pattern)
         if ".terraform" not in p.parts
     ]
-    assert json_sources == [], (
-        f"a client in JSON syntax escapes this sweep: {json_sources}"
+    assert unread == [], (
+        f"a client in a file this sweep does not read escapes it: {unread}"
+    )
+    other_types = sorted(
+        {
+            match.group(1)
+            for path in INFRA.rglob("*.tf")
+            if ".terraform" not in path.parts
+            for match in re.finditer(
+                r'(?<![\w-])resource\s+"([^"]*cognito[^"]*user_pool_client)"',
+                strip_comments(path.read_text()),
+            )
+        }
+        - {"aws_cognito_user_pool_client"}
+    )
+    assert other_types == [], (
+        f"an app client of a type this sweep does not visit escapes it: {other_types}"
     )
     clients: dict[str, tuple[pathlib.Path, str]] = {}
     for path in sorted(p for p in INFRA.rglob("*.tf") if ".terraform" not in p.parts):
@@ -879,6 +899,9 @@ def test_every_app_client_declares_both_attribute_lists() -> None:
             return None
 
     for client, (path, body) in clients.items():
+        assert "ignore_changes" not in strip_comments(body), (
+            f"{client} ignores changes, so an apply can leave its attribute lists as they were"
+        )
         assert path.parent == AUTH.parent, (
             f"{client} sits outside the auth module, where local.client_read_attributes is not the one held here"
         )

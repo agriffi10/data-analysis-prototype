@@ -327,6 +327,9 @@ After the apply the probe shows the list refusing on that client, and
 - [ ] After the apply, `describe-user-pool-client` for every client the module declares returns a
   `WriteAttributes` of exactly `email` and a `ReadAttributes` naming `email`, `email_verified` and
   every slot.
+- [ ] After the apply, `list-user-pool-clients` returns exactly the clients the module declares,
+  `server` and `dev`. A client made outside the infrastructure, or one whose destroy never
+  completed, keeps the default lists, and nothing in the repository can see it.
 - [ ] After the apply, as the control, a member signs in fresh through each of the two clients, in
   a sign-in that starts after the apply. Through each one a listing of their shared space's files
   succeeds, which it cannot without the slot claim, and their email is shown:
