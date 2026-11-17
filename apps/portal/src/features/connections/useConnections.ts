@@ -106,6 +106,7 @@ export function useConnections(username: string | null): UseConnectionsResult {
         role: entry.role,
         ...(entry.reason !== undefined ? {reason: entry.reason} : {}),
         ...(entry.failedAction !== undefined ? {failedAction: entry.failedAction} : {}),
+        ...(entry.retryable !== undefined ? {retryable: entry.retryable} : {}),
         ...(entry.members !== undefined ? {members: entry.members} : {}),
         ...(entry.createdAt !== undefined ? {createdAt: entry.createdAt} : {}),
         ...(entry.owner !== undefined ? {owner: entry.owner} : {})

@@ -153,6 +153,33 @@ describe('ConnectionsPage — listing & create (SPEC-052)', () => {
     // Durable, not a local hide: a `forget` request is enqueued for the entry.
     expect(mockEnqueue).toHaveBeenCalledWith(expect.objectContaining({action: 'forget', space: 'broken'}));
   });
+
+  it('offers Dismiss and no Retry on a create whose name is taken, and decides that by the flag, not the words', async () => {
+    mockRead.mockResolvedValue(
+      cache([
+        {
+          name: 'taken',
+          role: 'owner',
+          status: 'failed',
+          reason: 'name already taken',
+          failedAction: 'create',
+          retryable: false
+        },
+        {name: 'worded', role: 'owner', status: 'failed', reason: 'name already taken', failedAction: 'create'},
+        {name: 'undeleted', role: 'owner', status: 'failed', reason: 'x', failedAction: 'delete', retryable: false}
+      ])
+    );
+    renderPage();
+
+    const taken = await rowFor('taken');
+    expect(within(taken).getByRole('button', {name: 'Dismiss'})).toBeInTheDocument();
+    expect(within(taken).queryByRole('button', {name: 'Retry'})).not.toBeInTheDocument();
+    const worded = await rowFor('worded');
+    expect(within(worded).getByRole('button', {name: 'Dismiss'})).toBeInTheDocument();
+    expect(within(worded).getByRole('button', {name: 'Retry'})).toBeInTheDocument();
+    // A failed delete has no Dismiss, so the flag never takes its one action away.
+    expect(within(await rowFor('undeleted')).getByRole('button', {name: 'Retry'})).toBeInTheDocument();
+  });
 });
 
 describe('ConnectionsPage — Manage members (SPEC-053)', () => {

@@ -1,0 +1,88 @@
+# ── One-shot: report what already shares a name between users and shared spaces ─────────────
+#
+# Manual only, and read-only. The function lists every username that is a space, every user
+# database marked as a space's, every membership slot no registry roster backs, every user whose
+# database is older than their account, and, for information, refused reservations named for
+# users, unmarked space databases, orphan databases and the account's Lake Formation opt-ins. It
+# writes nothing; fixing anything it finds is done by hand and recorded.
+#
+# THIS JOB FAILS when a list that means a live collision has an entry, or when any read failed —
+# a failed read is never reported as an empty list. The informational lists alone pass.
+#
+# Run it from `main`. The deploy role's trust policy admits `refs/heads/main` and pull requests
+# and nothing else, so a dispatch from another ref fails at the assume with an opaque STS error.
+
+name: Report name collisions
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: report-name-collisions
+  cancel-in-progress: false
+
+# infra/variables.tf's defaults, written out: the deploy never hands Terraform any other value.
+env:
+  PROJECT_NAME: dat
+  ENVIRONMENT: prod
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
+
+      - name: Invoke the report
+        run: |
+          set -euo pipefail
+          FUNCTION="${PROJECT_NAME}-${ENVIRONMENT}-shared-space-name-collisions"
+          PAYLOAD=$(jq -nc --arg run "$GITHUB_RUN_ID" '{requestId: ("gha-" + $run)}')
+          echo "Invoking ${FUNCTION} with ${PAYLOAD}"
+
+          # `--cli-binary-format raw-in-base64-out` is not optional on AWS CLI v2: without it
+          # the payload is read as base64 and the invoke fails outright.
+          aws lambda invoke \
+            --function-name "$FUNCTION" \
+            --cli-binary-format raw-in-base64-out \
+            --payload "$PAYLOAD" \
+            --cli-read-timeout 0 \
+            response.json > invoke.json
+
+          # A Lambda that raised still returns HTTP 200 with FunctionError set, so the exit
+          # code of `aws lambda invoke` says nothing about whether the report ran.
+          if python3 -c "import json,sys; sys.exit(0 if json.load(open('invoke.json')).get('FunctionError') else 1)"; then
+            echo "::error::the report raised:"
+            cat response.json
+            exit 1
+          fi
+
+      - name: Write the report to the summary
+        run: |
+          {
+            echo '### Name collisions'
+            echo ''
+            echo '```json'
+            python3 -m json.tool response.json
+            echo '```'
+            echo ''
+            echo 'A list that is `null` was not computed because a read it depends on failed; `failed_reads` names the read.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail on a collision or a failed read
+        run: |
+          # `passed` is the function's own verdict, so the rule lives in one place. Anything but
+          # a literal true — false, null, absent, a response that is not JSON — fails.
+          python3 -c "import json,sys; sys.exit(0 if json.load(open('response.json')).get('passed') is True else 1)" || {
+            echo "::error::the report found a collision or could not read everything; see the summary"
+            exit 1
+          }

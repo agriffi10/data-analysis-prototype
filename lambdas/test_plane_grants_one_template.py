@@ -5,11 +5,13 @@ in both directions, and its ``ceiling`` field is the calls that set one: a plane
 fails its first apply, and a grant with no plane is a standing permission nobody uses. The
 Python renderer every deploy-policy suite reads through renders what Terraform plans, byte for
 byte, so those suites measure the document IAM receives. And the move from eight templates kept
-every plane's policy name, description and statements.
+every plane's policy name and description. Its statements were held equal to the old templates'
+until the first plane's grant changed on purpose, which retired that comparison as it said it
+would: from then each plan is the proof.
 
 Attributes:
-  BASELINE_COMMIT: The last commit with the eight per-plane templates, which the equivalence
-    proof renders the old documents from.
+  BASELINE_COMMIT: The last commit with the eight per-plane templates, which the name and
+    description check reads the old policy blocks from.
   MOVES_COMMIT: The last commit whose ``infra/moved.tf`` holds the blocks that carried the eight
     policies into the map, which records each old resource name's plane.
   VALUES: A value for every template variable, of the shape the real render produces.
@@ -119,28 +121,6 @@ def _moves() -> dict[str, dict[str, str]]:
     ):
         moves[kind][old] = slug
     return moves
-
-
-def _canonical(statements: list[dict]) -> set[str]:
-    """Statements as comparable strings, with list order removed where IAM ignores it.
-
-    Args:
-      statements: A document's statement list.
-
-    Returns:
-      One sorted-key JSON string per statement.
-
-    Raises:
-      None.
-    """
-    result = set()
-    for statement in statements:
-        copy = dict(statement)
-        for field in ("Action", "Resource"):
-            if isinstance(copy.get(field), list):
-                copy[field] = sorted(copy[field])
-        result.add(json.dumps(copy, sort_keys=True))
-    return result
 
 
 def _baseline_block(old: str) -> str:
@@ -408,27 +388,3 @@ def test_every_plane_keeps_its_policy_name_and_description() -> None:
         f"the moved blocks cover {sorted(moves.values())}, the map holds {sorted(grants)}"
     )
     assert not changed, changed
-
-
-def test_every_plane_renders_the_statements_the_eight_templates_did() -> None:
-    """The proof that one template replaced eight without changing a grant.
-
-    The baseline's documents are rendered from ``BASELINE_COMMIT`` and compared as sets of
-    statements, which is how the provider compares a policy. THE PR THAT FIRST CHANGES A PLANE'S
-    GRANT ON PURPOSE DELETES THIS TEST, because from then its own plan is the proof; the name and
-    description test above stays.
-    """
-    moves = _moves()["aws_iam_policy"]
-    rendered = plane_grants.documents(VALUES)
-    differences = []
-    for old, slug in moves.items():
-        block = _baseline_block(old)
-        path = re.search(r'templatefile\("\$\{path\.module\}/(policies/[^"]+)"', block)
-        assert path, f"the baseline's {old} renders no template"
-        baseline = json.loads(plane_grants.render(_git_show(f"infra/modules/base/{path.group(1)}"), VALUES))
-        before, after = _canonical(baseline["Statement"]), _canonical(rendered[slug]["Statement"])
-        if before != after or len(baseline["Statement"]) != len(rendered[slug]["Statement"]):
-            differences.append(f"{slug}: only before {sorted(before - after)}; only after {sorted(after - before)}")
-
-    assert set(moves.values()) == set(rendered), "the comparison does not cover every plane"
-    assert not differences, differences

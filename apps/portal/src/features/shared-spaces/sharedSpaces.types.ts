@@ -39,6 +39,12 @@ export type SharedConnectionEntry = {
    */
   failedAction?: FailedAction;
   /**
+   * `false` when a create failed because the name is taken. That refusal recurs on every retry
+   * for as long as the name's holder exists, so the row offers Dismiss alone. Absent means Retry
+   * may work; the browser never reads this from the reason's wording.
+   */
+  retryable?: boolean;
+  /**
    * Owner-readable projection: the pipeline writes the current member roster (with
    * per-member join status) into the OWNER's entry only, so the Manage drawer can
    * render it without reading the admin-bucket registry. Absent on member entries.

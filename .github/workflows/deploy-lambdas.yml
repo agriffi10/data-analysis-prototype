@@ -384,11 +384,13 @@ jobs:
   probe:
     needs: [pointed]
     runs-on: ubuntu-latest
-    # DERIVED, not chosen. Fourteen sequential invocations, each bounded by the function's own
-    # Lambda timeout: two carry 300s (log-sweep, user-directory-build) and the rest 30-60s, so the
-    # pathological case is ~16 min, plus checkout and the OIDC assume. 25 is that with room, and
-    # the run only approaches it if a probed function is hanging — which is a failure worth waiting
-    # for rather than one to cut short.
+    # DERIVED, not chosen. Sixteen sequential invocations, each bounded by the function's own
+    # Lambda timeout: two carry 300s (log-sweep, user-directory-build), two carry 900s and the rest
+    # 30-60s. The two 900s ones are the shared-space one-shots, and on the probe's empty payload
+    # neither does its long work: the backfill reports without writing and the name-collision
+    # report refuses before any read. So the pathological case is ~16 min, plus checkout and the
+    # OIDC assume. 25 is that with room, and the run only approaches it if a probed function is
+    # hanging — which is a failure worth waiting for rather than one to cut short.
     timeout-minutes: 25
     permissions:
       id-token: write

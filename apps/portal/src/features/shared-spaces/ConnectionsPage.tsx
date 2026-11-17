@@ -39,6 +39,8 @@ type ConnectionRow = {
   owner?: string;
   /** Which verb failed, so Retry enqueues that one and Dismiss is offered only where it acts. */
   failedAction?: FailedAction;
+  /** `false` on a create refused because the name is taken: Retry would be refused again. */
+  retryable?: boolean;
 };
 
 /**
@@ -94,6 +96,7 @@ export function ConnectionsPage() {
         status: c.status ?? 'active',
         reason: c.reason,
         failedAction: c.failedAction,
+        retryable: c.retryable,
         members: c.members,
         createdAt: c.createdAt,
         owner: c.owner
@@ -483,15 +486,21 @@ function ConnectionRowItem({
         </Button>
       );
     }
-    actions.push(
-      <Button
-        key="retry"
-        size="sm"
-        className="w-full tablet:w-auto"
-        onClick={onRetry}>
-        Retry
-      </Button>
-    );
+    // A taken name is refused again on every Retry for as long as its holder exists, so its create
+    // row offers Dismiss alone. The flag decides it, never the reason's wording, and only on a
+    // failed create: a failed delete has no Dismiss, so it always keeps Retry.
+    const takenName = row.status === 'failed' && (row.failedAction ?? 'create') === 'create' && row.retryable === false;
+    if (!takenName) {
+      actions.push(
+        <Button
+          key="retry"
+          size="sm"
+          className="w-full tablet:w-auto"
+          onClick={onRetry}>
+          Retry
+        </Button>
+      );
+    }
   } else if (isOwner) {
     actions.push(
       <Button

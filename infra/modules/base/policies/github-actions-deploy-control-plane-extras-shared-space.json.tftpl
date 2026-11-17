@@ -17,6 +17,12 @@
       "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-shared-space-backfill-*"
     },
     {
+      "Sid": "SharedSpaceReportInvoke",
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunction",
+      "Resource": "arn:aws:lambda:${aws_region}:${account_id}:function:${project_name}-*-shared-space-name-collisions"
+    },
+    {
       "Sid": "SharedSpaceScheduleManage",
       "Effect": "Allow",
       "Action": [

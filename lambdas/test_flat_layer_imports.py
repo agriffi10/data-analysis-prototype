@@ -59,6 +59,7 @@ EXEMPT_DIRECTORIES = (
     "lambdas/shared-space-delete",
     "lambdas/shared-space-forget",
     "lambdas/shared-space-leave",
+    "lambdas/shared-space-name-collisions",
     "lambdas/shared-space-notify-failure",
     "lambdas/shared-space-remove-members",
     "lambdas/shared-space-transfer-ownership",

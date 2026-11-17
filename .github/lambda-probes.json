@@ -13,6 +13,7 @@
     "pre-signup",
     "results-conversion-validate-authorize",
     "shared-space-backfill-ever-active",
+    "shared-space-name-collisions",
     "table-builder-validate-authorize",
     "table-share-validate-authorize",
     "user-directory-build"

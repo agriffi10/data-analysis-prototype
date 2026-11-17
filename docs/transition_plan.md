@@ -1855,6 +1855,12 @@ fenced reader, on SPEC-217's model, or an existing one** (item 11); **where the 
 shared-space name collision is actually fenced**, since item 3's refusal detects it rather than
 preventing it and no fence exists today; and who owns de-provisioning.
 
+> **Superseded in part 2026-11-17 (SPEC-248):** "no fence exists today" no longer holds in the
+> current account. The space create refuses a name a pool user holds and writes no slot before
+> its own marked database, and every taken name is one refusal. The successor still has to choose
+> its own fence: the database marker now gives a minting check an ownership test to read. The
+> decision lives in `docs/decisions/control-planes/` (*A name is one user's or one space's*).
+
 ---
 
 ## 4. Deployment topology

@@ -52,6 +52,8 @@ POOL_VAR = "COGNITO_USER_POOL_ID"
 READER_MODULES = {
     "control-plane-common/cpcommon/cognito.py",
     "shared-space-common/membership.py",
+    "shared-space-create/create_space.py",
+    "shared-space-name-collisions/name_collisions.py",
 }
 
 EXPECTED_PLANES = {"shared-spaces", "file-send", "table-share"}

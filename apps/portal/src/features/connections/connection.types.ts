@@ -29,6 +29,8 @@ export type Connection = {
   reason?: string;
   /** Which verb failed, so the row offers the retry that matches it. */
   failedAction?: FailedAction;
+  /** `false` when a failed create's name is taken, so the row offers Dismiss and no Retry. */
+  retryable?: boolean;
   /** Owner-readable member roster + join status (present only on a connection the user owns); drives the Manage-members drawer. */
   members?: Member[];
   /** Creation date (ISO). Absent on older cache entries. */

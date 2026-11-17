@@ -536,16 +536,26 @@ built.
 ```python
 # shared-space name-collision report result
 class CollisionReport(TypedDict):
-    usernames_that_are_spaces: list[str]             # (a) fails the run
-    refused_reservations_named_for_users: list[str]  # (a') informational
-    user_databases_marked_as_spaces: list[str]       # (b) fails the run
-    unbacked_slots: list[dict[str, str]]             # (c) {"username", "slot", "value"}; fails
-    unmarked_space_databases: list[str]              # (d) informational
-    orphan_databases: list[str]                      # (e) informational
-    inherited_databases: list[str]                   # (f) usernames; fails the run
-    lake_formation_opt_ins: list[str]                # (g) principal ARNs; informational
-    failed_reads: list[str]                          # non-empty fails the run
+    usernames_that_are_spaces: list[str] | None             # (a) fails the run
+    refused_reservations_named_for_users: list[str] | None  # (a') informational
+    user_databases_marked_as_spaces: list[str] | None       # (b) fails the run
+    unbacked_slots: list[dict[str, str]] | None             # (c) {"username", "slot", "value"}; fails
+    unmarked_space_databases: list[str] | None              # (d) informational
+    orphan_databases: list[str] | None                      # (e) informational
+    inherited_databases: list[str] | None                   # (f) usernames; fails the run
+    lake_formation_opt_ins: list[str] | None                # (g) principal ARNs; informational
+    failed_reads: list[str]                                 # "registry", "pool", "glue", "lakeformation"
+    passed: bool                                            # no failed read, and (a), (b), (c), (f) empty
 ```
+
+A list is `None` when a read it is computed from failed, and only then, so a failed read is never
+an empty list: the registry feeds (a), (a′), (c), (d) and (e); the pool (a), (a′), (b), (c), (e)
+and (f); Glue (a), (a′), (b), (c), (d), (e) and (f), because whether a record is a real space can
+turn on its database's marker; Lake Formation (g). A slot is backed only by a real space whose
+roster includes the user: a refused reservation's roster is its creator, so a roster alone would
+let anyone who wrote a slot naming a user's database, and then asked for a space of that name,
+read as backed. The workflow fails unless
+`passed` is true.
 
 ## API / Interface Contract
 

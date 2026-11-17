@@ -1,9 +1,10 @@
 """create-space verb: provisions a new shared space owned by the actor.
 
-Atomically reserves the globally unique name, assigns the creator a membership slot, creates the
-shared prefix marker and Glue database, grants the shared portal role on the database, and
-writes the registry, the creator's cache and the creator's membership index. Every step tolerates an already-exists result, so
-the verb is replay-safe. Creating is creator-only: it provisions the actor as the sole member
+Atomically reserves the globally unique name, refuses a name a user in the pool holds, creates the
+shared prefix marker and the Glue database, and only then assigns the creator a membership slot,
+grants the shared portal role on the database, and writes the registry, the creator's cache and
+the creator's membership index. Every step tolerates an already-exists result, so the verb is
+replay-safe. Creating is creator-only: it provisions the actor as the sole member
 and takes no member list — members are added later.
 
 The service name is the control plane, not the function: one shared-space request is up to eight
@@ -65,6 +66,37 @@ def _user_reason(exc):
     return str(exc) if isinstance(exc, reg.ProvisioningError) else _GENERIC_REASON
 
 
+def _refuse_a_user_name(name):
+    """Refuses a space name that a user in the pool holds, in any status, unconfirmed included.
+
+    A user's personal Glue database and a space's share one namespace under the bare name, and the
+    session's permissions are written against that name, so a space named after a user would hand
+    its members that user's catalog. The refusal is the sentence every taken name shares, so it
+    never says whether a user or a space holds the name. Any pool answer but "no such user" is a
+    fault, never read as "no such user".
+
+    Args:
+      name: The requested space name.
+
+    Returns:
+      None.
+
+    Raises:
+      NameTaken: When a user of that name exists.
+      TransientError: On a retryable Cognito fault.
+      ClientError: On any other Cognito fault.
+    """
+    cognito = clients.cognito()
+    try:
+        cognito.admin_get_user(UserPoolId=cpconfig.require("COGNITO_USER_POOL_ID"), Username=name)
+    except cognito.exceptions.UserNotFoundException:
+        return
+    except Exception as err:
+        errors.raise_if_transient(err, f"cognito admin_get_user {name}")
+        raise
+    raise reg.NameTaken()
+
+
 def _ensure_marker(name):
     """Creates the space's prefix marker object. Idempotent.
 
@@ -93,7 +125,8 @@ def _ensure_database(name):
 
     **An existing database is this create's own only when it carries the space's marker.** A
     space's database and a user's personal one share one Glue namespace under the bare name, so a
-    space named after a user finds that user's database already there. Read as a retry of this
+    name the pool check let through can still find a database there: one whose user has gone, or a
+    space's from before the marker. Read as a retry of this
     create, it was adopted — tagged, granted on, and then dropped with every table in it by the
     teardown of the space's failed or still-provisioning record. A database without the marker
     is somebody else's, and the name is refused as taken.
@@ -105,7 +138,7 @@ def _ensure_database(name):
       None.
 
     Raises:
-      ProvisioningError: When a database of that name exists and is not this space's.
+      NameTaken: When a database of that name exists and is not this space's.
       TransientError: On a retryable Glue fault.
       ClientError: On any deterministic Glue fault other than the database already existing.
     """
@@ -121,7 +154,7 @@ def _ensure_database(name):
         errors.raise_if_transient(err, f"glue create_database {name}")
         raise
     if teardown.owns_database(name) is not True:
-        raise reg.ProvisioningError("name already taken")
+        raise reg.NameTaken()
 
 
 def _tag_database(name):
@@ -179,6 +212,36 @@ def _grant_portal_role(name):
     )
 
 
+def _failed_create_card(name, exc, friendly):
+    """Builds the creator's failed-create cache entry for one refusal or fault.
+
+    A taken name is refused again at the same step on every retry for as long as its holder
+    exists, so its card carries ``retryable: false`` and the browser offers Dismiss alone. Every
+    other failure, a fault or the membership limit included, leaves the flag off and keeps Retry.
+
+    Args:
+      name: The space name.
+      exc: The failure.
+      friendly: The user-facing reason.
+
+    Returns:
+      The cache entry.
+
+    Raises:
+      None.
+    """
+    entry = {
+        "name": name,
+        "role": "owner",
+        "status": "failed",
+        "reason": friendly,
+        "failedAction": "create",
+    }
+    if isinstance(exc, reg.NameTaken):
+        entry["retryable"] = False
+    return entry
+
+
 def create_space(name, actor, request_id):
     """Provisions a new shared space owned by the actor, recording any failure durably.
 
@@ -189,6 +252,13 @@ def create_space(name, actor, request_id):
     create's own card, because the name may be one the actor already owns or belongs to, and
     replacing that entry by name turns a working space into a failed create. The guard's failure
     path replaces by name without asking, since past the reservation the name is this create's.
+
+    **No slot is written until the name is the space's.** The pool check runs after the
+    reservation, so a retry that meets a user who appeared since leaves a ``failed`` record the
+    owner can forget rather than a ``provisioning`` one nobody can, and before any prefix, database
+    or slot. The database step runs before the slot, so a name whose database belongs to somebody
+    else is refused before a slot exists: under the claims membership source, a slot written and
+    rolled back has already been in any ID token issued in between.
 
     **The membership index is written after the registry reaches active, and INSIDE the guard.**
     After, because ``reserve`` writes ``provisioning`` and only an active space yields a session
@@ -214,9 +284,10 @@ def create_space(name, actor, request_id):
       The verb result, flagged as a replay when the space was already active.
 
     Raises:
-      ProvisioningError: When the name is taken or the actor has reached their membership limit.
+      NameTaken: When a space, a user or another database already holds the name.
+      ProvisioningError: When the actor has reached their membership limit.
       RuntimeError: When database tagging reports failures, or a CAS is exhausted.
-      TransientError: On a retryable Glue fault.
+      TransientError: On a retryable Glue or Cognito fault.
       ClientError: On any other S3, Glue, Lake Formation or Cognito fault.
     """
     try:
@@ -226,16 +297,7 @@ def create_space(name, actor, request_id):
         friendly = _user_reason(exc)
         logger.error("create %s reserve failed for %s: %s", name, actor, reason)
         try:
-            cache.upsert_create_card(
-                actor,
-                {
-                    "name": name,
-                    "role": "owner",
-                    "status": "failed",
-                    "reason": friendly,
-                    "failedAction": "create",
-                },
-            )
+            cache.upsert_create_card(actor, _failed_create_card(name, exc, friendly))
         except Exception:
             logger.exception("failed to mark reserve-collision failure in cache for %s", name)
         emit_notification(
@@ -255,9 +317,10 @@ def create_space(name, actor, request_id):
         )
         return {"status": "active", "space": name, "owner": actor, "replay": True}
     try:
-        membership.assign_or_find_slot(actor, name)
+        _refuse_a_user_name(name)
         _ensure_marker(name)
         _ensure_database(name)
+        membership.assign_or_find_slot(actor, name)
         _tag_database(name)
         _grant_portal_role(name)
         created_at = (reg.load(name) or {}).get("createdAt")
@@ -277,16 +340,7 @@ def create_space(name, actor, request_id):
         except Exception:
             logger.exception("failed to record registry failure for %s", name)
         try:
-            cache.upsert_entry(
-                actor,
-                {
-                    "name": name,
-                    "role": "owner",
-                    "status": "failed",
-                    "reason": friendly,
-                    "failedAction": "create",
-                },
-            )
+            cache.upsert_entry(actor, _failed_create_card(name, exc, friendly))
         except Exception:
             logger.exception("failed to record cache failure for %s", name)
         emit_notification(
@@ -323,7 +377,8 @@ def handler(event, context):
       The verb result.
 
     Raises:
-      ProvisioningError: When the name is taken or the actor is at their membership limit.
+      NameTaken: When a space, a user or another database already holds the name.
+      ProvisioningError: When the actor is at their membership limit.
       KeyError: When the validated context is missing a required field.
     """
     space = event["space"]
