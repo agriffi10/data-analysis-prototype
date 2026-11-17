@@ -174,8 +174,8 @@ def _code_tokens(tree):
       tree: A parsed module.
 
     Returns:
-      Every string constant outside a bare expression statement, and every name, attribute and
-      imported name.
+      Every string or bytes constant outside a bare expression statement, and every name,
+      attribute and imported name.
 
     Raises:
       None.
@@ -187,8 +187,11 @@ def _code_tokens(tree):
     }
     tokens = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in prose:
-            tokens.add(node.value)
+        if isinstance(node, ast.Constant) and id(node) not in prose:
+            if isinstance(node.value, str):
+                tokens.add(node.value)
+            elif isinstance(node.value, bytes):
+                tokens.add(node.value.decode("utf-8", "replace"))
         elif isinstance(node, ast.Name):
             tokens.add(node.id)
         elif isinstance(node, ast.Attribute):
@@ -253,7 +256,7 @@ def _directory_readers(root):
         relative = path.relative_to(root)
         if relative in exempt or path.name.startswith("test_") or path.name == "conftest.py":
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         tokens = _code_tokens(tree)
         used = sorted(m for m in DIRECTORY_MARKERS if any(m in token for token in tokens))
         if relative != ROUTE_DISPATCHER and _imports_the_route(tree):
@@ -324,6 +327,7 @@ def test_the_route_that_serves_the_directory_reaches_only_what_is_pinned():
     ("reader", "used"),
     [(f"KEY = '{marker}'\n", marker) for marker in DIRECTORY_MARKERS[:2]]
     + [
+        ("KEY = b'_directory/usernames.json'.decode()\n", "_directory/, usernames.json"),
         ("key = config.DIRECTORY_PREFIX\n", "DIRECTORY_PREFIX"),
         ("key = DIRECTORY_KEY\n", "DIRECTORY_KEY"),
         ("from build_directory import DIRECTORY_KEY as key\n", "DIRECTORY_KEY"),
