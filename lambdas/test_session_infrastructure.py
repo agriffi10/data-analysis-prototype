@@ -209,8 +209,29 @@ def _deployed_key_policy() -> dict:
         "task_role_arn": _root_local("web_task_role_arn"),
     }
     return json.loads(
-        render((STORE_POLICIES / "key-named.json.tftpl").read_text(), values)
+        render((STORE_POLICIES / "key-named.json.tftpl").read_text(), values),
+        object_pairs_hook=_refusing_duplicates,
     )
+
+
+def _refusing_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Builds a JSON object, refusing a key written twice in it.
+
+    ``json.loads`` keeps the last of two equal keys, so a second ``Condition`` written before the
+    one these tests assert would be read as absent while the policy carries it.
+
+    Args:
+      pairs: The object's members, in order.
+
+    Returns:
+      The object.
+
+    Raises:
+      AssertionError: If a key appears twice.
+    """
+    keys = [key for key, _value in pairs]
+    assert len(keys) == len(set(keys)), f"a policy object repeats a key: {keys}"
+    return dict(pairs)
 
 
 def _listed(value: object) -> list[str]:
@@ -347,6 +368,17 @@ def test_the_deployed_key_names_exactly_the_deploy_role_and_the_task_role() -> N
         _effective_principals(administration[0]) == [deploy_role]
         and "Condition" not in administration[0]
     )
+    use = [
+        s
+        for s in statements
+        if s.get("Sid") == "TheDeployRoleUsesTheKeyThroughDynamoDB"
+    ]
+    assert len(use) == 1 and _effective_principals(use[0]) == [deploy_role]
+    assert use[0].get("Condition") == {
+        "StringEquals": {
+            "kms:ViaService": f"dynamodb.{RENDERED['aws_region']}.amazonaws.com"
+        }
+    }, "the deploy role can use the key, and mint grants on it, outside DynamoDB"
 
 
 def test_the_task_role_uses_the_deployed_key_for_the_session_table_alone() -> None:

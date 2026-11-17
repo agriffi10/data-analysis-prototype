@@ -901,7 +901,7 @@ module "network" {
 # nor drop every session. Neither reads a `network` or `spa` output. modules/session-store/README.md.
 #
 # The deployed store's key names its principals: the deploy role, and the web task role for this
-# table alone, so no other principal an identity policy allows can read the refresh tokens in it.
+# table alone, so no other principal an identity policy allows can read an item's refresh token.
 module "session_store" {
   source = "./modules/session-store"
 

@@ -14,13 +14,19 @@ to a template through ``jsonencode`` or a local. Every value of an action key (`
 ``"*"`` and service-less wildcards. A ``NotAction`` grants what its list does not match. An action
 value that is not a literal fails unless it is on ``INDIRECT_ACTIONS``, whose source is checked
 instead. The effect is not read, so a ``Deny`` naming one of the three is flagged too: none exists,
-and refusing it is the safe direction.
+and refusing it is the safe direction. ``\\u`` escapes are decoded first, as HCL and JSON decode them.
+
+Three ways round a policy's text are refused outright, because none is used today: an AWS-managed
+policy ARN (``IAMFullAccess`` grants all three behind a name), a file read from outside ``infra/``
+(which this sweep does not list), and a deploy-role template read from outside ``modules/base/``
+(the exemption is by file, so a template attached to another role would carry its grants with it).
 
 Attributes:
   INFRA: The IaC tree.
   TARGETS: The actions that let a principal obtain a role's identity, lower-cased as IAM compares them.
-  DEPLOY_TEMPLATES: The deploy role's own policy templates, relative to ``INFRA``; they are expected
-    to grant these actions, scoped to the roles the IaC builds.
+  DEPLOY_TEMPLATE: The deploy role's own policy templates, relative to ``INFRA``; they are expected
+    to grant these actions, scoped to the roles the IaC builds. A regex rather than a glob, because a
+    glob's ``*`` crosses ``/`` and would exempt a directory named like a template.
   SCANNED: The suffixes read as possible policy sources.
   NOT_POLICY: The suffixes and names under ``infra/`` that hold no policy. A tracked file with any
     other suffix fails the test, so a policy written in a new form is not skipped silently.
@@ -29,6 +35,7 @@ Attributes:
     rule's ``action`` and a state machine's ``action`` field are not policy elements.
   INDIRECT_ACTIONS: Each non-literal action value allowed, by file, with the file and the argument
     whose literals feed it.
+  AROUND: The forms that would carry a grant past the sweep, each with what it is called.
 """
 
 import fnmatch
@@ -42,11 +49,20 @@ from tf_blocks import strip_comments
 
 INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 TARGETS = ("iam:createrole", "iam:updateassumerolepolicy", "iam:passrole")
-DEPLOY_TEMPLATES = "modules/base/policies/github-actions-deploy*.json.tftpl"
+DEPLOY_TEMPLATE = re.compile(
+    r"modules/base/policies/github-actions-deploy[^/]*\.json\.tftpl"
+)
 SCANNED = {".tf", ".tftpl", ".json"}
 NOT_POLICY = {".md", ".example", ".hcl", ".gitignore"}
 ACTION_KEY = re.compile(
     r'(?<![\w"])"?(Action|NotAction|actions|not_actions)"?\s*[:=]\s*'
+)
+AROUND = (
+    (re.compile(r"arn:aws:iam::aws:policy/", re.IGNORECASE), "an AWS-managed policy"),
+    (
+        re.compile(r'\b(?:file|templatefile|filebase64|fileset)\(\s*"[^"]*\.\.'),
+        "a file from outside infra/",
+    ),
 )
 INDIRECT_ACTIONS = {
     "modules/control-plane/policies/sfn-permissions.json.tftpl": (
@@ -120,7 +136,17 @@ def _offenders_in(relative: str, text: str) -> list[str]:
     """
     if relative.endswith(".tf"):
         text = strip_comments(text)
+    text = re.sub(
+        r"\\u([0-9a-fA-F]{4})", lambda match: chr(int(match.group(1), 16)), text
+    )
     offenders = [
+        f"{relative} reads {what}" for pattern, what in AROUND if pattern.search(text)
+    ]
+    if "github-actions-deploy" in text and not relative.startswith("modules/base/"):
+        offenders.append(
+            f"{relative} reads a deploy-role template outside modules/base/"
+        )
+    offenders += [
         f"{relative} names {quoted!r}"
         for quoted in re.findall(r'"(iam:[^"]*)"', text, re.IGNORECASE)
         if _matched(quoted)
@@ -168,7 +194,7 @@ def _offenders(root: pathlib.Path, files: list[str]) -> list[str]:
             offenders.append(
                 f"{relative} has a suffix this scan does not know; scan it or list it in NOT_POLICY"
             )
-        elif not fnmatch.fnmatchcase(relative, DEPLOY_TEMPLATES):
+        elif not DEPLOY_TEMPLATE.fullmatch(relative):
             offenders.extend(_offenders_in(relative, (root / relative).read_text()))
     return offenders
 
@@ -203,9 +229,7 @@ def test_no_policy_outside_the_deploy_roles_templates_grants_a_roles_identity() 
 
 def test_the_matcher_reads_the_deploy_roles_own_grant_of_create_role() -> None:
     """A matcher that reads nothing would pass the sweep above on any tree."""
-    templates = [
-        path for path in _tracked() if fnmatch.fnmatchcase(path, DEPLOY_TEMPLATES)
-    ]
+    templates = [path for path in _tracked() if DEPLOY_TEMPLATE.fullmatch(path)]
     granting = [
         path
         for path in templates
@@ -291,12 +315,38 @@ def test_a_planted_grant_fails_naming_the_file(
             '{"Action": ["iam:PassRole"]}',
             "names 'iam:PassRole'",
         ),
+        (
+            "modules/base/policies/github-actions-deploy-x/p.json.tftpl",
+            '{"Action": ["iam:PassRole"]}',
+            "names 'iam:PassRole'",
+        ),
+        (
+            "modules/x/p.json.tftpl",
+            '{"Action": ["\\u0069am:PassRole"]}',
+            "names 'iam:PassRole'",
+        ),
+        (
+            "modules/x/main.tf",
+            'policy_arn = "arn:aws:iam::aws:policy/IAMFullAccess"\n',
+            "reads an AWS-managed policy",
+        ),
+        (
+            "modules/x/main.tf",
+            'policy = file("${path.root}/../docs/p.json")\n',
+            "reads a file from outside infra/",
+        ),
+        (
+            "modules/x/main.tf",
+            'policy = templatefile("${path.root}/modules/base/policies/github-actions-deploy.json.tftpl", {})\n',
+            "reads a deploy-role template outside modules/base/",
+        ),
     ],
 )
 def test_a_grant_in_another_form_is_refused_for_its_reason(
     tmp_path: pathlib.Path, relative: str, body: str, expected: str
 ) -> None:
-    """A wildcard, a NotAction, a data-source list, a fed literal, a reference and a new suffix."""
+    """A wildcard, a NotAction, a data-source list, a fed literal, a reference, a new suffix, an
+    escape, a managed policy, a file from outside, and a deploy template in the wrong place."""
     (tmp_path / relative).parent.mkdir(parents=True)
     (tmp_path / relative).write_text(body)
     offenders = _offenders(tmp_path, [relative])

@@ -40,6 +40,10 @@ the table and use KMS (an administrator, a broad operations role) could read eve
   `GetKeyRotationStatus`, `ListResourceTags`), for a security reviewer, AWS Config and a local plan.
   It is not given `PutKeyPolicy`: that would hand the key to every principal an identity policy
   allows `kms:PutKeyPolicy` on `*`.
+- **Item reads, not the control plane.** DynamoDB returns no item to a caller the key refuses. Whether
+  `UpdateTable` to an AWS-owned key, or a backup restored with an encryption override, needs the
+  caller to hold the key or runs on DynamoDB's own grant is not documented and not yet measured;
+  inside the IaC only the deploy role holds those actions.
 - **No `Deny`.** DynamoDB uses grants on the key whose grantee is its service principal, and a
   negated `aws:PrincipalArn` condition on a call that may carry no such key could deny DynamoDB
   itself. A policy that does not delegate already refuses every principal it does not name.

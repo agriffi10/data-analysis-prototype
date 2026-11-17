@@ -45,6 +45,13 @@ name a developer.
   (`PutResourcePolicy`, `GetResourcePolicy`, `DeleteResourcePolicy`) in a PR of their own, and it would
   leave the key delegated, which is what a security review reads first. The key policy alone closes
   the exposure, because DynamoDB cannot return an item to a caller that cannot decrypt it.
+  *(Narrowed 2026-11-17 by the build's security review: that holds for item reads. Whether DynamoDB's
+  control plane — `UpdateTable` switching the table to an AWS-owned key, or `CreateBackup` then
+  `RestoreTableFromBackup` with an encryption override — needs the caller to hold the key, or runs
+  on DynamoDB's own grant, is not documented and not measured. If it runs on the grant, a principal
+  with those DynamoDB actions and no IAM write could move the tokens to a key it can use. Inside the
+  IaC only the deploy role holds `UpdateTable`. A separate session measures it on a throwaway table
+  and, if the path is real, specs the resource policy this bullet set aside.)*
 - **A `Deny` statement in the key policy.** The sealing key carries one; this key does not. DynamoDB
   holds grants on the key, whose grantee is its regional service principal, and uses them for
   background maintenance. The IAM documentation does not say `aws:PrincipalArn` is present on a
