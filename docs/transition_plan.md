@@ -3372,7 +3372,12 @@ leave the S3 path unexercised until the successor account — the condition the 
 item warns against. This reverses one clause of
 `docs/decisions/identity-and-access/the-username-directory-is-built-from-s3-not-cognito.md`, which
 says existence checks stay on `admin_get_user`; the directory stays advisory and is still read by no
-control plane.
+control plane. The same clause is repeated in the directory's tripwire test,
+`lambdas/user-directory-build/test_build_directory.py`: the comment that opens the section holding
+`DIRECTORY_MARKERS` says every existence check stays against the User Pool, and the failure message of
+`test_no_production_lambda_but_the_builder_and_its_route_reads_the_directory` tells the reader to
+"ask the User Pool instead". The change that moves the checks rewords both to name the prefix marker,
+in the same commit that rewrites the decision, or the test will send the next reader back to Cognito.
 
 **Lookup semantics.** A name that does not fullmatch `CATALOG_IDENTIFIER_RE` is unknown, and no
 request is sent. This is a correctness rule, not tidiness: saved queries and "New folder" each write a
