@@ -152,6 +152,21 @@ describe('readSharedConnectionsCache (SPEC-052)', () => {
     expect(result.success && result.data.connections).toEqual([{name: 'good', role: 'owner', status: 'active'}]);
   });
 
+  it('keeps a boolean retryable flag and drops one that is not a boolean', async () => {
+    const body = JSON.stringify({
+      version: 1,
+      connections: [
+        {name: 'taken', role: 'owner', status: 'failed', failedAction: 'create', retryable: false},
+        {name: 'odd', role: 'owner', status: 'failed', failedAction: 'create', retryable: 'false'}
+      ]
+    });
+    fakeS3({body});
+    const result = await readSharedConnectionsCache('alice');
+    const [taken, odd] = result.success ? result.data.connections : [];
+    expect(taken.retryable).toBe(false);
+    expect(odd).not.toHaveProperty('retryable');
+  });
+
   it('normalizes the owner projection members to {username, status} (SPEC-073)', async () => {
     const body = JSON.stringify({
       version: 1,

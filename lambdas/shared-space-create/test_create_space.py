@@ -19,9 +19,13 @@ import registry as reg
 from cpcommon import clients
 from fakes import install, raises
 
+#: The users in the pool. The create asks the pool about the space name too, so a test that left
+#: the fake answering every name would see every create refused as a taken name.
+ACTORS = {"alice", "bob", "mallory"}
+
 
 def test_create_happy_path_provisions_everything():
-    s3, glue, lf, cognito = install()
+    s3, glue, lf, cognito = install(pool=ACTORS)
     out = c.create_space("sales", "alice", "req-1")
     assert out["status"] == "active"
     assert glue.created == ["sales"]
@@ -49,7 +53,7 @@ def test_create_tag_failure_records_terminal_failed():
     # add_lf_tags_to_resource reports problems in Failures (it does not raise); a
     # non-empty Failures must fail the create (recorded terminal `failed`), never a
     # silent success that leaves a DB the control-plane roles cannot use.
-    s3, _glue, lf, _cognito = install()
+    s3, _glue, lf, _cognito = install(pool=ACTORS)
     lf.tag_failures = [{"LFTag": {"TagKey": "portal-managed"}, "Error": {"ErrorCode": "x"}}]
     raises(lambda: c.create_space("sales", "alice", "req-1"), RuntimeError, "portal-managed")
     rec = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
@@ -59,7 +63,7 @@ def test_create_tag_failure_records_terminal_failed():
 
 
 def test_create_name_collision_fails():
-    s3, *_ = install()
+    s3, *_ = install(pool=ACTORS)
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(
         {"name": "sales", "owner": "bob", "lastRequestId": "other", "status": "active"}
     ).encode()
@@ -103,7 +107,7 @@ def test_a_refused_create_leaves_a_space_already_on_the_actors_list_alone(record
     replace her card for the space by name — a working space shown as a failed create that Retry
     collides on again and Dismiss cannot forget, or a failed delete whose Retry became a create.
     """
-    s3, *_ = install()
+    s3, *_ = install(pool=ACTORS)
     _seed_sales(s3, **record)
     held()
     before = s3.store[_ALICE_CACHE]
@@ -125,7 +129,7 @@ def test_a_refused_create_leaves_a_space_already_on_the_actors_list_alone(record
     ],
 )
 def test_a_refused_create_still_marks_its_own_card_failed(prior):
-    s3, *_ = install()
+    s3, *_ = install(pool=ACTORS)
     _seed_sales(s3, owner="bob", status="active")
     if prior is not None:
         cache.upsert_entry("alice", prior)
@@ -133,28 +137,35 @@ def test_a_refused_create_still_marks_its_own_card_failed(prior):
     raises(lambda: c.create_space("sales", "alice", "req-2"), reg.ProvisioningError, "name already taken")
 
     assert json.loads(s3.store[_ALICE_CACHE])["connections"] == [
-        {"name": "sales", "role": "owner", "status": "failed", "reason": "name already taken", "failedAction": "create"}
+        {
+            "name": "sales",
+            "role": "owner",
+            "status": "failed",
+            "reason": "name already taken",
+            "failedAction": "create",
+            "retryable": False,
+        }
     ]
 
 def test_a_name_whose_database_is_not_this_spaces_is_refused_and_that_database_left_alone():
-    """A user's personal database and a space's share one Glue namespace under the bare name, and
-    a space may be named after a user. Treating "already exists" as this create's own retry
-    adopted alice's database — tagged it, granted on it — and a teardown of the failed or
-    provisioning space then dropped every table in it. Only a database carrying this space's
+    """A database under the name that does not carry this space's marker is somebody else's: a
+    user's whose account has gone, or a space's from before the marker. Treating "already exists"
+    as this create's own retry adopted it — tagged it, granted on it — and a teardown of the failed
+    or provisioning space then dropped every table in it. Only a database carrying this space's
     marker is the create's own; anything else is a name that is taken."""
-    s3, glue, lf, _cognito = install()
-    glue.databases.add("alice")
-    glue.tables["alice"] = ["orders"]
+    s3, glue, lf, _cognito = install(pool=ACTORS)
+    glue.databases.add("legacy")
+    glue.tables["legacy"] = ["orders"]
 
-    raises(lambda: c.create_space("alice", "mallory", "req-1"), reg.ProvisioningError, "name already taken")
+    raises(lambda: c.create_space("legacy", "mallory", "req-1"), reg.NameTaken, "name already taken")
 
-    assert glue.tables["alice"] == ["orders"]
+    assert glue.tables["legacy"] == ["orders"]
     assert lf.lf_tags == [] and lf.grants == []
-    assert json.loads(s3.store[("admin-bkt", "shared-spaces/alice.json")])["status"] == "failed"
+    assert json.loads(s3.store[("admin-bkt", "shared-spaces/legacy.json")])["status"] == "failed"
 
 
 def test_a_retry_meets_the_database_its_first_attempt_created_and_carries_on():
-    _s3, glue, _lf, _cognito = install()
+    _s3, glue, _lf, _cognito = install(pool=ACTORS)
     glue.seed_space_database("sales")
 
     out = c.create_space("sales", "alice", "req-1")
@@ -163,7 +174,7 @@ def test_a_retry_meets_the_database_its_first_attempt_created_and_carries_on():
 
 
 def test_create_replay_same_request_is_idempotent():
-    s3, glue, *_ = install()
+    s3, glue, *_ = install(pool=ACTORS)
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(
         {"name": "sales", "owner": "alice", "lastRequestId": "req-1", "status": "active"}
     ).encode()
@@ -173,7 +184,7 @@ def test_create_replay_same_request_is_idempotent():
 
 
 def test_create_failure_after_slot_rolls_back_slot():
-    install()
+    install(pool=ACTORS)
 
     # The slot is assigned, then a later provisioning step fails: the except path must
     # clear the slot so a failed create doesn't leak one toward the membership cap.
@@ -192,7 +203,7 @@ def test_create_writes_the_owners_index_only_once_the_space_is_active():
     # reserve() writes `provisioning` and only an active space yields a session tag, so an
     # index written mid-create entitles nobody. The ORDER is what is asserted, not just the
     # end state: a write placed before finalize passes an end-state check and is still wrong.
-    install()
+    install(pool=ACTORS)
     order = []
     real_finalize = reg.finalize
     real_record = membership_index.record
@@ -216,7 +227,7 @@ def test_a_failed_index_write_rolls_the_create_back_rather_than_stranding_the_sp
     # membership is sourced from the index that owner can neither reach the space nor delete it,
     # because delete is gated on membership. Inside, the ordinary rollback runs and the owner gets
     # a failed card they can retry or forget.
-    install()
+    install(pool=ACTORS)
     real_record = membership_index.record
 
     def boom(*a, **k):
@@ -242,7 +253,7 @@ def test_finalize_stamps_ever_active_only_when_the_outcome_is_active():
     # failed create ever-active — which refuses its owner's legitimate retry and refuses to
     # tear it down. The FAILED path is the one that has to be driven: a round-trip through
     # the happy path alone passes either way.
-    s3, *_ = install()
+    s3, *_ = install(pool=ACTORS)
     reg.reserve("sales", "alice", "req-1")
 
     reg.finalize("sales", "alice", "req-1", "failed", "boom")
@@ -257,7 +268,7 @@ def test_finalize_carries_an_existing_ever_active_forward_onto_a_failed_outcome(
     # A different bug from the stamp, asserted separately: finalize rebuilds the record from
     # a literal, so it drops every field it does not name. It carries createdAt forward today
     # and would have dropped this one.
-    s3, *_ = install()
+    s3, *_ = install(pool=ACTORS)
     reg.reserve("sales", "alice", "req-1")
     reg.finalize("sales", "alice", "req-1", "active")
 
@@ -268,7 +279,7 @@ def test_finalize_carries_an_existing_ever_active_forward_onto_a_failed_outcome(
 
 
 def test_mark_ever_active_stamps_once_and_is_a_no_op_afterwards():
-    s3, *_ = install()
+    s3, *_ = install(pool=ACTORS)
     reg.reserve("sales", "alice", "req-1")
 
     assert reg.mark_ever_active("sales", "req-2") is True
@@ -278,7 +289,7 @@ def test_mark_ever_active_stamps_once_and_is_a_no_op_afterwards():
 
 
 def test_mark_ever_active_tolerates_a_record_that_is_gone():
-    install()
+    install(pool=ACTORS)
 
     assert reg.mark_ever_active("never-existed", "req-1") is False
 
@@ -288,7 +299,7 @@ def test_a_failed_CREATE_may_be_retried_but_a_failed_DELETE_may_not_be_revived()
     # is the only thing telling them apart. Re-provisioning the first is what the retry path
     # exists for. Re-provisioning the second resets the roster to the owner alone and hands
     # them back the previous cohort's files, in one call and with no confirmation.
-    s3, *_ = install()
+    s3, *_ = install(pool=ACTORS)
     s3.store[("admin-bkt", "shared-spaces/sales.json")] = json.dumps(
         {"name": "sales", "owner": "alice", "members": ["alice"], "status": "failed"}
     ).encode()
@@ -308,7 +319,7 @@ def test_save_members_and_set_status_both_preserve_the_stamp():
     # Neither names the field, so both preserve it only because they build from dict(existing).
     # A later projection-style rewrite of either would drop it with a green suite, which is
     # exactly what the field cannot survive.
-    s3, *_ = install()
+    s3, *_ = install(pool=ACTORS)
     record = {
         "name": "sales",
         "owner": "alice",
@@ -339,7 +350,7 @@ def test_a_create_whose_record_a_delete_claimed_mid_provisioning_fails_and_leave
     # longer holds, and the failure path's own finalize refuses it too. A delete whose teardown
     # faulted writes failed over its claim, so the status alone is not the test; a request id is
     # the caller's, so neither is the id alone.
-    s3, *_ = install()
+    s3, *_ = install(pool=ACTORS)
     real_grant = c._grant_portal_role
 
     def grant_then_delete_claims(name):
@@ -368,7 +379,7 @@ def test_a_create_whose_record_was_deleted_mid_provisioning_neither_resurrects_n
     # freed, as active, over resources the teardown had removed; and on a record another user
     # had reserved since, it handed their name to this create's owner — even under a request id
     # that happens to match, since the caller chooses it.
-    s3, *_ = install()
+    s3, *_ = install(pool=ACTORS)
     real_grant = c._grant_portal_role
     bobs = {
         "name": "sales",

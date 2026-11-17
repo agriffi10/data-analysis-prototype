@@ -721,11 +721,11 @@ export const HELP_SECTIONS: HelpSection[] = [
           'On the <b>Shared spaces</b> tab, click <b>New shared space</b> — just <b>New</b> in a narrower window.',
           'Enter a <b>Space name</b>: 3 to 63 characters of lowercase letters, digits or underscores, starting with a letter.',
           'Click <b>Create</b>. It appears in your list straight away as <b>Provisioning…</b>, turns <b>Active</b> once it’s set up in the background, and you get a notification when it’s ready.',
-          'If it can’t be set up, the row says why, with <b>Retry</b> to try again.'
+          'If it can’t be set up, the row says why. Usually <b>Retry</b> tries again; if the name is already taken, the row offers only <b>Dismiss</b>, and you can create the space again under another name.'
         ],
         callout: {
           kind: 'tip',
-          text: 'Choose the name carefully — it’s permanent, must be unique across every space, can’t be renamed later, and can’t be reused even if the space is deleted. You can belong to at most 10 shared spaces, counting the ones you own. You’ll start the space on your own; add people whenever you’re ready with <b>Add members</b>.'
+          text: 'Choose the name carefully — it’s permanent, can’t already be in use by another space or as anyone’s username, can’t be renamed later, and can’t be reused even if the space is deleted. You can belong to at most 10 shared spaces, counting the ones you own. You’ll start the space on your own; add people whenever you’re ready with <b>Add members</b>.'
         }
       },
       {

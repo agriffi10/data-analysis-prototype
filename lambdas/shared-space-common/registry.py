@@ -26,6 +26,30 @@ class ProvisioningError(Exception):
     """
 
 
+class NameTaken(ProvisioningError):
+    """A create refused because the name already belongs to someone or something. Terminal.
+
+    Raised wherever a create meets a holder of its name: another space's reservation, a Glue
+    database that is not this space's, and a user in the pool. Each holder is refused again at the
+    same step for as long as it exists, so a create refused this way is not retryable, and the
+    one sentence is shared so the refusal never says which kind of holder it met.
+    """
+
+    def __init__(self):
+        """Creates the refusal with the one sentence every taken name shares.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        super().__init__("name already taken")
+
+
 class MembershipRefused(Exception):
     """A membership addition the freshly-read record forbids. Terminal.
 
@@ -260,7 +284,7 @@ def reserve(name: str, actor: str, request_id: str) -> str:
       ``created``, or ``replay`` when this exact request already created it.
 
     Raises:
-      ProvisioningError: On a genuine collision, where a different request already owns the name.
+      NameTaken: On a genuine collision, where a different request already owns the name.
       ClientError: On any S3 fault other than a precondition failure.
       RuntimeError: When collision resolution exhausts its attempts.
     """
@@ -317,7 +341,7 @@ def _resolve_reserve_collision(name: str, actor: str, request_id: str, record: d
       was overwritten.
 
     Raises:
-      ProvisioningError: When the name is genuinely taken.
+      NameTaken: When the name is genuinely taken.
       RuntimeError: When the attempts are exhausted.
       ClientError: On any S3 fault other than a precondition failure.
     """
@@ -345,7 +369,7 @@ def _resolve_reserve_collision(name: str, actor: str, request_id: str, record: d
                 if casio.is_precondition(exc):
                     continue
                 raise
-        raise ProvisioningError("name already taken") from cause
+        raise NameTaken() from cause
     raise RuntimeError(f"reserve collision resolution for {name} exhausted attempts")
 
 

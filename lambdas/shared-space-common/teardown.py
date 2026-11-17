@@ -6,9 +6,8 @@ already-absent resources, so a re-run completes a half-done teardown. Kept in th
 so the two verbs share one implementation.
 
 **A teardown touches only a database the space made.** A space's database and a user's personal
-one share one Glue namespace under the bare name, and a space may be named after a user, so a
-space called ``alice`` finds alice's personal database under its own name. ``owns_database`` is
-the one test — the create reads it before adopting a database that already exists, and the
+one share one Glue namespace under the bare name, so a space whose name a database already
+holds finds that database under its own name. ``owns_database`` is the one test — the create reads it before adopting a database that already exists, and the
 revoke and the drop read it before touching one — and a database without the space's marker is
 left exactly as it is. A space created before the marker existed is unmarked too, so tearing one
 of those down leaves its database behind: residue, where the alternative is guessing.
@@ -85,6 +84,26 @@ def delete_shared_prefix(name):
         raise TeardownIncompleteError(f"{failed} object(s) under {name}/ could not be deleted")
 
 
+def carries_marker(database, name):
+    """Reports whether a Glue database record carries the marker of the space with this name.
+
+    The rule ``owns_database`` applies to a database it reads, kept apart so a reader holding
+    records already, such as the name-collision report over ``GetDatabases``, applies the same rule
+    rather than a second copy of it.
+
+    Args:
+      database: A Glue database record, as ``GetDatabase`` or ``GetDatabases`` returns it.
+      name: The space name, which is also its database name.
+
+    Returns:
+      True when the record's parameters name this space under the marker key.
+
+    Raises:
+      None.
+    """
+    return (database.get("Parameters") or {}).get(config.DATABASE_MARKER_KEY) == name
+
+
 def owns_database(name):
     """Reports whether the Glue database under a space's name is one the create verb made for it.
 
@@ -107,7 +126,7 @@ def owns_database(name):
     except Exception as err:
         errors.raise_if_transient(err, f"glue get_database {name}")
         raise
-    return (database.get("Parameters") or {}).get(config.DATABASE_MARKER_KEY) == name
+    return carries_marker(database, name)
 
 
 def revoke_portal_role(name):
@@ -115,8 +134,10 @@ def revoke_portal_role(name):
 
     Cleanup only — per-user isolation is the IAM membership tag, not this grant — so a failure,
     such as the database already having been dropped on a retry, is logged and tolerated rather
-    than fatal to the cascade. A database the space did not make is not revoked on at all: the
-    grants on it are its owner's.
+    than fatal to the cascade. Only a database the space made is revoked on. One it did not make
+    carries its owner's grants, and a missing one has none of this space's to revoke: a refused
+    create leaves no database, and a user who confirms under that name meanwhile gets the portal
+    role granted on a new one, which a revoke reached on "no database" would race and undo.
 
     Args:
       name: The space name, which is also its database name.
@@ -132,8 +153,8 @@ def revoke_portal_role(name):
     except Exception:  # noqa: BLE001 - best-effort: an unreadable owner is never revoked on
         logger.warning("could not tell whose database %s is; its grants were left alone", name)
         return
-    if owned is False:
-        logger.warning("database %s is not this space's; its grants were left alone", name)
+    if owned is not True:
+        logger.warning("database %s is absent or not this space's; its grants were left alone", name)
         return
     lf = clients.lf()
     for resource, permissions in (

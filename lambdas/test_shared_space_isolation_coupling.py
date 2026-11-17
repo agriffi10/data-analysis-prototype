@@ -97,7 +97,7 @@ def test_create_grants_lake_formation_to_the_shared_role_not_to_a_member():
       AssertionError: When create stops issuing both halves to the portal role, or when the
         breadth of either half moves.
     """
-    _s3, _glue, lf, _cognito = install()
+    _s3, _glue, lf, _cognito = install(pool={"alice"})
     create_space.create_space("sales", "alice", "req-1")
 
     principals = {grant["Principal"]["DataLakePrincipalIdentifier"] for grant in lf.grants}

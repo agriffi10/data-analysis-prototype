@@ -888,20 +888,27 @@ class FakeLF:
 class FakeCognito:
     """An in-memory Cognito client with two modes.
 
-    Single-user mode, for the create tests, maps every username to one attribute bag. Multi-user
+    Single-user mode, for the create tests, maps every username to one attribute bag, or only the
+    names in ``pool`` when one is given. The create asks the pool about the SPACE name too, so a
+    create test names its pool, or every space name answers as a user and is refused. Multi-user
     mode, for the add and remove tests, only recognises the usernames listed.
 
     Attributes:
       users: Attribute bags by username. Non-empty selects multi-user mode.
+      pool: In single-user mode, the usernames that exist, or None for every name.
+      statuses: A ``UserStatus`` to report per username; absent reads as ``CONFIRMED``.
+      get_user_faults: An exception ``admin_get_user`` raises per username, before anything else.
       updates: The attribute updates applied, in order.
+      calls: Every call made, as ``(operation, username)``, in order.
       exceptions: The exception namespace production code catches on.
     """
 
-    def __init__(self, attrs=None):
+    def __init__(self, attrs=None, pool=None):
         """Creates a client in single-user mode with the given attribute bag.
 
         Args:
           attrs: The single-user attribute bag, or None for an empty one.
+          pool: The usernames that exist in single-user mode, or None for every name.
 
         Returns:
           None.
@@ -911,7 +918,11 @@ class FakeCognito:
         """
         self._default = dict(attrs or {})
         self.users = {}
+        self.pool = None if pool is None else set(pool)
+        self.statuses = {}
+        self.get_user_faults = {}
         self.updates = []
+        self.calls = []
         self.exceptions = types.SimpleNamespace(UserNotFoundException=FakeUserNotFound)
 
     @property
@@ -943,6 +954,8 @@ class FakeCognito:
         """
         if self.users:
             return self.users.get(username)
+        if self.pool is not None and username not in self.pool:
+            return None
         return self._default
 
     def admin_get_user(self, UserPoolId, Username):
@@ -953,15 +966,22 @@ class FakeCognito:
           Username: The user to read.
 
         Returns:
-          A response carrying the attribute list.
+          A response carrying the attribute list and the user's status.
 
         Raises:
           FakeUserNotFound: When the user does not exist.
+          Exception: The fault planted for this username in ``get_user_faults``.
         """
+        self.calls.append(("AdminGetUser", Username))
+        if Username in self.get_user_faults:
+            raise self.get_user_faults[Username]
         bucket = self._bucket(Username)
         if bucket is None:
             raise FakeUserNotFound()
-        return {"UserAttributes": [{"Name": n, "Value": v} for n, v in bucket.items()]}
+        return {
+            "UserAttributes": [{"Name": n, "Value": v} for n, v in bucket.items()],
+            "UserStatus": self.statuses.get(Username, "CONFIRMED"),
+        }
 
     def admin_update_user_attributes(self, UserPoolId, Username, UserAttributes):
         """Applies attribute updates to one user and records them.
@@ -977,6 +997,7 @@ class FakeCognito:
         Raises:
           FakeUserNotFound: When the user does not exist.
         """
+        self.calls.append(("AdminUpdateUserAttributes", Username))
         bucket = self._bucket(Username)
         if bucket is None:
             raise FakeUserNotFound()
@@ -1022,7 +1043,7 @@ class FakeSqs:
         return {"MessageId": "m-fake"}
 
 
-def install(cognito_attrs=None, max_memberships=10):
+def install(cognito_attrs=None, max_memberships=10, pool=None):
     """Installs fresh fakes and canonical configuration onto the cached globals.
 
     The buckets, the pool and the queue URL live in the shared config — one definition, so this
@@ -1033,6 +1054,7 @@ def install(cognito_attrs=None, max_memberships=10):
     Args:
       cognito_attrs: The single-user attribute bag for the fake Cognito client.
       max_memberships: The membership cap to install.
+      pool: The usernames the single-user Cognito fake recognises, or None for every name.
 
     Returns:
       The S3, Glue, Lake Formation and Cognito fakes, for assertions.
@@ -1043,7 +1065,7 @@ def install(cognito_attrs=None, max_memberships=10):
     clients._s3 = FakeS3()
     clients._glue = FakeGlue()
     clients._lf = FakeLF()
-    clients._cognito = FakeCognito(cognito_attrs)
+    clients._cognito = FakeCognito(cognito_attrs, pool)
     clients._sqs = FakeSqs()
     clients._sqs_bounded = clients._sqs
     config.MAX_SHARED_MEMBERSHIPS = max_memberships

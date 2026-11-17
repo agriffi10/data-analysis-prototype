@@ -87,8 +87,17 @@ function normalizeFailedAction(raw: unknown): FailedAction {
   return VALID_FAILED_ACTION.has(raw as FailedAction) ? (raw as FailedAction) : 'create';
 }
 
+// `retryable` survives only as a boolean. Anything else is dropped, which reads as Retry offered —
+// the direction that leaves the user an action rather than taking one away on a malformed file.
+function normalizeRetryable<T extends {retryable?: unknown}>(o: T): T {
+  if (o.retryable === undefined || typeof o.retryable === 'boolean') return o;
+  const copy = {...o};
+  delete copy.retryable;
+  return copy;
+}
+
 function normalizeEntry(e: unknown): SharedConnectionEntry {
-  const o = e as SharedConnectionEntry & {members?: unknown};
+  const o = normalizeRetryable(e as SharedConnectionEntry & {members?: unknown; retryable?: unknown});
   const withAction = o.failedAction === undefined ? o : {...o, failedAction: normalizeFailedAction(o.failedAction)};
   if (withAction.members === undefined) return withAction;
   const o2 = withAction as SharedConnectionEntry & {members?: unknown};
