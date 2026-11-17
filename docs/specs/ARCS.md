@@ -49,7 +49,7 @@ always leaves an arc entry here holding the pair's build order, even when nothin
 - [Tester-feedback arc (SPEC-238 → 244)](#tester-feedback-arc-spec-238--244)
 - [Infra building-blocks arc (SPEC-252 → 253, 254)](#infra-building-blocks-arc-spec-252--253-254)
 - [Next.js arc (SPEC-255 → 263)](#nextjs-arc-spec-255--263)
-- [Carrier arc (SPEC-266 → 267)](#carrier-arc-spec-266--267)
+- [Carrier arc (SPEC-266 → 267 — cancelled)](#carrier-arc-spec-266--267--cancelled)
 
 ---
 
@@ -3679,7 +3679,14 @@ the status. Every live check ran on `724c2713`. The decisions are
 `browser/react-router-in-the-catch-all-is-a-matcher-the-navigation-seam-feeds.md`, rewritten in place,
 and `infrastructure/the-nginx-configuration-reproduces-cloudfronts-jobs-and-three-are.md`.
 
-## Carrier arc (SPEC-266 → 267)
+## Carrier arc (SPEC-266 → 267 — cancelled)
+
+> **THE CARRIER ARC IS CANCELLED (2026-11-17, user decision), with its sibling SPEC-268.** Work meant
+> for after the move into the client environment gets no spec, so both specs and the server-exchange
+> spec are tombstones and their design is in `docs/transition_plan.md`: the consumers in §4.4
+> (*Building the consumers*), the carrier role in §3.6, the location role and the fence on grants in
+> §3.9, and the server's half, the API's half and the interface between them in §4.7. The text below
+> is the arc as it stood when cancelled, kept for the reasoning; read the plan for the design.
 
 **Why it exists.** Phase 5 of `transition_plan.md` moves data access onto the user's Identity Center
 identity. The client runs one organization Identity Center under LZA, and its admins own every piece
