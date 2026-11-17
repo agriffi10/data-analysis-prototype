@@ -1,5 +1,6 @@
 import type {ReactNode} from 'react';
 import {headers} from 'next/headers';
+import {serverFeatureFlags} from '../server/featureFlags';
 import {PortalMount} from './PortalMount';
 import '../index.css';
 
@@ -24,11 +25,16 @@ export const dynamic = 'force-dynamic';
  * the hydration warning for its own attributes. It carries the request's nonce, read from the
  * header the request proxy sets; Next stamps the same nonce on every script it emits.
  *
+ * The feature flags the server holds are sent with the page as `PortalMount`'s prop, so a signed-in
+ * tab starts with them. Reading them costs one session-store read and never waits on the API, and it
+ * never throws: a signed-out request, or one the server cannot answer, sends none.
+ *
  * @param props.children - The matched page.
  * @returns The document.
  */
 export default async function RootLayout({children}: {children: ReactNode}) {
   const nonce = (await headers()).get('x-nonce') ?? undefined;
+  const flags = await serverFeatureFlags();
   return (
     <html
       lang="en"
@@ -46,7 +52,7 @@ export default async function RootLayout({children}: {children: ReactNode}) {
         />
       </head>
       <body>
-        <PortalMount>{children}</PortalMount>
+        <PortalMount flags={flags}>{children}</PortalMount>
       </body>
     </html>
   );

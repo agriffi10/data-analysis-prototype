@@ -1,4 +1,4 @@
-import {useEffect, useState, type ComponentType, type ReactNode} from 'react';
+import {useEffect, useState, type ComponentProps, type ComponentType, type ReactNode} from 'react';
 import {loadRuntimeConfig} from './lib/runtimeConfig';
 import {BootFailure} from './components/BootFailure';
 
@@ -8,8 +8,14 @@ import {BootFailure} from './components/BootFailure';
 // module-scope read would throw before the failure screen could render. `AppFrame` is therefore
 // reached by `await import`.
 
+/**
+ * The frame's props, read through a type-level import, which is erased and evaluates nothing, so the
+ * flag-set type has one source rather than a copy here.
+ */
+type FrameProps = ComponentProps<typeof import('./AppFrame').AppFrame>;
+
 /** What the boot settles to: the frame the page renders in, or the screen saying the portal could not start. */
-type Booted = {kind: 'frame'; Frame: ComponentType<{children: ReactNode}>} | {kind: 'failure'};
+type Booted = {kind: 'frame'; Frame: ComponentType<FrameProps>} | {kind: 'failure'};
 
 /**
  * The one boot in flight, shared by every mount.
@@ -55,9 +61,10 @@ async function boot(): Promise<Booted> {
  * view reads configuration, and the frame is what the boot waited for.
  *
  * @param props.children - The page.
+ * @param props.flags - The flag set the server sent with the page, passed to the frame.
  * @returns The page inside the frame, or the boot-failure screen, once the boot settles; nothing before.
  */
-export function PortalBoot({children}: {children: ReactNode}) {
+export function PortalBoot({children, flags}: {children: ReactNode; flags?: FrameProps['flags']}) {
   const [booted, setBooted] = useState<Booted | null>(null);
 
   useEffect(() => {
@@ -74,5 +81,5 @@ export function PortalBoot({children}: {children: ReactNode}) {
   if (!booted) return null;
   if (booted.kind === 'failure') return <BootFailure />;
   const {Frame} = booted;
-  return <Frame>{children}</Frame>;
+  return <Frame flags={flags}>{children}</Frame>;
 }
