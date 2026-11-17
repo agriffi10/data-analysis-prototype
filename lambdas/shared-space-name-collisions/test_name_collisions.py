@@ -209,3 +209,47 @@ def test_the_handler_reads_nothing_without_a_request_id():
 
     assert recorder.called == []
     assert nc.handler({"requestId": "gha-1"}, None)["passed"] is True
+
+
+def test_a_refused_reservation_does_not_back_a_slot_its_creator_wrote_for_themselves():
+    """A refused create leaves a failed record whose roster is its creator. Read as backing, it
+    would hide the slot a user wrote naming someone else's database, once they asked for a space
+    of that name."""
+    s3, _glue, _lf, cognito = _world()
+    cognito.users["bob"]["custom:shared_space_1"] = "alice"
+    _record(s3, "alice", "bob", ["bob"], status="failed", ever_active=False)
+
+    out = nc.report()
+
+    assert out["unbacked_slots"] == [{"username": "bob", "slot": "custom:shared_space_1", "value": "alice"}]
+    assert out["refused_reservations_named_for_users"] == ["alice"]
+    assert out["unmarked_space_databases"] == []
+    assert out["passed"] is False
+
+
+def test_a_space_that_was_ever_active_is_real_even_failed_and_unmarked():
+    s3, glue, _lf, cognito = _world()
+    cognito.users["old_team"] = {}
+    _record(s3, "old_team", "alice", ["alice"], status="failed", ever_active=True)
+    glue.databases.add("old_team")
+
+    out = nc.report()
+
+    assert out["usernames_that_are_spaces"] == ["old_team"]
+    assert out["refused_reservations_named_for_users"] == []
+    assert out["passed"] is False
+
+
+def test_the_run_record_carries_counts_and_never_a_name(monkeypatch):
+    world = _world()
+    for plant in (_a, _b, _c, _d, _e, _f, _g):
+        plant(*world)
+    records = []
+    monkeypatch.setattr(nc.observability, "info", lambda message, **fields: records.append(fields))
+
+    nc.report()
+
+    (fields,) = records
+    for key in nc.DEPENDS_ON:
+        assert isinstance(fields[key], int), (key, fields[key])
+    assert set(fields) == {*nc.DEPENDS_ON, "passed", "failed_reads"}

@@ -486,9 +486,11 @@ function ConnectionRowItem({
         </Button>
       );
     }
-    // A taken name is refused again on every Retry for as long as its holder exists, so its row
-    // offers Dismiss alone. The flag decides it, never the reason's wording.
-    if (!(row.status === 'failed' && row.retryable === false)) {
+    // A taken name is refused again on every Retry for as long as its holder exists, so its create
+    // row offers Dismiss alone. The flag decides it, never the reason's wording, and only on a
+    // failed create: a failed delete has no Dismiss, so it always keeps Retry.
+    const takenName = row.status === 'failed' && (row.failedAction ?? 'create') === 'create' && row.retryable === false;
+    if (!takenName) {
       actions.push(
         <Button
           key="retry"

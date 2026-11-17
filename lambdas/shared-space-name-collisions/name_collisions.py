@@ -51,7 +51,7 @@ DEPENDS_ON = {
     "usernames_that_are_spaces": ("registry", "pool", "glue"),
     "refused_reservations_named_for_users": ("registry", "pool", "glue"),
     "user_databases_marked_as_spaces": ("pool", "glue"),
-    "unbacked_slots": ("registry", "pool"),
+    "unbacked_slots": ("registry", "pool", "glue"),
     "unmarked_space_databases": ("registry", "glue"),
     "orphan_databases": ("registry", "pool", "glue"),
     "inherited_databases": ("pool", "glue"),
@@ -180,6 +180,10 @@ def _read_opt_ins():
 def _is_real_space(name, record, databases):
     """Reports whether a registry record is a space someone could reach, not a refused reservation.
 
+    A refused create leaves a ``failed`` record whose roster is its creator, so a roster alone
+    proves nothing: a user who wrote a slot naming someone else's database, and then asked for a
+    space of that name, would otherwise read as that space's member.
+
     Args:
       name: The space name.
       record: Its registry record.
@@ -236,13 +240,6 @@ def _lists(registry, pool, databases, opt_ins):
     out = {}
     if opt_ins is not None:
         out["lake_formation_opt_ins"] = opt_ins
-    if registry is not None and pool is not None:
-        out["unbacked_slots"] = [
-            {"username": username, "slot": slot, "value": value}
-            for username, user in sorted(pool.items())
-            for slot, value in _slots(user["attributes"])
-            if username not in membership.roster(registry.get(value))
-        ]
     if pool is not None and databases is not None:
         out["user_databases_marked_as_spaces"] = sorted(
             username
@@ -259,15 +256,21 @@ def _lists(registry, pool, databases, opt_ins):
             and databases[username]["CreateTime"] < user["created"]
         )
     if registry is not None and databases is not None:
+        spaces = {name for name, record in registry.items() if _is_real_space(name, record, databases)}
         out["unmarked_space_databases"] = sorted(
-            name for name in registry if name in databases and not teardown.carries_marker(databases[name], name)
+            name for name in spaces if name in databases and not teardown.carries_marker(databases[name], name)
         )
     if registry is not None and pool is not None and databases is not None:
         named = set(pool) & set(registry)
-        real = {name for name in named if _is_real_space(name, registry[name], databases)}
-        out["usernames_that_are_spaces"] = sorted(real)
-        out["refused_reservations_named_for_users"] = sorted(named - real)
+        out["usernames_that_are_spaces"] = sorted(named & spaces)
+        out["refused_reservations_named_for_users"] = sorted(named - spaces)
         out["orphan_databases"] = sorted(set(databases) - set(registry) - set(pool))
+        out["unbacked_slots"] = [
+            {"username": username, "slot": slot, "value": value}
+            for username, user in sorted(pool.items())
+            for slot, value in _slots(user["attributes"])
+            if value not in spaces or username not in membership.roster(registry[value])
+        ]
     return out
 
 

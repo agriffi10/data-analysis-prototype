@@ -550,7 +550,11 @@ class CollisionReport(TypedDict):
 
 A list is `None` when a read it is computed from failed, and only then, so a failed read is never
 an empty list: the registry feeds (a), (a′), (c), (d) and (e); the pool (a), (a′), (b), (c), (e)
-and (f); Glue (a), (a′), (b), (d), (e) and (f); Lake Formation (g). The workflow fails unless
+and (f); Glue (a), (a′), (b), (c), (d), (e) and (f), because whether a record is a real space can
+turn on its database's marker; Lake Formation (g). A slot is backed only by a real space whose
+roster includes the user: a refused reservation's roster is its creator, so a roster alone would
+let anyone who wrote a slot naming a user's database, and then asked for a space of that name,
+read as backed. The workflow fails unless
 `passed` is true.
 
 ## API / Interface Contract

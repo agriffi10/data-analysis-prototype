@@ -165,7 +165,8 @@ describe('ConnectionsPage — listing & create (SPEC-052)', () => {
           failedAction: 'create',
           retryable: false
         },
-        {name: 'worded', role: 'owner', status: 'failed', reason: 'name already taken', failedAction: 'create'}
+        {name: 'worded', role: 'owner', status: 'failed', reason: 'name already taken', failedAction: 'create'},
+        {name: 'undeleted', role: 'owner', status: 'failed', reason: 'x', failedAction: 'delete', retryable: false}
       ])
     );
     renderPage();
@@ -176,6 +177,8 @@ describe('ConnectionsPage — listing & create (SPEC-052)', () => {
     const worded = await rowFor('worded');
     expect(within(worded).getByRole('button', {name: 'Dismiss'})).toBeInTheDocument();
     expect(within(worded).getByRole('button', {name: 'Retry'})).toBeInTheDocument();
+    // A failed delete has no Dismiss, so the flag never takes its one action away.
+    expect(within(await rowFor('undeleted')).getByRole('button', {name: 'Retry'})).toBeInTheDocument();
   });
 });
 
