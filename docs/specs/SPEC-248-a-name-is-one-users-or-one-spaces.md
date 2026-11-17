@@ -42,14 +42,17 @@ guard self-sign-up in the current account is left out, as Andrew decided on 2026
 check on the requested name, a post-confirmation guard against taking over a space's database, a
 pre-signup refusal of `custom:` attributes, and a live `SignUp` check. The current account keeps
 self-sign-up until it is decommissioned, and what that leaves open there is stated under Out of
-Scope. FR-001's write list still applies to `SignUp`, because a client's write list governs every
-call that writes attributes.
+Scope. FR-001's write list still applies to `SignUp`, because a client's write list governs the
+calls made through that client, `SignUp` and `UpdateUserAttributes` alike. For `SignUp` that is
+documented and not measured. Admin calls made under IAM are not limited by it, which is why the
+plane can still write a slot.
 
 ## What was measured, and what it means
 
 A security spec rests on its premises, so each one is stated with where it was read. None was
-exercised against the deployed account. P6 is measured by FR-001 before anything else is built, and
-P3 by FR-004. Each was read again against `main` at `5408a55e`, after SPEC-257 merged; P5 and P6 are
+exercised against the deployed account. P6's `UpdateUserAttributes` half is measured by FR-001
+before anything else is built, and its `SignUp` half is not measured at all. P3 is measured
+by FR-004. Each was read again against `main` at `5408a55e`, after SPEC-257 merged; P5 and P6 are
 rewritten for what the audit and that spec changed, and the rest stood.
 
 - **P1. One namespace, two writers.** `post_confirmation._ensure_database(username)` and
@@ -94,7 +97,8 @@ rewritten for what the audit and that spec changed, and the rest stood.
     that database (its marker says it is the space's), along with every table they made there
     believing it was their own.
   - **This spec leaves this door open.** It is a sign-up door, and the target environment has no
-    sign-up (Overview). FR-004's lists (a), (b) and (f) name anyone who has already come through it.
+    sign-up (Overview). FR-004's lists (a), (b) and (f) name anyone who had come through it by the
+    time the report ran.
 - **P5. The forward door leaves a window even after the audit.**
   - The create refuses a database that is not the space's own, but only inside `_ensure_database`.
     That runs **after** `membership.assign_or_find_slot` has written `custom:shared_space_k = <name>` onto the
@@ -151,7 +155,7 @@ rewritten for what the audit and that spec changed, and the rest stood.
   - Whether a space name exists can already be tested by anyone signed in, because a create of a
     taken name fails "name already taken".
   - So FR-002's refusal discloses nothing new, as long as its sentence is the same whatever the name
-    collided with. The successor account has no self-sign-up.
+    collided with.
 
 ## Scope
 
@@ -177,9 +181,11 @@ rewritten for what the audit and that spec changed, and the rest stood.
 
   What that leaves open in the current account until it is decommissioned: P4's reverse door, so a
   stranger who signs up under a space's name reaches that space's catalog, and a name freed by
-  self-deletion can be registered again, prefix and all. There are no production users, and FR-004's
-  lists (a), (b) and (f) name anyone who has already come through. FR-001's write list still covers
-  a slot submitted at sign-up, though no live check proves it for `SignUp`.
+  self-deletion can be registered again, prefix and catalog both, because post-confirmation treats
+  an existing database as success and grants on it. There are no production users, and FR-004's
+  lists (a), (b) and (f) name anyone who had come through by the time the report ran. FR-001's
+  write list is documented to cover a slot submitted at sign-up, though no live check proves it
+  for `SignUp`.
 - **The successor account's fence.**
   - `transition_plan.md` §3.12 item 3 leaves two choices to Phase 0: a check where credentials are
     minted, or database names that cannot overlap by construction. This spec builds neither for the
@@ -198,7 +204,9 @@ rewritten for what the audit and that spec changed, and the rest stood.
 - **A backfill that marks the databases of spaces created before the marker.** Decided against in
   FR-004.
 - **Removing `ALLOW_USER_SRP_AUTH`.** It is not what the slot write depends on, because `SignUp`
-  writes attributes with no token at all, and FR-001's write list closes both paths. Removing it
+  writes attributes with no token at all, and FR-001's write list closes `UpdateUserAttributes`,
+  which is measured, and is documented to close `SignUp`, which is left unmeasured along with the
+  rest of sign-up. Removing it
   would also stop self-deletion through `DeleteUser`, but nothing has measured that Managed Login
   works without it.
 - **Fixing what the report finds.** Clearing a self-written slot, resolving a collision, or
@@ -478,8 +486,8 @@ built.
   Glue's `CreateTime`.
 - **Leaving them unmarked costs little, and is safe.** Tearing down a legacy space leaves its
   database behind, as the audit accepted. In the current account a sign-up under that name would
-  inherit it, which is the sign-up door this spec leaves open (Out of Scope), and list (f) would
-  name that user.
+  inherit it, which is the sign-up door this spec leaves open (Out of Scope), and a later run's
+  list (f) would name that user.
 - **The population is small and temporary.** There are no production users, the current account is
   decommissioned at cutover, and spaces in the successor are seeded by code that marks.
 - **An operator can still find every leftover.** List (e) names each one, so a name can be dropped
