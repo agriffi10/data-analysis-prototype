@@ -1,11 +1,13 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {headers} from 'next/headers';
 import {
+  GATE_MAX_AGE_MS,
   HELD_MAX_AGE_MS,
   REFRESH_DEADLINE_MS,
   heldFeatureFlags,
   resetServerFeatureFlagsForTests,
-  serverFeatureFlags
+  serverFeatureFlags,
+  serverRouteGate
 } from './featureFlags';
 import {FEATURE_FLAG_DEFAULTS} from '../features/feature-flags/featureFlagDefaults';
 import {answer, envelope, flagDocument, settle, signedInRequest} from './featureFlagsTestSupport';
@@ -155,10 +157,10 @@ describe('a signed-in request with no held set', () => {
 
 describe('a held set, by its age', () => {
   it.each([
-    ['30 seconds', 30 * SECOND, true, 0],
-    ['5 minutes', 5 * MINUTE, true, 1],
-    ['61 minutes', 61 * MINUTE, false, 1]
-  ])('%s old is answered: %s, and starts %i request(s)', async (_age, age, answered, requests) => {
+    ['30 seconds', true, 0, 30 * SECOND],
+    ['5 minutes', true, 1, 5 * MINUTE],
+    ['61 minutes', false, 1, 61 * MINUTE]
+  ])('a set %s old is answered: %s, and starts %i request(s)', async (_age, answered, requests, age) => {
     await signedInRequest({tokenExpiresAt: NOW + 7200});
     await holdNow();
     vi.setSystemTime(NOW * SECOND + age);
@@ -184,27 +186,27 @@ describe('a held set, by its age', () => {
 
 describe('a refresh that fails', () => {
   const document = flagDocument({query: false});
-  const failures: [string, (init: RequestInit) => Promise<Response>, string, number][] = [
-    ['a 500', async () => answer(500, {}), 'status 500', 0],
-    ['a 404', async () => answer(404, {}), 'status 404', 0],
-    ['a 302', async () => answer(302, {}), 'redirect', 0],
-    ['an answer {}', async () => answer(200, {}), 'envelope', 0],
-    ['a body with version 2', async () => envelope({...document, version: 2}), 'document FeatureFlagsUnusable', 0],
+  const failures: [string, string, (init: RequestInit) => Promise<Response>, number][] = [
+    ['a 500', 'status 500', async () => answer(500, {}), 0],
+    ['a 404', 'status 404', async () => answer(404, {}), 0],
+    ['a 302', 'redirect', async () => answer(302, {}), 0],
+    ['an answer {}', 'envelope', async () => answer(200, {}), 0],
+    ['a body with version 2', 'document FeatureFlagsUnusable', async () => envelope({...document, version: 2}), 0],
     [
       'a timeout',
+      'no answer',
       // Answers nothing until the deadline aborts it, as fetch does.
       ({signal}) =>
         new Promise<Response>((_resolve, reject) => {
           signal!.addEventListener('abort', () => reject(signal!.reason));
         }),
-      'no answer',
       REFRESH_DEADLINE_MS
     ]
   ];
 
   it.each(failures)(
     'keeps the held set after %s, logs one line naming %s, and pauses a minute from the failure',
-    async (_case, failing, reason, failsAfter) => {
+    async (_case, reason, failing, failsAfter) => {
       const {item} = await signedInRequest({tokenExpiresAt: NOW + 7200});
       await holdNow();
       const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -252,5 +254,18 @@ describe('the held set, for the area layouts', () => {
     await settle();
     expect(fetch).not.toHaveBeenCalled();
     expect(get).not.toHaveBeenCalled();
+  });
+});
+
+describe('an area gate on an ageing set', () => {
+  it('answers from a set inside its window and leaves an older one to the browser', async () => {
+    await signedInRequest();
+    await holdNow();
+
+    vi.setSystemTime(NOW * SECOND + GATE_MAX_AGE_MS - SECOND);
+    expect(serverRouteGate('/query')).toEqual({kind: 'unavailable', flag: 'query', fallback: 'files'});
+    vi.setSystemTime(NOW * SECOND + GATE_MAX_AGE_MS);
+    expect(serverRouteGate('/query')).toEqual({kind: 'open'});
+    expect(heldFeatureFlags()?.flags.query).toBe(false);
   });
 });

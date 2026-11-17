@@ -64,7 +64,8 @@ page hydrates is held on the build by `npm run check:pages`.
 
 **The gated areas have server layouts below the shell (SPEC-264, 2026-11-17).** `/files`, `/query`,
 `/connections`, `/explore` and `/data-quality` each have a `layout.tsx` that answers a disabled area
-with the "not available" page from the flag set the server holds, and otherwise returns its
+with the "not available" page from the flag set the server holds when it is under five minutes old,
+and otherwise returns its
 `children` untouched. They sit below the shell, which lives in the root layout, so moving between
 areas never remounts it, and **they carry no `key`**. **They never throw**: there is no `error.tsx`
 between them and the root, so a throw in one answers 500; their gate answers `open` on any fault and

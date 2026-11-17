@@ -4,8 +4,14 @@ import {describe, expect, it, vi} from 'vitest';
 import {PortalMount} from './PortalMount';
 
 vi.mock('../PortalBoot', () => ({
-  PortalBoot: function PortalBootMock({children}: {children: ReactNode}) {
-    return <div data-testid="boot">{children}</div>;
+  PortalBoot: function PortalBootMock({children, flags}: {children: ReactNode; flags?: {readAt: number}}) {
+    return (
+      <div
+        data-testid="boot"
+        data-read-at={flags?.readAt}>
+        {children}
+      </div>
+    );
   }
 }));
 
@@ -18,5 +24,17 @@ describe('the root mount', () => {
     );
 
     expect(await screen.findByTestId('boot')).toHaveTextContent('the page');
+  });
+
+  it('hands the boot the flag set the server sent with the page', async () => {
+    const seeded = {flags: {} as never, readAt: 1234};
+
+    render(
+      <PortalMount flags={seeded}>
+        <p>the page</p>
+      </PortalMount>
+    );
+
+    expect(await screen.findByTestId('boot')).toHaveAttribute('data-read-at', '1234');
   });
 });

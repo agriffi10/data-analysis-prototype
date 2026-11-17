@@ -243,7 +243,12 @@ page: `/files`, `/query`, `/connections`, `/explore` and `/data-quality` (whose 
 report route beneath it). The layout calls `serverRouteGate(path)` in `src/server/featureFlags.ts`,
 which is synchronous, reads `heldFeatureFlags()` and nothing else, finds the flag from the registry's
 `route` row for that path (never from a constant in the layout), and never throws. It answers `open`
-or `unavailable`.
+or `unavailable`. *(Decided in the build, after the execution
+review: the gate answers only from a held set younger than five minutes, `GATE_MAX_AGE_MS`, and
+`open` past that. A layout never refreshes the set, and another task behind the load balancer may
+hold an older set than the task that seeded the tab, so an "off" from before a flag was published on
+could otherwise override the tab's newer "on" for up to an hour, with no browser gate left to correct
+it. Past the window the page's own `FeatureRoute` decides, as before this spec.)*
 
 - **`unavailable`** (a held set with that flag off): the layout renders `UnavailableMount` in place of
   its children, passing the flag and the fallback's flag key. The fallback is computed on the server by

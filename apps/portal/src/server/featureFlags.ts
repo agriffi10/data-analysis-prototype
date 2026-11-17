@@ -16,6 +16,14 @@ export const HELD_FRESH_MS = 60_000;
 /** A held set older than this is never answered: the browser's own `staleTime` for the flags. */
 export const HELD_MAX_AGE_MS = 60 * 60 * 1000;
 
+/**
+ * The oldest held set an area layout answers from. Shorter than the hour a page may be sent, because
+ * a layout never refreshes the set and another task may hold an older one than the task that seeded
+ * the tab: an "off" it held from before a flag was published on would otherwise override the tab's
+ * newer "on" for up to an hour. Past this the gate answers `open` and the page's browser gate decides.
+ */
+export const GATE_MAX_AGE_MS = 5 * 60 * 1000;
+
 /** How long a refresh waits on the API, answer and body together. */
 export const REFRESH_DEADLINE_MS = 10_000;
 
@@ -115,7 +123,8 @@ export function heldFeatureFlags(): SeededFeatureFlags | undefined {
  * Whether an area's page is answered by the server with the "not available" page.
  *
  * Read from the registry's `route` rows for that exact path, never from a constant in the layout, and
- * from the held set alone. With no held set, or a fault of any kind, it answers `open`, which leaves
+ * from the held set alone. With no held set younger than {@link GATE_MAX_AGE_MS}, or a fault of any
+ * kind, it answers `open`, which leaves
  * the decision to the page's own browser gate: there is no error boundary between an area layout and
  * the root, so a throw here would answer 500.
  *
@@ -125,7 +134,7 @@ export function heldFeatureFlags(): SeededFeatureFlags | undefined {
 export function serverRouteGate(path: string): RouteGate {
   try {
     const seeded = heldFeatureFlags();
-    if (!seeded) return {kind: 'open'};
+    if (!seeded || Date.now() - seeded.readAt >= GATE_MAX_AGE_MS) return {kind: 'open'};
     const isEnabled = (key: FeatureFlagKey) => seeded.flags[key];
     for (const [key, surfaces] of Object.entries(GATED_SURFACES) as [FeatureFlagKey, typeof GATED_SURFACES.files][]) {
       if (!isEnabled(key) && surfaces.some((surface) => surface.kind === 'route' && surface.path === path)) {

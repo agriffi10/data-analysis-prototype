@@ -21,7 +21,9 @@ costs one session-store read, and a set that is stale or missing is refreshed fo
 resolver serves both callers, so a document cannot resolve one way on each side. A page sent with no
 set, and a tab whose set has aged past the hour, read it in the browser as before, which is why
 `FeatureRoute` stays. Each signed-in area also has a server layout that answers a disabled area with
-the "not available" page from the held set, so that area's view is never loaded; one route row, the
+the "not available" page from the held set, so that area's view is never loaded — but only from a
+set younger than five minutes, because a layout never refreshes it and another task's older "off"
+would otherwise override a tab's newer "on" for up to an hour; one route row, the
 shared-space report, stays in the browser because a layout reads no `params`.
 
 **Two traps the server side creates.** The held set is shared by every user on a task, which is
