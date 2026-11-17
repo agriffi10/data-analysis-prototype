@@ -6,7 +6,8 @@ leaves. Access is a **membership principal tag**, so the roster is the authoriza
 A shared space is a named collaborative space, where the name is at once the S3 prefix in the
 shared-space bucket and the Glue database name — globally unique and non-renameable, exactly as a
 username is for a personal space. The creator is the **owner**: they add and remove members
-(validated against the User Pool via `ListUsers`/`AdminGetUser`, with unknowns silently dropped) and
+(validated against the User Pool via `AdminGetUser`, with an unknown name reported to the
+owner by name) and
 they delete the space, which cascades through files, tables, the database, every slot and cache, and
 the registry record. Members leave on their own; everyone sees one shared copy. **Create is
 creator-only** — members are added after the fact.
