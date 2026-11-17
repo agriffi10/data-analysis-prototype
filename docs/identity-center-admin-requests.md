@@ -368,7 +368,6 @@ your instance.
 - Call `identitystore` read actions, to look up users and groups when we make grants.
 - Call the `sso` actions those registrations use.
 
-
 AWS documents an SCP pattern that denies the `sso`, `sso-oauth` and `identitystore` action families
 outside designated accounts, and an instance setting that shares identity information only with the
 management account. Either would block us. If you use them, please tell us what exception process
