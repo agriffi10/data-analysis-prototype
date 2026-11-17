@@ -2687,6 +2687,10 @@ denies the task role `Decrypt` regardless. A test over the IaC holds the first h
 decrypt-capable statement on the task role carries the DynamoDB `kms:ViaService` condition and the
 session table's name. No `kms:Encrypt` statement is added to the task role,
 because the sealing key's own policy names it.
+*(Superseded in part 2026-11-17 by SPEC-270: the task role carries no KMS statement at all now. The
+session key's own policy grants it, through DynamoDB and for the session table's name only, and
+`lambdas/test_session_infrastructure.py` holds both that grant's conditions and that no `spa` policy
+names a KMS action. The test above therefore reads the session key's policy, not the role's.)*
 
 **Refusals and faults.** `CreateTokenWithIAM` errors are sorted by the SDK's exception name. A refusal
 is Identity Center declining this user or this token; a fault is anything the user did not cause.

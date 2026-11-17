@@ -33,18 +33,14 @@ resource "aws_iam_role_policy" "task_execution" {
   })
 }
 
-# The session store: item actions on the one table, and the key's use only as DynamoDB makes it
-# for that table. key/* because the key's id is random and the key is created in the same apply as
-# this document, which the plan-time IAM scan must be able to read; the two conditions are what
-# bind it to this table. INLINE, for the reason the execution policy is.
+# The session store: item actions on the one table. The table's key grants this role its use
+# through DynamoDB in the key's own policy, which does not delegate, so a KMS statement here would
+# grant nothing and drift from it. INLINE, for the reason the execution policy is.
 resource "aws_iam_role_policy" "task_session" {
   name = "${local.spa_name}-task-session-policy"
   role = aws_iam_role.task.id
 
   policy = templatefile("${path.module}/policies/task-session-policy.json.tftpl", {
-    aws_region         = var.aws_region
-    account_id         = var.account_id
-    session_table_arn  = var.session_table_arn
-    session_table_name = var.session_environment["SESSION_TABLE_NAME"]
+    session_table_arn = var.session_table_arn
   })
 }

@@ -127,6 +127,19 @@ settles both specs.
 |---|---|---|
 | **A reload while an upload runs raises the browser's prompt, and Cancel keeps the upload** (SPEC-256 FR-002, and SPEC-258 FR-003) | The guard's half is proven: with an upload running, a `beforeunload` dispatched in the deployed page came back cancelled, and one dispatched during a sign-out did not. Whether the browser then shows its dialog depends on its own rule, a real gesture on the page first, which only a person's reload exercises. | In Chrome, signed in, click anything on Files, start an upload of a file of 1 GB or more, and press Cmd+R while it runs: expect *Reload site?*; choose **Cancel**, and the drawer's progress keeps rising. |
 
+### SPEC-270's sign-in checks — owed: the web tier was off (2026-11-17)
+
+The key narrowing applied on 2026-11-17 (#1038, `81fb468`). Its refusal half ran from the CLI: an
+AdministratorAccess principal's projected `Scan` of `dat-prod-sessions` printed `1` before the apply
+and failed with KMS `AccessDeniedException` after it. The rows below need a real sign-in, which needs
+the web tier on and Andrew at the keyboard; he chose to record them rather than switch the tier on for
+them. Each is a short sitting in [`e2e.md`](e2e.md)'s session section.
+
+| Check | Why it matters | What it takes |
+|---|---|---|
+| A fresh sign-in on `portal.dataquarry.app` succeeds, a request after at least six minutes idle is still signed in, and sign-out ends the session | The task role now reads sessions through the key's own policy alone. Six minutes is past DynamoDB's five-minute per-caller key cache, so the idle request proves a fresh `Decrypt` under the named statement | The web tier on (`infra/info/web-tier.md`, under the PR queue lock), one sign-in |
+| After `npm run dev:session-env`, a local dev server signs in and its session is in `dat-prod-dev-sessions`, not in `dat-prod-sessions` | Dev servers moved to their own store; the deployed table's key no longer admits a developer's credentials | A local sign-in through the dev client, then a projected `Scan` (`--projection-expression pk --query 'length(Items)'`) of each table |
+
 ### Needs a second (or third) account
 
 Evidence for every row run on 2026-09-21 is in [`sessions.md`](sessions.md), 2026-09-21 night:
