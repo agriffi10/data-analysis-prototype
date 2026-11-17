@@ -173,8 +173,11 @@ Notes that change the priority order:
   calls pass `{ ...resolvedConfig, RETURN_DOM_FRAGMENT: true }` (the `safeSetInnerHtml` path) or
   `{ ...resolvedConfig, RETURN_TRUSTED_TYPE: true }` (the `sanitizeHtml` path). `resolvedConfig`
   is a spread of a frozen three-key default (`ALLOWED_TAGS`, `ALLOWED_ATTR`,
-  `ALLOW_UNKNOWN_PROTOCOLS`) in which only the first two are ever reassigned, so the set of options
-  DOMPurify can receive is closed whatever a caller passes. Every caller also passes a string: the
+  `ALLOW_UNKNOWN_PROTOCOLS`) in which only the first two are ever reassigned, so the set of option
+  *keys* DOMPurify can receive is closed whatever a caller passes; a caller chooses only the tag and
+  attribute allowlists, and none of these four advisories turns on an allowlist alone. A probe that
+  wrapped `purify.sanitize` and handed both entry points a config naming `SAFE_FOR_TEMPLATES`,
+  `IN_PLACE`, `PARSER_MEDIA_TYPE` and `RETURN_DOM` saw none of them arrive. Every caller also passes a string: the
   markdown renderer's HTML output, and in `button.js` the `innerHTML` of a rendered `<p>`. The
   vendored copy forces `IN_PLACE` off for string input on its own (`if (typeof dirty === 'string')
   IN_PLACE = false`), which is a second barrier independent of the config.
@@ -186,9 +189,11 @@ Notes that change the priority order:
     names `setHTMLUnsafe` and `parseHTMLUnsafe` as the routes that do); and the fragment goes into
     an editor widget through `reset()`, not into a template engine.
   - *GHSA-mrv2 (high)* needs `IN_PLACE` and a hook that removes a node other than its own. Monaco
-    registers three hooks, and none qualifies: `afterSanitizeAttributes` and
-    `uponSanitizeAttribute` only drop or keep attributes, and the plaintext hook on
-    `uponSanitizeElement` replaces the node it was called for, never a parent or a sibling. The
+    registers three hooks, and none qualifies. `afterSanitizeAttributes` only removes attributes.
+    `uponSanitizeAttribute` hands each attribute to a caller's `shouldKeep` predicate, and the only
+    predicates that ship (in `markdownRenderer.js`, for `style` and `class`) test a regex and touch
+    no node. The plaintext hook on `uponSanitizeElement` replaces the node it was called for, or for
+    a comment inserts a text node before it, and never removes a parent or a sibling. The
     harm is a handler in the caller's live tree firing after `sanitize()` returns; without
     `IN_PLACE` there is no caller tree, since DOMPurify parses the string into a document of its
     own and hands back a new fragment or string.
