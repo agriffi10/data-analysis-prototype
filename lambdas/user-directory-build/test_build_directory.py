@@ -121,6 +121,119 @@ def test_an_empty_result_never_overwrites_the_existing_document(s3):
     assert result == {"published": False, "username_count": 0}
 
 
+# -- FR-007: the document is never an authorization input --------------------------------
+#
+# A name's presence in the directory grants nothing; every existence check stays
+# `admin_get_user` against the User Pool. A control plane that started reading the document would
+# be trusting a list that is up to a day stale and missing every user not yet provisioned.
+
+DIRECTORY_MARKERS = ("usernames.json", "_directory/", "DIRECTORY_PREFIX", "DIRECTORY_KEY")
+
+# The one production module allowed to open the document. It serves it to the browser, which is
+# where the read always happened, and the AST check below holds it to deciding nothing from it.
+DIRECTORY_ROUTE = pathlib.Path("api") / "routes" / "user_directory.py"
+
+DECIDING_NAMES = ("admin_get_user", "memberships", "authorize", "is_member", "list_users")
+
+
+def _directory_readers(root):
+    """Production modules under `root` that name the directory, other than its writer and server.
+
+    Test modules are skipped by shape rather than allowlisted by name: a suite that names the key
+    is asserting which object a route opens or that a Deny covers it, which is the opposite of
+    reading it, and a per-file allowlist grew a row every time a new suite did that. The prefix is
+    matched WITH its slash, because a bare `_directory` is a substring of innocent test names.
+
+    Args:
+      root: The `lambdas/` tree to scan.
+
+    Returns:
+      The offending paths, relative to `root`, sorted.
+
+    Raises:
+      None.
+    """
+    exempt = {pathlib.Path("user-directory-build") / "build_directory.py", DIRECTORY_ROUTE}
+    offenders = []
+    for path in root.rglob("*.py"):
+        relative = path.relative_to(root)
+        if relative in exempt or path.name.startswith("test_") or path.name == "conftest.py":
+            continue
+        text = path.read_text(encoding="utf-8")
+        if any(marker in text for marker in DIRECTORY_MARKERS):
+            offenders.append(str(relative))
+    return sorted(offenders)
+
+
+def _decisions_reached(source):
+    """The authorization helpers a module's code reaches for, read from identifiers, not prose.
+
+    A marker matched against raw text would trip on a docstring explaining why the route needs no
+    check of its own, and a tripwire that fires on its own explanation is one somebody deletes.
+
+    Args:
+      source: Python source text.
+
+    Returns:
+      The subset of `DECIDING_NAMES` the module names as a variable, attribute or function.
+
+    Raises:
+      SyntaxError: If `source` is not valid Python.
+    """
+    import ast
+
+    reached = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Name):
+            reached.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            reached.add(node.attr)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            reached.add(node.name)
+    return reached & set(DECIDING_NAMES)
+
+
+def test_no_production_lambda_but_the_builder_and_its_route_names_the_directory():
+    assert _directory_readers(LAMBDAS) == [], (
+        "the username directory is advisory and never an authorization input; existence checks "
+        "stay admin_get_user against the User Pool"
+    )
+    assert _decisions_reached((LAMBDAS / DIRECTORY_ROUTE).read_text(encoding="utf-8")) == set(), (
+        "the route that serves the directory decided something from it — a decision made from a "
+        "stale, incomplete list"
+    )
+
+
+@pytest.mark.parametrize("marker", DIRECTORY_MARKERS)
+def test_the_tripwire_names_a_planted_reader_and_only_it(tmp_path, marker):
+    """The guard's own corpus: one planted control-plane reader per marker, beside every shape the
+    guard must stay silent on — a suite naming the key, the exempt route, a bare `_directory`."""
+    planted = {
+        "some-plane/handler.py": f"KEY = '{marker}'\n",
+        "some-plane/test_handler.py": "KEY = '_directory/usernames.json'\n",
+        "some-plane/conftest.py": "KEY = '_directory/usernames.json'\n",
+        "api/routes/user_directory.py": "KEY = '_directory/usernames.json'\n",
+        "deploy/matrix.py": "CHECK = 'every_lambda_directory_is_listed'\n",
+    }
+    for relative, text in planted.items():
+        (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / relative).write_text(text, encoding="utf-8")
+
+    assert _directory_readers(tmp_path) == [str(pathlib.Path("some-plane") / "handler.py")]
+
+
+def test_the_route_check_reads_calls_and_ignores_prose():
+    reaching = (
+        '"""Never calls admin_get_user."""\n'
+        "def authorize(client, name):\n"
+        "    return is_member(name) and client.admin_get_user(Username=name)\n"
+    )
+    explaining = '"""Needs no admin_get_user or is_member: the grant already authorizes."""\n'
+
+    assert _decisions_reached(reaching) == {"admin_get_user", "authorize", "is_member"}
+    assert _decisions_reached(explaining) == set()
+
+
 # -- The deployed environment matches what config.py declares ---------------------------
 #
 # Nothing else ties the two sides together. `tofu apply` is green against a thin environment,

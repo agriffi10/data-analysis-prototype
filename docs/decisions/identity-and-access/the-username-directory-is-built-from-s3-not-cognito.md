@@ -33,12 +33,19 @@ is a second thing to reason about every time the directory looks wrong.
 **The directory is advisory and is never an authorization input.** No control plane reads it; every
 existence check stays `admin_get_user` against the User Pool (`shared-space-common/membership.py`,
 `tscommon/cognito.py`), and an unknown name is still reported to the user as a notification. A
-tripwire test fails if any Lambda outside `user-directory-build` references the path, the prefix or
-the key constants.
+tripwire in `user-directory-build/test_build_directory.py` fails if any production Lambda module
+other than the builder and the API route that serves the document names the path, the prefix or the
+key constants, and a second check fails if that route reaches for an authorization helper. Test
+modules are exempt by shape: a suite that names the key is asserting which object is opened or
+denied, not reading it.
 
 Full account: `docs/spec-delivery/SPEC-146-username-directory-daily-builder.md`.
 
 ## History
+
+### 2026-11-17
+
+- **Corrected:** The tripwire this decision cites had been deleted in a suite cut and nothing replaced it; it is restored, with test modules exempt by shape rather than by a per-file allowlist.
 
 ### 2026-09-04
 
