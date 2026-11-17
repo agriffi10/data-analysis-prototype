@@ -39,5 +39,5 @@ Recorded because the corrections are the reason a client-environment design shou
   exist in saved queries and "New folder".
 - **It surfaced an unrelated defect.** The username-directory decision says a tripwire test fails if
   any other Lambda references the directory. That test, `test_no_other_lambda_references_the_directory`,
-  was removed in the suite cut (#540) and nothing replaced it. That is current-environment work and
-  is proposed as a session of its own rather than folded here.
+  was removed in the suite cut (#540) and nothing replaced it. That was current-environment work, so
+  it went to a change of its own, which restored the guard (#1034).
