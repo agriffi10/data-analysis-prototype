@@ -259,16 +259,18 @@ def _effective_principals(statement: dict) -> list[str]:
       statement: One statement of a key policy.
 
     Returns:
-      The principal ARNs, or ``["*"]``.
+      The principal ARNs, or ``["*"]``. A principal that is not an ``AWS`` one (a service, a
+      federated provider) is returned as its JSON, so it appears in a set equality rather than
+      being dropped.
 
     Raises:
       None.
     """
     principal = statement.get("Principal")
+    if isinstance(principal, dict) and set(principal) != {"AWS"}:
+        return [json.dumps(principal, sort_keys=True)]
     named = (
-        _listed(principal["AWS"])
-        if isinstance(principal, dict) and "AWS" in principal
-        else _listed(principal)
+        _listed(principal["AWS"]) if isinstance(principal, dict) else _listed(principal)
     )
     if named != ["*"]:
         return named
@@ -328,6 +330,13 @@ def test_the_deployed_key_names_exactly_the_deploy_role_and_the_task_role() -> N
     account_root = f"arn:aws:iam::{RENDERED['account_id']}:root"
     statements = policy["Statement"]
 
+    assert [s.get("Sid") for s in statements] == [
+        "TheDeployRoleAdministersTheKey",
+        "TheDeployRoleUsesTheKeyThroughDynamoDB",
+        "TheTaskRoleUsesTheKeyForTheSessionTable",
+        "TheTaskRoleDescribesTheKeyThroughDynamoDB",
+        "TheAccountReadsTheKeysMetadata",
+    ], "the key's policy carries a statement this test does not assert"
     assert [s["Effect"] for s in statements if s["Effect"] != "Allow"] == [], (
         "the key's policy carries a Deny"
     )
@@ -343,6 +352,9 @@ def test_the_deployed_key_names_exactly_the_deploy_role_and_the_task_role() -> N
         for principal in _effective_principals(statement):
             granted.setdefault(principal, set()).update(actions)
 
+    assert set(granted) == {deploy_role, task_role, account_root}, (
+        f"the key's policy names {sorted(granted)}"
+    )
     cryptographic = {
         p
         for p, actions in granted.items()
@@ -374,6 +386,14 @@ def test_the_deployed_key_names_exactly_the_deploy_role_and_the_task_role() -> N
         if s.get("Sid") == "TheDeployRoleUsesTheKeyThroughDynamoDB"
     ]
     assert len(use) == 1 and _effective_principals(use[0]) == [deploy_role]
+    assert set(_listed(use[0]["Action"])) == {
+        "kms:CreateGrant",
+        "kms:DescribeKey",
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:GenerateDataKey*",
+        "kms:ReEncrypt*",
+    }
     assert use[0].get("Condition") == {
         "StringEquals": {
             "kms:ViaService": f"dynamodb.{RENDERED['aws_region']}.amazonaws.com"
