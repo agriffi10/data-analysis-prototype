@@ -10,6 +10,13 @@ export {linkFlags} from './linkFlags';
 export type {UseFeatureSetResult} from './useFeatureSet';
 export {FeatureGate} from './FeatureGate';
 export type {FeatureGateProps} from './FeatureGate';
-export {GATED_SURFACES, NAV_PATH_FLAGS, hiddenHelpIds, navDestination} from './gatedSurfaces';
+export {GATED_SURFACES, NAV_PATH_FLAGS, firstEnabledDestination, hiddenHelpIds, navDestination} from './gatedSurfaces';
 export type {GatedSurface} from './gatedSurfaces';
-export type {FeatureFlagDocument, FeatureFlagKey, FeatureFlags, FeatureFlagsStatus} from './featureFlags.types';
+export type {
+  FeatureFlagDocument,
+  FeatureFlagKey,
+  FeatureFlags,
+  FeatureFlagsStatus,
+  SeededFeatureFlags
+} from './featureFlags.types';
+export {seedServerFlags} from './seedServerFlags';

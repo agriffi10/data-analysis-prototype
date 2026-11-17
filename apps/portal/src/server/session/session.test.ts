@@ -1,5 +1,5 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
-import {endSession, loadSession, sessionKey} from './session';
+import {endSession, loadSession, peekSession, sessionKey} from './session';
 import {NOW, idToken, json, storedSession, testConfig, testDeps} from './testSupport';
 
 afterEach(() => {
@@ -190,5 +190,48 @@ describe('the server keeps no session in memory', () => {
 
     expect(await loadSession(emptyStore, config, cookie, {forceRefresh: false}, NOW)).toEqual({status: 'absent'});
     expect((await loadSession(store, config, cookie, {forceRefresh: false}, NOW)).status).toBe('active');
+  });
+});
+
+describe('a session is peeked', () => {
+  it('serves a token inside the refresh margin as found, with no provider call and no store write', async () => {
+    const {config, store, dynamo} = testDeps();
+    const {cookie, item} = storedSession({tokenExpiresAt: NOW + 120});
+    await store.put(item);
+    dynamo.sent.length = 0;
+    const fetch = provider();
+
+    const peeked = await peekSession(store, config, cookie, NOW);
+
+    expect(peeked).toEqual({status: 'active', idToken: item.idToken, tokenExpiresAt: NOW + 120});
+    expect(fetch).not.toHaveBeenCalled();
+    expect(dynamo.sent.map(({name}) => name)).toEqual(['GetItemCommand']);
+  });
+
+  it.each([
+    ['a stored token that has expired', {tokenExpiresAt: NOW}],
+    ['a token that names no user', {idToken: idToken({'cognito:username': undefined})}],
+    ['a session another client created', {idToken: idToken({aud: 'another-client'})}],
+    ['a session past its own expiry', {sessionExpiresAt: NOW, expiresAt: NOW}]
+  ])('answers none for %s, and leaves the item where it was', async (_case, overrides) => {
+    const {config, store, dynamo} = testDeps();
+    const {cookie, item} = storedSession(overrides);
+    await store.put(item);
+    dynamo.sent.length = 0;
+    const fetch = provider();
+
+    expect(await peekSession(store, config, cookie, NOW)).toEqual({status: 'none'});
+    expect(fetch).not.toHaveBeenCalled();
+    expect(dynamo.sent.map(({name}) => name)).toEqual(['GetItemCommand']);
+    expect(dynamo.table.has(item.pk)).toBe(true);
+  });
+
+  it('answers none, after one log line, when the store does not answer', async () => {
+    const {config, store} = testDeps();
+    vi.spyOn(store, 'get').mockRejectedValue(new Error('timed out'));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    expect(await peekSession(store, config, storedSession().cookie, NOW)).toEqual({status: 'none'});
+    expect(error).toHaveBeenCalledTimes(1);
   });
 });

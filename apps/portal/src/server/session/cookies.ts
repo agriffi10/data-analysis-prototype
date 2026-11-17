@@ -67,17 +67,30 @@ const COOKIE_PADDING = /^[ \t]+|[ \t]+$/g;
 /**
  * Read one cookie from a request.
  *
- * Only space and tab are trimmed. `String.prototype.trim` also strips U+00A0, which Node reads from a
- * 0xA0 header byte, so a cookie named 0xA0 followed by `__Host-dq_session` would read as the real one
- * while the browser, checking the prefix against the name it stored, gave it none of the prefix's
- * protection: any sibling subdomain could set it.
- *
  * @param request - The request.
  * @param name - The cookie's name, matched exactly.
  * @returns Its value, or undefined when absent.
  */
 export function readCookie(request: Request, name: string): string | undefined {
-  for (const part of (request.headers.get('cookie') ?? '').split(';')) {
+  return readCookieHeader(request.headers.get('cookie'), name);
+}
+
+/**
+ * Read one cookie from a `Cookie` header's value, for a caller that holds the header and not the
+ * request, such as a layout reading `headers()`. Next's own `cookies()` parser is never used for the
+ * session cookie, because it is not this one.
+ *
+ * Only space and tab are trimmed. `String.prototype.trim` also strips U+00A0, which Node reads from a
+ * 0xA0 header byte, so a cookie named 0xA0 followed by `__Host-dq_session` would read as the real one
+ * while the browser, checking the prefix against the name it stored, gave it none of the prefix's
+ * protection: any sibling subdomain could set it.
+ *
+ * @param header - The header's value, or null when the request carried none.
+ * @param name - The cookie's name, matched exactly.
+ * @returns Its value, or undefined when absent.
+ */
+export function readCookieHeader(header: string | null, name: string): string | undefined {
+  for (const part of (header ?? '').split(';')) {
     const at = part.indexOf('=');
     if (at > 0 && part.slice(0, at).replace(COOKIE_PADDING, '') === name) {
       return part.slice(at + 1).replace(COOKIE_PADDING, '');

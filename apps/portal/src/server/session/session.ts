@@ -165,6 +165,42 @@ export async function loadSession(
 }
 
 /**
+ * Read the session a cookie names without changing anything: one store read, the same checks
+ * `loadSession` makes before it would refresh, and no refresh, no delete and no write.
+ *
+ * For a caller that only needs a token it can use now, such as the root layout reading the feature
+ * flags once per document load: a refresh there would put a provider call on every page's critical
+ * path. Because it never refreshes, a stored token that has expired, or that names no user, answers
+ * `none`, which is also how a user the provider has revoked stops being served without a provider
+ * call. A store fault answers `none` after one log line; this caller has no 503 to give.
+ *
+ * @param store - The session store.
+ * @param config - The session configuration.
+ * @param cookieValue - The session cookie's value, if any.
+ * @param now - The current time, epoch seconds.
+ * @returns The stored ID token and its expiry, or `none`.
+ */
+export async function peekSession(
+  store: SessionStore,
+  config: SessionConfig,
+  cookieValue: string | undefined,
+  now: number = nowSeconds()
+): Promise<{status: 'active'; idToken: string; tokenExpiresAt: number} | {status: 'none'}> {
+  if (!isSessionId(cookieValue)) return {status: 'none'};
+  let item: SessionItem | null;
+  try {
+    item = await store.get(sessionKey(cookieValue));
+  } catch {
+    console.error('session: the store did not answer a peek');
+    return {status: 'none'};
+  }
+  if (item === null || !createdHere(item, config)) return {status: 'none'};
+  if (now >= item.sessionExpiresAt || now >= item.tokenExpiresAt) return {status: 'none'};
+  if (!userOf(config, item.idToken)) return {status: 'none'};
+  return {status: 'active', idToken: item.idToken, tokenExpiresAt: item.tokenExpiresAt};
+}
+
+/**
  * Whether a stored session was signed in through this server's own client.
  *
  * A dev server and the deployed portal share the session table, and the dev server's cookie is neither

@@ -1,3 +1,4 @@
+import {FEATURE_FLAG_KEYS} from './featureFlagDefaults';
 import type {FeatureFlagKey} from './featureFlags.types';
 
 /**
@@ -395,6 +396,20 @@ export function hiddenHelpIds(isEnabled: (key: FeatureFlagKey) => boolean): Set<
 export function navDestination(key: FeatureFlagKey): {to: string; label: string} | undefined {
   const nav = GATED_SURFACES[key].find((surface) => surface.kind === 'nav');
   return nav ? {to: nav.path, label: nav.name} : undefined;
+}
+
+/**
+ * Where an unavailable page sends the user instead: the first key in flag order that is enabled and
+ * has a nav destination, so the link never points at another unavailable page.
+ *
+ * The one rule for both gates, the browser's `FeatureRoute` and the server's area layouts, so the two
+ * can never offer different destinations for one set.
+ *
+ * @param isEnabled - Whether a flag is on in the set being decided.
+ * @returns The fallback's key, or `undefined` when no enabled flag has a destination.
+ */
+export function firstEnabledDestination(isEnabled: (key: FeatureFlagKey) => boolean): FeatureFlagKey | undefined {
+  return FEATURE_FLAG_KEYS.find((key) => isEnabled(key) && navDestination(key) !== undefined);
 }
 
 /** Every gated nav path mapped to the flag that gates it, for route-level gating. */
