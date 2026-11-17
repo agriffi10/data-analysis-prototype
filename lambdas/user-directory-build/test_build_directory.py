@@ -124,9 +124,9 @@ def test_an_empty_result_never_overwrites_the_existing_document(s3):
 
 # -- FR-007: the document is never an authorization input --------------------------------
 #
-# A name's presence in the directory grants nothing; every existence check stays
-# `admin_get_user` against the User Pool. A control plane that started reading the document would
-# be trusting a list that is up to a day stale and missing every user not yet provisioned.
+# A name's presence in the directory grants nothing; every existence check stays against the User
+# Pool. A control plane that started reading the document would be trusting a list that is up to a
+# day stale and missing every user not yet provisioned.
 
 DIRECTORY_MARKERS = ("usernames.json", "_directory/", "DIRECTORY_PREFIX", "DIRECTORY_KEY")
 
@@ -163,8 +163,46 @@ ROUTE_SURFACE = frozenset(
 )
 
 
+def _code_tokens(tree):
+    """The strings and identifiers a module's code uses, leaving out its prose.
+
+    A docstring or a bare string statement is prose; so is a comment, which the parser drops. A
+    module explaining that it refuses `_directory/usernames.json` is the opposite of reading it,
+    and a tripwire that fires on an explanation is one somebody deletes.
+
+    Args:
+      tree: A parsed module.
+
+    Returns:
+      Every string constant outside a bare expression statement, and every name, attribute and
+      imported name.
+
+    Raises:
+      None.
+    """
+    prose = {
+        id(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+    }
+    tokens = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in prose:
+            tokens.add(node.value)
+        elif isinstance(node, ast.Name):
+            tokens.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            tokens.add(node.attr)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            tokens.update(alias.name for alias in node.names)
+    return tokens
+
+
 def _imports_the_route(tree):
     """Whether a parsed module imports the directory route, in any import form.
+
+    The module name comes from `DIRECTORY_ROUTE`, so moving the route and re-pointing that constant
+    keeps this check aimed at it.
 
     Args:
       tree: A parsed module.
@@ -175,14 +213,15 @@ def _imports_the_route(tree):
     Raises:
       None.
     """
+    route = DIRECTORY_ROUTE.stem
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            if any(alias.name.endswith("user_directory") for alias in node.names):
+            if any(alias.name.split(".")[-1] == route for alias in node.names):
                 return True
         elif isinstance(node, ast.ImportFrom):
-            if (node.module or "").endswith("user_directory"):
+            if (node.module or "").split(".")[-1] == route:
                 return True
-            if any(alias.name == "user_directory" for alias in node.names):
+            if any(alias.name == route for alias in node.names):
                 return True
     return False
 
@@ -190,18 +229,20 @@ def _imports_the_route(tree):
 def _directory_readers(root):
     """Production modules under `root` that read the directory, other than its writer and server.
 
-    A module reads it by naming the key or prefix, or by importing the route that serves it and so
-    taking the list second-hand. Test modules are skipped by shape rather than allowlisted by name:
-    a suite that names the key is asserting which object a route opens or that a Deny covers it,
-    which is the opposite of reading it, and a per-file allowlist grew a row every time a new suite
-    did that. The prefix is matched WITH its slash, because a bare `_directory` is a substring of
-    innocent names. A key handed in through configuration is out of reach; no such variable exists.
+    A module reads it by using the key, the prefix or the key constants in its code, or by
+    importing the route that serves it and so taking the list second-hand. `test_*.py` and
+    `conftest.py` are skipped by shape rather than allowlisted by name: a suite that names the key
+    is asserting which object a route opens or that a Deny covers it, which is the opposite of
+    reading it, and a per-file allowlist grew a row every time a new suite did that. Other test
+    helpers, such as `fakes.py`, are scanned like production code. The prefix is matched WITH its
+    slash, because a bare `_directory` is a substring of innocent names. A key handed in through
+    configuration is out of reach; no such variable exists.
 
     Args:
       root: The `lambdas/` tree to scan.
 
     Returns:
-      The offending paths, relative to `root`, sorted.
+      Each offender as `path: what it used`, relative to `root`, sorted.
 
     Raises:
       SyntaxError: If a production module is not valid Python.
@@ -212,11 +253,13 @@ def _directory_readers(root):
         relative = path.relative_to(root)
         if relative in exempt or path.name.startswith("test_") or path.name == "conftest.py":
             continue
-        text = path.read_text(encoding="utf-8")
-        names_it = any(marker in text for marker in DIRECTORY_MARKERS)
-        imports_it = relative != ROUTE_DISPATCHER and _imports_the_route(ast.parse(text))
-        if names_it or imports_it:
-            offenders.append(str(relative))
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tokens = _code_tokens(tree)
+        used = sorted(m for m in DIRECTORY_MARKERS if any(m in token for token in tokens))
+        if relative != ROUTE_DISPATCHER and _imports_the_route(tree):
+            used.append(f"imports {DIRECTORY_ROUTE.stem}")
+        if used:
+            offenders.append(f"{relative}: {', '.join(used)}")
     return sorted(offenders)
 
 
@@ -262,10 +305,14 @@ def _route_drift(source):
 
 
 def test_no_production_lambda_but_the_builder_and_its_route_reads_the_directory():
-    assert _directory_readers(LAMBDAS) == [], (
-        "the username directory is advisory and never an authorization input; existence checks "
-        "stay admin_get_user against the User Pool"
+    offenders = _directory_readers(LAMBDAS)
+    assert offenders == [], (
+        f"these modules read the username directory: {offenders}. It is advisory and never an "
+        "authorization input; ask the User Pool instead"
     )
+
+
+def test_the_route_that_serves_the_directory_reaches_only_what_is_pinned():
     drift = _route_drift((LAMBDAS / DIRECTORY_ROUTE).read_text(encoding="utf-8"))
     assert drift == [], (
         f"the directory route's reach changed by {drift}. It serves the document and decides "
@@ -274,31 +321,41 @@ def test_no_production_lambda_but_the_builder_and_its_route_reads_the_directory(
 
 
 @pytest.mark.parametrize(
-    "reader",
-    [f"KEY = '{marker}'\n" for marker in DIRECTORY_MARKERS]
+    ("reader", "used"),
+    [(f"KEY = '{marker}'\n", marker) for marker in DIRECTORY_MARKERS[:2]]
     + [
-        "from routes.user_directory import _parse as parse\n",
-        "from routes import (\n    user_directory,\n)\n",
-        "import routes.user_directory as served\n",
+        ("key = config.DIRECTORY_PREFIX\n", "DIRECTORY_PREFIX"),
+        ("key = DIRECTORY_KEY\n", "DIRECTORY_KEY"),
+        ("from build_directory import DIRECTORY_KEY as key\n", "DIRECTORY_KEY"),
+        ("from routes.user_directory import _parse as parse\n", "imports user_directory"),
+        ("from routes import (\n    user_directory,\n)\n", "imports user_directory"),
+        ("import routes.user_directory as served\n", "imports user_directory"),
     ],
 )
-def test_the_tripwire_names_a_planted_reader_and_only_it(tmp_path, reader):
-    """The guard's own corpus: one planted control-plane reader per way of reading, beside every
-    shape the guard must stay silent on — a suite naming the key, the exempt route, the dispatcher
-    importing it, and a bare `_directory`."""
+def test_the_tripwire_names_a_planted_reader_and_only_it(tmp_path, reader, used):
+    """One planted reader per way of reading, beside every shape the guard must stay silent on.
+
+    The silent shapes are a suite naming the key, the exempt route, the dispatcher importing it, a
+    docstring and a comment explaining the directory, and a bare `_directory`.
+    """
     planted = {
-        "some-plane/handler.py": reader,
-        "some-plane/test_handler.py": "KEY = '_directory/usernames.json'\n",
-        "some-plane/conftest.py": "from routes.user_directory import user_directory\n",
-        "api/routes/user_directory.py": "KEY = '_directory/usernames.json'\n",
-        "api/router.py": "from routes.user_directory import user_directory\n",
-        "deploy/matrix.py": "CHECK = 'every_lambda_directory_is_listed'\n",
+        pathlib.Path("some-plane") / "handler.py": reader,
+        pathlib.Path("some-plane") / "test_handler.py": "KEY = '_directory/usernames.json'\n",
+        pathlib.Path("some-plane") / "conftest.py": "from routes.user_directory import x\n",
+        pathlib.Path("some-plane") / "explains.py": (
+            '"""Refuses `_directory/usernames.json` as a user."""\n'
+            "# never reads DIRECTORY_KEY\n"
+            "RESERVED = ('_directory', '_config')\n"
+        ),
+        DIRECTORY_ROUTE: "KEY = '_directory/usernames.json'\n",
+        ROUTE_DISPATCHER: "from routes.user_directory import user_directory\n",
+        pathlib.Path("deploy") / "matrix.py": "CHECK = 'every_lambda_directory_is_listed'\n",
     }
     for relative, text in planted.items():
         (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / relative).write_text(text, encoding="utf-8")
 
-    assert _directory_readers(tmp_path) == [str(pathlib.Path("some-plane") / "handler.py")]
+    assert _directory_readers(tmp_path) == [f"{pathlib.Path('some-plane') / 'handler.py'}: {used}"]
 
 
 def test_the_route_surface_counts_aliased_imports_and_calls_but_not_prose():
@@ -318,7 +375,7 @@ def test_the_route_pin_reddens_on_a_new_reach():
     route = (LAMBDAS / DIRECTORY_ROUTE).read_text(encoding="utf-8")
     widened = route + "from cpcommon.cognito import user_exists as known\n"
 
-    assert _route_drift(widened) == ["cpcommon.cognito.user_exists"]
+    assert "cpcommon.cognito.user_exists" in _route_drift(widened)
 
 
 # -- The deployed environment matches what config.py declares ---------------------------

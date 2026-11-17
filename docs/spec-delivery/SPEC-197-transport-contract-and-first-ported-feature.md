@@ -151,7 +151,9 @@ and never an authorization input. The serving route legitimately reads it, so it
 a written reason **and** a new test asserting the route reaches no authorization helper — "it only
 serves it" is a claim that stops being true one convenience check later. The guard also had to be
 made AST-based: matched against raw text it tripped on the route's own docstring, and a tripwire that
-fires on its own explanation is one somebody deletes.
+fires on its own explanation is one somebody deletes. *Both tests were later deleted in a suite cut.
+The restored tripwire exempts test modules by shape rather than by allowlist, and pins the route's
+whole reach instead of naming the helpers it may not call.*
 
 ## Also in this branch, at Andrew's direction
 
