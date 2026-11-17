@@ -333,9 +333,17 @@ locals {
   # the same string is known at plan, which the plan-time IAM scan needs.
   session_table_name           = "${var.project_name}-${var.environment}-sessions"
   session_table_arn            = "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.session_table_name}"
+  session_key_alias            = "alias/${var.project_name}-${var.environment}-session"
+  dev_session_table_name       = "${var.project_name}-${var.environment}-dev-sessions"
+  dev_session_key_alias        = "alias/${var.project_name}-${var.environment}-dev-session"
   client_secret_parameter_name = "/${var.project_name}-${var.environment}/portal/oidc-client-secret"
   client_secret_parameter_arn  = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${local.client_secret_parameter_name}"
   dev_session_parameter_name   = "/${var.project_name}-${var.environment}/portal/dev-session-env"
+
+  # The web task role, as the deployed session key's policy names it. Built here from the name the
+  # spa module gives the role, because the key sits outside the web tier's switch and reads nothing
+  # inside it; the policy matches it by aws:PrincipalArn, which KMS accepts while the role is absent.
+  web_task_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-spa-task-role"
 
   # The origin `npm run dev` serves on, and the only place it is named: the dev client's callback and
   # sign-out URL, and the local server's PORTAL_ORIGIN, are built from it.
@@ -369,14 +377,15 @@ locals {
   }
 
   # What a local server reads, from the SAME locals as the task definition's environment: the
-  # document's CONFIG_ keys, the CSP's connect-src and the session settings, with the dev origin in
-  # place of the deployed one. The auth module adds the dev client's own id and secret. Nothing here is
-  # written as a literal, so the two environments cannot drift.
+  # document's CONFIG_ keys, the CSP's connect-src and the session settings, with the dev origin and
+  # the dev session table in place of the deployed ones. The auth module adds the dev client's own id
+  # and secret. Nothing here is written as a literal, so the two environments cannot drift.
   dev_session_environment = merge(
     { for key, value in local.spa_runtime_config : "CONFIG_${key}" => value },
     { PORTAL_CSP_CONNECT_SRC = local.csp_connect_src },
     { for key, value in local.session_environment : key => value if key != "OIDC_CLIENT_ID" },
     { PORTAL_ORIGIN = local.dev_origin },
+    { SESSION_TABLE_NAME = local.dev_session_table_name },
   )
 
   # The load balancer's access-log prefix in the admin bucket. At ROOT because two modules must
@@ -887,18 +896,39 @@ module "network" {
   depends_on = [module.base]
 }
 
-# ── The portal server's session store ─────────────────────────────────────────
-# OUTSIDE the web tier's switch: switching the tier off must neither schedule the key for deletion
-# nor drop every session. It reads no `network` or `spa` output. modules/session-store/README.md.
+# ── The portal server's session stores ───────────────────────────────────────
+# OUTSIDE the web tier's switch: switching the tier off must neither schedule a key for deletion
+# nor drop every session. Neither reads a `network` or `spa` output. modules/session-store/README.md.
+#
+# The deployed store's key names its principals: the deploy role, and the web task role for this
+# table alone, so no other principal an identity policy allows can read an item's refresh token.
 module "session_store" {
   source = "./modules/session-store"
 
-  project_name = var.project_name
-  environment  = var.environment
-  account_id   = data.aws_caller_identity.current.account_id
-  table_name   = local.session_table_name
+  account_id = data.aws_caller_identity.current.account_id
+  aws_region = var.aws_region
+  table_name = local.session_table_name
+  key_alias  = local.session_key_alias
+
+  named_principals = {
+    deploy_role_arn = local.deploy_role_arn
+    task_role_arn   = local.web_task_role_arn
+  }
 
   # base grants the deploy role the table, key and alias permissions BEFORE anything here lands.
+  depends_on = [module.base]
+}
+
+# Local dev servers' sessions. A dev server signs in with the developer's own credentials, whatever
+# they are, so this key delegates to the account's IAM rather than naming a developer.
+module "dev_session_store" {
+  source = "./modules/session-store"
+
+  account_id = data.aws_caller_identity.current.account_id
+  aws_region = var.aws_region
+  table_name = local.dev_session_table_name
+  key_alias  = local.dev_session_key_alias
+
   depends_on = [module.base]
 }
 

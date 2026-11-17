@@ -125,7 +125,7 @@ CKV_AWS_36     # Ensure CloudTrail log file validation is enabled (1)
 CKV_AWS_66     # Ensure that CloudWatch Log Group specifies retention days (45)
 
 # aws_dynamodb_table
-CKV_AWS_119    # Ensure DynamoDB Tables are encrypted using a KMS Customer Managed CMK (1)
+CKV_AWS_119    # Ensure DynamoDB Tables are encrypted using a KMS Customer Managed CMK (2)
 
 # aws_ecr_repository
 CKV_AWS_163    # Ensure ECR image scanning on push is enabled (2)
@@ -156,7 +156,7 @@ CKV_AWS_62     # Ensure IAM policies that allow full "*-*" administrative privil
 CKV_AWS_63     # Ensure no IAM policies documents allow "*" as a statement's actions (37)
 
 # aws_kms_key
-CKV_AWS_7      # Ensure rotation for customer created CMKs is enabled (1)
+CKV_AWS_7      # Ensure rotation for customer created CMKs is enabled (2)
 
 # aws_lambda_function
 CKV2_AWS_75    # Ensure no open CORS policy (41)

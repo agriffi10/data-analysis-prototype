@@ -241,7 +241,7 @@ Grouped by rule; the count is the number of resources.
 | N | Check | Rule | Disposition |
 |---|---|---|---|
 | 36 | CKV_AWS_338 | Log group retention ≥ 1 year | **accept** — CloudWatch is the operational tail. The durable narrative store is `logs/` in S3, retained forever (SPEC-129). Paying to duplicate it in CloudWatch buys nothing. |
-| 1 | CKV_AWS_28 | DynamoDB point-in-time recovery | **accept** — the one table is the portal server's session store, which holds refresh tokens. A backup would keep them past the sessions they belong to, and a restored session store is nothing anyone needs: a lost session is a sign-in. |
+| 2 | CKV_AWS_28 | DynamoDB point-in-time recovery | **accept** — the two tables are the portal server's session stores, the deployed one and the one local dev servers use (SPEC-270), and both hold refresh tokens. A backup would keep them past the sessions they belong to, and a restored session store is nothing anyone needs: a lost session is a sign-in. |
 | 1 | CKV_AWS_337 | SSM parameter encrypted by a customer-managed key | **accept** — two parameters: the portal server's client secret, a SecureString under the AWS-managed key so that ECS's execution role reads it with `ssm:GetParameters` alone, and the local-development environment (SPEC-262), the same, read by a developer's own credentials with `npm run dev:session-env`. A customer-managed key would add a key policy and a `kms:Decrypt` grant to that role, and protect nothing more: each secret is already in Terraform state, because each Cognito client's own `client_secret` attribute is. |
 | 36 | CKV_AWS_158 | Log group encrypted by KMS | **defer** — encrypted at rest under the AWS-managed key today; a CMK is a cost and key-management decision. |
 | 32 | CKV_AWS_117 | Lambda inside a VPC | **accept — and the reason CHANGED on 2026-08-26, when a VPC arrived.** It used to read "there are no VPC resources". There are now, and the API function is deliberately outside them: attaching it would need an interface endpoint per service it later calls, would put ENI attachment on the cold-start path, and — after the arc's provider swap — would leave a token-verification host with no AWS endpoint at all unreachable, with no code change to blame. The control-plane functions talk to AWS APIs only; a VPC would add cost and no isolation. |
@@ -479,6 +479,10 @@ exits 0 over them. `CKV_AWS_115`, `CKV_AWS_117` and `CKV_AWS_319` also pass and 
 the reasons their own section gives.
 
 ### Enforce-list addition — two IDs, with the session store (2026-11-13)
+
+*Re-measured 2026-11-17 (SPEC-270), when a second store for local dev servers joined: `CKV_AWS_119`
+and `CKV_AWS_7` pass on both stores' tables and keys, and `CKV_AWS_28` fails on both tables by the
+same decision.*
 
 The portal server's session store brought a DynamoDB table and its customer-managed KMS key, the
 first of either in `infra/`. Measured with checkov 3.3.9 before either joined: `CKV_AWS_119` (the

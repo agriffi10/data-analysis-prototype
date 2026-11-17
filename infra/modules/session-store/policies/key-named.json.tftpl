@@ -1,0 +1,95 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "TheDeployRoleAdministersTheKey",
+      "Effect": "Allow",
+      "Principal": { "AWS": "${deploy_role_arn}" },
+      "Action": [
+        "kms:DescribeKey",
+        "kms:GetKeyPolicy",
+        "kms:PutKeyPolicy",
+        "kms:GetKeyRotationStatus",
+        "kms:EnableKeyRotation",
+        "kms:DisableKeyRotation",
+        "kms:EnableKey",
+        "kms:DisableKey",
+        "kms:UpdateKeyDescription",
+        "kms:ListResourceTags",
+        "kms:TagResource",
+        "kms:UntagResource",
+        "kms:ScheduleKeyDeletion",
+        "kms:CancelKeyDeletion",
+        "kms:CreateAlias",
+        "kms:DeleteAlias",
+        "kms:UpdateAlias"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "TheDeployRoleUsesTheKeyThroughDynamoDB",
+      "Effect": "Allow",
+      "Principal": { "AWS": "${deploy_role_arn}" },
+      "Action": [
+        "kms:CreateGrant",
+        "kms:DescribeKey",
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:GenerateDataKey*",
+        "kms:ReEncrypt*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "dynamodb.${aws_region}.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "TheTaskRoleUsesTheKeyForTheSessionTable",
+      "Effect": "Allow",
+      "Principal": { "AWS": "*" },
+      "Action": [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:GenerateDataKey*",
+        "kms:ReEncrypt*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalArn": "${task_role_arn}",
+          "kms:CallerAccount": "${account_id}",
+          "kms:ViaService": "dynamodb.${aws_region}.amazonaws.com",
+          "kms:EncryptionContext:aws:dynamodb:tableName": "${table_name}"
+        }
+      }
+    },
+    {
+      "Sid": "TheTaskRoleDescribesTheKeyThroughDynamoDB",
+      "Effect": "Allow",
+      "Principal": { "AWS": "*" },
+      "Action": "kms:DescribeKey",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:PrincipalArn": "${task_role_arn}",
+          "kms:CallerAccount": "${account_id}",
+          "kms:ViaService": "dynamodb.${aws_region}.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "TheAccountReadsTheKeysMetadata",
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::${account_id}:root" },
+      "Action": [
+        "kms:DescribeKey",
+        "kms:GetKeyPolicy",
+        "kms:GetKeyRotationStatus",
+        "kms:ListResourceTags"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

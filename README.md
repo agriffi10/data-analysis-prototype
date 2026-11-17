@@ -122,7 +122,7 @@ npm run format     # Prettier
 own session routes, exactly as the deployed portal does, with an app client of its own for local
 development. Everything that server needs, that client's secret included, comes from one SSM
 parameter the infrastructure renders from the deployed task's own values. With AWS credentials that
-can read it and the session table (an administrator's can):
+can read it and the dev session table (an administrator's can):
 
 ```bash
 npm run dev:session-env -w apps/portal   # writes a marked block into apps/portal/.env.local
@@ -132,7 +132,9 @@ npm run dev -w apps/portal
 The script prints variable names, never values, keeps every other line of `.env.local`, and replaces
 only its own block when run again. A line written after the block overrides it. The dev server
 refuses to start, naming each variable, when one is missing; that is the sign to run the script. The
-API, the session table and the buckets are the deployed ones, so a local sign-in reaches real data.
+API and the buckets are the deployed ones, so a local sign-in reaches real data. The session table is
+not: a local server keeps its sessions in a table of its own, because the deployed table's key admits
+only the deploy role and the web tier's task role.
 Uploads and downloads redeem presigned URLs from `http://localhost:5173`, which both buckets' CORS
 allowlists name.
 

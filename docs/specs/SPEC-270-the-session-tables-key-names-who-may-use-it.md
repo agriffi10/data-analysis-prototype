@@ -3,7 +3,7 @@ type: Spec
 id: SPEC-270
 title: "The Session Table's Key Names Who May Use It"
 description: "Narrows the deployed session table's customer-managed key from a policy that delegates to the account's IAM to one that names the web task role and the deploy role, so an account principal that IAM allows to read the table can no longer read the refresh tokens in it, and moves local dev servers onto a session table and key of their own."
-spec_status: Draft
+spec_status: In Progress
 depends_on: [SPEC-257]
 ---
 
@@ -45,6 +45,13 @@ name a developer.
   (`PutResourcePolicy`, `GetResourcePolicy`, `DeleteResourcePolicy`) in a PR of their own, and it would
   leave the key delegated, which is what a security review reads first. The key policy alone closes
   the exposure, because DynamoDB cannot return an item to a caller that cannot decrypt it.
+  *(Narrowed 2026-11-17 by the build's security review: that holds for item reads. Whether DynamoDB's
+  control plane — `UpdateTable` switching the table to an AWS-owned key, or `CreateBackup` then
+  `RestoreTableFromBackup` with an encryption override — needs the caller to hold the key, or runs
+  on DynamoDB's own grant, is not documented and not measured. If it runs on the grant, a principal
+  with those DynamoDB actions and no IAM write could move the tokens to a key it can use. Inside the
+  IaC only the deploy role holds `UpdateTable`. A separate session measures it on a throwaway table
+  and, if the path is real, specs the resource policy this bullet set aside.)*
 - **A `Deny` statement in the key policy.** The sealing key carries one; this key does not. DynamoDB
   holds grants on the key, whose grantee is its regional service principal, and uses them for
   background maintenance. The IAM documentation does not say `aws:PrincipalArn` is present on a
@@ -248,8 +255,11 @@ The module's interface after this spec:
 
 ```hcl
 # infra/modules/session-store/variables.tf
+variable "account_id" { type = string } # as today; the delegated policy's root, the named one's metadata reader
+variable "aws_region" { type = string } # passed from root, since a module behind depends_on reads no data source
 variable "table_name" { type = string } # root builds it, as today
 variable "key_alias"  { type = string } # root builds it; names.tf no longer does
+# project_name and environment go: names.tf and the key's Name tag were their only readers.
 
 # null: the key delegates to the account's IAM (the dev store).
 # Set: the key names these principals and no others (the deployed store).
