@@ -1665,7 +1665,7 @@ specs:
     title: "A Name Is One User's or One Space's, and Only the Plane Writes a Membership"
     description: "Closes the access gap where a shared-space name could be claimed as a user's Glue database name and anyone could write any name into their own membership list, so only the plane writes memberships; sign-up is left out because the target environment has none."
     spec_status: "Draft"
-    depends_on: ["SPEC-012", "SPEC-051", "SPEC-056", "SPEC-257"]
+    depends_on: ["SPEC-012", "SPEC-051", "SPEC-056", "SPEC-257", "SPEC-262"]
     path: "docs/specs/SPEC-248-a-name-is-one-users-or-one-spaces.md"
   - id: "SPEC-249"
     title: "Filter by Value Lists a Column's Values to Tick"
