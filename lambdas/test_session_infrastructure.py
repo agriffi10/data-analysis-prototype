@@ -20,6 +20,9 @@ Attributes:
   CLIENT_FLOOR: The number of app clients the IaC declares today. The revocation sweep must find at
     least this many, so a sweep that reads the wrong tree, or a parser that stops recognising a
     header, fails instead of passing over nothing.
+  CLIENT_READ_ATTRIBUTES: The read list every app client references, whitespace removed: email,
+    its verified flag and every membership slot, iterated over the same range as the pool's slot
+    schema.
   RENDERED: The values root's names are resolved with, as the deployed account has them.
   KEY_ADMINISTRATION: The actions the deployed session key lets the deploy role administer it with.
     None is cryptographic, so none reads a token.
@@ -64,6 +67,14 @@ SIGN_IN_SETTINGS = {
 }
 
 CLIENT_FLOOR = 2
+CLIENT_READ_ATTRIBUTES = re.sub(
+    r"\s",
+    "",
+    """concat(
+      ["email", "email_verified"],
+      [for k in range(1, var.max_shared_memberships + 1) : "custom:shared_space_${k}"],
+    )""",
+)
 
 RENDERED = {
     "project_name": "dat",
@@ -761,10 +772,6 @@ def test_the_dev_client_mirrors_the_server_client_and_only_it_names_localhost() 
         assert "".join(value.split()).replace(",]", "]") == expected, (
             f"the server client's {setting} is {value}"
         )
-    for client in (server, dev):
-        assert "read_attributes" not in client and "write_attributes" not in client, (
-            "an attribute list that omits a custom:shared_space_k slot drops that claim"
-        )
     assert _argument(server, "generate_secret") == "true"
     assert _argument(server, "callback_urls") == '["${var.spa_origin}/auth/callback"]'
     assert _argument(server, "logout_urls") == "[var.spa_origin]"
@@ -785,6 +792,147 @@ def test_the_dev_client_mirrors_the_server_client_and_only_it_names_localhost() 
         r'^\s*dev_origin\s*=\s*"http://localhost:5173"\s*$',
         ROOT_MAIN.read_text(),
         re.MULTILINE,
+    )
+
+
+def _locals_values(text: str, name: str) -> list[str]:
+    """Every value assigned to one local across a Terraform file's ``locals`` blocks.
+
+    Located over ``strip_noise`` so a ``locals {`` inside a comment or a string is not a block, and
+    each body read to its own closing brace by the shared counter.
+
+    Args:
+      text: A Terraform file's source.
+      name: The local's name.
+
+    Returns:
+      Each value expression assigned to ``name``, in file order; empty when none is.
+
+    Raises:
+      None.
+    """
+    code = strip_comments(text)
+    values = []
+    for match in re.finditer(r"(?<![\w-])locals\s*\{", strip_noise(text)):
+        body = span(code, match.end() - 1)[1:-1]
+        try:
+            values.append(top_level_argument(body, name))
+        except ValueError:
+            continue
+    return values
+
+
+def _slot_schema_range(pool: str) -> str:
+    """The ``range(...)`` the pool's ``dynamic "schema"`` block iterates for the membership slots.
+
+    Searched with comments blanked but strings kept, because the block's label is a string and
+    ``strip_noise`` would blank the very name looked for.
+
+    Args:
+      pool: The ``aws_cognito_user_pool`` body.
+
+    Returns:
+      The ``for_each`` value with its whitespace collapsed.
+
+    Raises:
+      AssertionError: When the pool has no ``dynamic "schema"`` block.
+    """
+    code = strip_comments(pool)
+    match = re.search(r'(?<![\w-])dynamic\s+"schema"\s*\{', code)
+    assert match, "the pool declares no dynamic schema block for the membership slots"
+    body = span(code, match.end() - 1)[1:-1]
+    return "".join(top_level_argument(body, "for_each").split())
+
+
+def test_every_app_client_declares_both_attribute_lists() -> None:
+    """A user who can write a membership slot can write themselves into any space or user's catalog.
+
+    An unset write list is documented both ways — every attribute, or the standard ones only — and
+    the deployed token shows reads follow the first reading. So every client declares
+    ``write_attributes = ["email"]`` as a literal, which a ``concat`` or a reference cannot hide a
+    ``custom:`` entry behind, and ``read_attributes`` as the one local. The read list matters as much:
+    a list that omits a slot drops that slot's claim, which presents as the propagation delay, so the
+    local's whole expression is pinned and its range is held to the pool schema's character for
+    character — a filter on ``k`` or a slot name without ``custom:`` keeps the bounds and drops claims.
+    The sweep covers every ``.tf`` file, so a client added anywhere is held too, and every client must
+    sit in the auth module, where the local it names is the one read here. It refuses what it cannot
+    read: JSON syntax, and OpenTofu's own ``.tofu`` files, which are loaded too and make a same-named
+    ``.tf`` file be ignored, so the file read here would not be the one applied. It refuses a client
+    resource of another type, which the per-type split cannot see, and ``ignore_changes`` on a client,
+    which would leave an existing client's lists as they were while the source read here changed.
+    """
+    unread = [
+        str(p.relative_to(INFRA))
+        for pattern in ("*.tf.json", "*.tofu", "*.tofu.json")
+        for p in INFRA.rglob(pattern)
+        if ".terraform" not in p.parts
+    ]
+    assert unread == [], (
+        f"a client in a file this sweep does not read escapes it: {unread}"
+    )
+    other_types = sorted(
+        {
+            match.group(1)
+            for path in INFRA.rglob("*.tf")
+            if ".terraform" not in path.parts
+            for match in re.finditer(
+                r'(?<![\w-])resource\s+"([^"]*cognito[^"]*user_pool_client)"',
+                strip_comments(path.read_text()),
+            )
+        }
+        - {"aws_cognito_user_pool_client"}
+    )
+    assert other_types == [], (
+        f"an app client of a type this sweep does not visit escapes it: {other_types}"
+    )
+    clients: dict[str, tuple[pathlib.Path, str]] = {}
+    for path in sorted(p for p in INFRA.rglob("*.tf") if ".terraform" not in p.parts):
+        for name, body in blocks(path.read_text(), "aws_cognito_user_pool_client").items():
+            clients[f"{path.relative_to(INFRA)}:{name}"] = (path, body)
+    assert len(clients) >= CLIENT_FLOOR, (
+        f"the sweep found only {sorted(clients)}; the tree, the parser or CLIENT_FLOOR is wrong"
+    )
+
+    def collapsed(body: str, setting: str) -> str | None:
+        try:
+            return "".join(top_level_argument(body, setting).split())
+        except ValueError:
+            return None
+
+    for client, (path, body) in clients.items():
+        assert "ignore_changes" not in strip_comments(body), (
+            f"{client} ignores changes, so an apply can leave its attribute lists as they were"
+        )
+        assert path.parent == AUTH.parent, (
+            f"{client} sits outside the auth module, where local.client_read_attributes is not the one held here"
+        )
+        write = collapsed(body, "write_attributes")
+        assert write == '["email"]', (
+            f'{client} must declare write_attributes = ["email"] (read: {write})'
+        )
+        read = collapsed(body, "read_attributes")
+        assert read == "local.client_read_attributes", (
+            f"{client} must declare read_attributes = local.client_read_attributes (read: {read})"
+        )
+
+    values = [
+        value
+        for path in sorted(AUTH.parent.glob("*.tf"))
+        for value in _locals_values(path.read_text(), "client_read_attributes")
+    ]
+    assert len(values) == 1, (
+        f"local.client_read_attributes is declared {len(values)} times in the auth module"
+    )
+    local = "".join(values[0].split())
+    assert local == CLIENT_READ_ATTRIBUTES, (
+        f"local.client_read_attributes is {local}, not the list naming email, email_verified and every slot"
+    )
+    pool = blocks(AUTH.read_text(), "aws_cognito_user_pool")["portal"]
+    schema_range = _slot_schema_range(pool)
+    local_range = re.search(r"range\([^)]*\)", local)
+    assert local_range and local_range.group(0) == schema_range, (
+        f"local.client_read_attributes iterates {local_range and local_range.group(0)}, "
+        f"but the pool's slot schema iterates {schema_range}"
     )
 
 

@@ -2,21 +2,22 @@
 type: Spec
 id: SPEC-248
 title: "A Name Is One User's or One Space's, and Only the Plane Writes a Membership"
-description: "Closes the access gap where a shared-space name could be claimed as a user's Glue database name and anyone could write any name into their own membership list, so only the plane writes memberships; sign-up is left out because the target environment has none."
-spec_status: Draft
-depends_on: [SPEC-012, SPEC-051, SPEC-056, SPEC-257]
+description: "Closes the access gap where a shared-space name could be claimed as a user's Glue database name and any user holding a client secret could write any name into their own membership list, so only the plane writes memberships; sign-up is left out because the target environment has none."
+spec_status: In Progress
+depends_on: [SPEC-012, SPEC-051, SPEC-056, SPEC-257, SPEC-262]
 ---
 
-**Dependency notes:** SPEC-012, SPEC-051, SPEC-056, and SPEC-257, whose confidential server client
-and whose test over `cognito.tf` FR-001 changes. The control-plane data-loss audit this spec was
-written beside merged on 2026-09-26 (#892), so FR-002 to FR-004 read its database marker from
-`main`. FR-001 depends on nothing else in this list, and it lands first.
+**Dependency notes:** SPEC-012, SPEC-051, SPEC-056, SPEC-257, whose confidential server client
+FR-001 changes, and SPEC-262, which completed before this spec was built. SPEC-262 added the dev
+client and destroyed the public `spa` client, so `infra/modules/auth/cognito.tf` declares exactly
+two app clients, `server` and `dev`, both with a secret, and the dev client mirrors the server
+client in every setting but its URLs. Its test over them,
+`test_the_dev_client_mirrors_the_server_client_and_only_it_names_localhost`
+(`lambdas/test_session_infrastructure.py`), is the one FR-001 changes. The control-plane data-loss
+audit this spec was written beside merged on 2026-09-26 (#892), so FR-002 to FR-004 read its
+database marker from `main`. FR-001 depends on nothing else in this list, and it lands first. A
+client added after FR-001 lands fails FR-001's test until it declares both lists.
 
-**This spec builds before, between or after SPEC-262's two merges, and neither spec waits for the
-other.** SPEC-262 adds a dev client and then destroys the public one. FR-001 is written against
-every app client the infrastructure declares, whichever those are on the day, and its probe and its
-control say which client they use in each case. A client added after FR-001 lands, the dev client
-included, fails FR-001's test until it declares both lists.
 ## Overview
 
 A username and a shared-space name are both used as the name of a Glue database, and there is only
@@ -31,8 +32,8 @@ This spec closes the access half on the side of spaces and memberships. It has t
 - A person creating a space must not be able to name it after a user and so reach that user's
   catalog, not even for the few hundred milliseconds before the create is refused.
 - Above all, no one may write a space's name or a user's name into their own account's membership
-  list. The evidence below says that today anyone can, including someone who has not signed in yet
-  and does it at sign-up.
+  list. The evidence below says that today any user who holds an app client's secret can, and that
+  a stranger signing up through managed login perhaps can.
 - Nobody should notice any of this except a person trying one of these things. That person is
   refused with the same short sentence whichever name they collided with.
 
@@ -53,7 +54,8 @@ A security spec rests on its premises, so each one is stated with where it was r
 exercised against the deployed account. P6's `UpdateUserAttributes` half is measured by FR-001
 before anything else is built, and its `SignUp` half is not measured at all. P3 is measured
 by FR-004. Each was read again against `main` at `5408a55e`, after SPEC-257 merged; P5 and P6 are
-rewritten for what the audit and that spec changed, and the rest stood.
+rewritten for what the audit and that spec changed, and the rest stood. P5 and P6 were rewritten
+again at `81fb468e`, after SPEC-262 completed, for the two clients that are left.
 
 - **P1. One namespace, two writers.** `post_confirmation._ensure_database(username)` and
   `create_space._ensure_database(name)` are the only `create_database` calls in `lambdas/`, and
@@ -106,39 +108,47 @@ rewritten for what the audit and that spec changed, and the rest stood.
   - Every deployed environment runs the `claims` membership source (`MEMBERSHIP_SOURCE` is set
     nowhere in `infra/` or `.github/`). Under it, the API stamps whatever the ID token carries and
     consults no registry.
-  - An ID token lasts one hour on either client. The public client sets no lifetime and takes
-    Cognito's default, and the server client declares 60 minutes.
+  - An ID token lasts one hour on either client: the server and dev clients both take 60 minutes
+    from the one local `server_token_validity`.
   - So a creator who refreshes their token inside the window keeps that user's catalog for an hour.
     They can reopen the window at will: the owner of a failed, never-active create may run it
     again (`registry._resolve_reserve_collision`).
   - The `index` source is not exposed, because it yields a tag only for an active space and the
     index is written after the space goes active.
-- **P6. The membership slot is very likely writable by the user it belongs to, and by anyone at
-  sign-up.**
-  - **No client says.** The `auth` module declares two app clients, the public `spa` client and the
-    confidential `server` client, and neither sets `read_attributes` or `write_attributes`. A test
-    holds them to that (`lambdas/test_session_infrastructure.py`), for a reason FR-001 keeps: a
-    read list that omits a slot drops that slot's claim from the ID token.
+- **P6. The membership slot is very likely writable by the user it belongs to, by anyone holding
+  a client secret, and perhaps by anyone at sign-up.**
+  - **No client says.** The `auth` module declares two app clients, the confidential `server` and
+    `dev` clients, and neither sets `read_attributes` or `write_attributes`. A test holds them to
+    that (`lambdas/test_session_infrastructure.py`), for a reason FR-001 keeps: a read list that
+    omits a slot drops that slot's claim from the ID token.
   - **AWS's two documents disagree on what that means.** The developer guide says a new client
     gets "read and write permissions for all standard and custom attributes". The API reference
     says an unset list means standard attributes only.
   - **Reads follow the "all attributes" default.** The deployed ID token carries
     `custom:shared_space_k`, and Cognito includes a claim only for an attribute the client can
     read. Nothing suggests writes behave differently.
-  - **Two paths write, and one needs no account.**
-    - `SignUp` takes attributes, subject to the same write list, and through the public client it
-      needs only that client's id. Anyone can sign up already carrying
-      `custom:shared_space_1 = <any space>`, confirm, and sign in with that tag.
-    - An existing user can call `UpdateUserAttributes` with a token from `ALLOW_USER_SRP_AUTH`,
-      which carries `aws.cognito.signin.user.admin`. The public client allows that flow with no
-      secret.
-  - **Destroying the public client narrows this and does not close it.** After SPEC-262's second
-    merge every client has a secret, and an API request to such a client must carry a hash of it
-    (AWS developer guide, *Computing secret hash values*, which lists `SignUp` and `InitiateAuth`).
-    Both paths above then need a secret that the server and anyone who can read the dev client's
-    parameter hold. Sign-up through the managed-login page stays open to everyone, and whether a
-    crafted form can carry a `custom:` attribute through it is not measured. So FR-001 is needed on
-    either side of that merge.
+  - **Who holds a secret.** Both clients have one, and an API request to such a client must carry
+    a hash of it (AWS developer guide, *Computing secret hash values*, which lists `SignUp` and
+    `InitiateAuth`). The secrets are held by the server, by anyone who can read either secret's
+    SSM parameter (the server client's own, or the dev client's, which every developer reads to
+    run `next dev`), and by anyone who can read Terraform state, which holds both.
+  - **Three paths write.**
+    - **`UpdateUserAttributes`, by a user who holds a secret.** It needs an access token carrying
+      `aws.cognito.signin.user.admin`. The tokens the portal server holds come from the
+      authorization-code flow with the scopes `openid`, `email` and `profile`, so they do not carry
+      it. A token from `InitiateAuth` by `ALLOW_USER_SRP_AUTH` does, both clients allow that flow,
+      and it needs the secret hash. So any user holding a secret can write their own slot.
+    - **`SignUp`, by anyone who holds a secret.** It takes attributes, subject to the same write
+      list, and with the secret hash it can create an account already carrying
+      `custom:shared_space_1 = <any space>`.
+    - **Sign-up through the managed-login page, by anyone.** It needs no secret and stays open to
+      everyone in the current account. Whether a crafted form can carry a `custom:` attribute
+      through it is not measured, and neither is whether the write list governs it. So the
+      sign-up path still open to strangers is the one this spec knows least about, and it is left
+      with the rest of sign-up (Out of Scope).
+  - **So destroying the public client narrowed this and did not close it.** FR-001 is still
+    needed: it shuts the path the probe measures, a user writing their own slot, for everyone who
+    holds a secret.
   - **What a written slot reaches.** A slot naming a space gets that space's objects and catalog.
     A slot naming a user gets that user's catalog through `SharedSpaceGlue`.
   - The `cognito.tf` comment "Only the orchestrator role writes these" is a claim that nothing
@@ -205,12 +215,13 @@ rewritten for what the audit and that spec changed, and the rest stood.
   need a migration.
 - **A backfill that marks the databases of spaces created before the marker.** Decided against in
   FR-004.
-- **Removing `ALLOW_USER_SRP_AUTH`.** It is not what the slot write depends on, because `SignUp`
-  writes attributes with no token at all, and FR-001's write list closes `UpdateUserAttributes`,
-  which is measured, and is documented to close `SignUp`, which is left unmeasured along with the
-  rest of sign-up. Removing it
-  would also stop self-deletion through `DeleteUser`, but nothing has measured that Managed Login
-  works without it.
+- **Removing `ALLOW_USER_SRP_AUTH`.** It is what `UpdateUserAttributes` depends on, since nothing
+  else yields a token with `aws.cognito.signin.user.admin`, so removing it would be a second layer
+  behind FR-001's write list on that path. It is kept for three reasons. FR-001's probe signs in by
+  SRP, so removing it first would leave the write list's premise unmeasured. The write list closes
+  the path on its own, and the probe after the apply shows that it does. And removing it would
+  also stop self-deletion through `DeleteUser`, while nothing has measured that Managed Login works
+  without it. It does nothing for `SignUp` or managed-login sign-up, which take no token.
 - **Fixing what the report finds.** Clearing a self-written slot, resolving a collision, or
   dropping a leftover database is done by hand and recorded. The report writes nothing.
 - The archive and table-share keys' own versions of this hazard, named in the audit's register
@@ -226,9 +237,10 @@ rewritten for what the audit and that spec changed, and the rest stood.
 #### Description:
 
 Every `aws_cognito_user_pool_client` under `infra/` declares two lists. Today those clients are
-`spa` and `server`, both in `infra/modules/auth/cognito.tf`, which is where the local below lives;
+`server` and `dev`, both in `infra/modules/auth/cognito.tf`, which is where the local below lives;
 a client added later, in any file of that module, declares them too, and the test below fails
-until it does.
+until it does. The two lists are the same on both clients, so the mirror test's comparison of the
+dev client with the server client still holds.
 - `write_attributes = ["email"]`, written as that literal on each client. Email is the one
   attribute sign-up collects, and it is required.
 - `read_attributes = local.client_read_attributes`, one local that every client references:
@@ -249,7 +261,7 @@ the read list back to a default that one of AWS's documents says excludes custom
 would remove every space from every token.
 
 **This replaces an assertion and keeps its reason.**
-`test_the_server_client_mirrors_the_spa_client_and_differs_only_where_it_must` asserts that neither
+`test_the_dev_client_mirrors_the_server_client_and_only_it_names_localhost` asserts that neither
 client carries either list, because a list that omits a slot drops that slot's claim, and a dropped
 claim presents as the documented propagation delay and not as a fault. FR-001's test asserts the
 stronger thing, that both lists are present and the read list covers every slot, so that assertion
@@ -258,10 +270,11 @@ is deleted and the mirror test's other assertions stay.
 The premise is measured before the change with a **probe that changes nothing**:
 - It is a short throwaway Python script that uses `pycognito`, in a virtual environment outside the
   repository, so it adds no dependency. `pycognito` signs in by SRP and sends the secret hash when
-  it is given a client secret, so one script serves a client with a secret and one without.
-- It signs in with a test account through the public client while that client exists, and through
-  SPEC-262's dev client once it does not. Andrew types the password, and for the dev client
-  supplies its secret from his own shell; the session never handles either.
+  it is given a client secret, which both clients now require.
+- It signs in with a test account through the dev client, the client meant for a developer's
+  laptop. Andrew types the password and supplies the dev client's secret from his own shell; the
+  session never handles either. The access token SRP returns carries
+  `aws.cognito.signin.user.admin`, which is what `UpdateUserAttributes` needs.
 - It reads the account's attributes and picks a slot that is already empty.
 - It calls `UpdateUserAttributes` setting that slot to the empty string. `clear_slot` writes that
   same value, and `_from_claims` ignores it.
@@ -279,9 +292,9 @@ After the apply the probe shows the list refusing on that client, and
 
 #### Acceptance Criteria:
 
-- [ ] Before the apply, Andrew runs the probe against the deployed pool, as a test account he
-  names. The outcome is recorded in the delivery doc with the client it signed in through and the
-  error code and message quoted, along with the verdict the rule above gives it.
+- [ ] Before the apply, Andrew runs the probe against the deployed pool through the dev client, as
+  a test account he names. The outcome is recorded in the delivery doc with the client it signed
+  in through and the error code and message quoted, along with the verdict the rule above gives it.
 - [ ] A test in `lambdas/test_session_infrastructure.py` visits every `aws_cognito_user_pool_client` block in every `.tf`
   file under `infra/`, as `test_every_rotation_block_states_its_grace_period` visits its blocks,
   and fails, naming the client, unless its `write_attributes` is exactly `["email"]`. It reads the
@@ -295,9 +308,12 @@ After the apply the probe shows the list refusing on that client, and
 - [ ] The mirror test no longer asserts that the lists are absent, and its other assertions pass
   unchanged.
 - [ ] Seven planted defects each turn that test red by its own message, naming the client or the
-  local, and each is reverted. Another test going red beside it does not count.
-  - deleting `write_attributes` from one client;
-  - adding `"custom:shared_space_1"` to one client's;
+  local, and each is reverted. Another test going red beside it does not count. A plant on one
+  client also turns the mirror test red, because the dev client then differs from the server
+  client; that is expected, and it is why the first two plants are made on the dev client, so a
+  test that read only the server client and leaned on the mirror for the other would stay green.
+  - deleting `write_attributes` from the dev client;
+  - adding `"custom:shared_space_1"` to the dev client's;
   - changing the local's range to `range(1, var.max_shared_memberships)`, one short;
   - adding `if k != 3` to the local's comprehension;
   - dropping `custom:` from the local's slot name;
@@ -311,19 +327,15 @@ After the apply the probe shows the list refusing on that client, and
 - [ ] After the apply, `describe-user-pool-client` for every client the module declares returns a
   `WriteAttributes` of exactly `email` and a `ReadAttributes` naming `email`, `email_verified` and
   every slot.
-- [ ] After the apply, as the control, a member signs in fresh, through each client a browser can
-  sign in through on that day, in a sign-in that starts after the apply. The web tier is on for
-  it. Through each one a listing of their shared space's files succeeds, which it cannot without
-  the slot claim, and their email is shown:
-  - the server client, in every state: in the portal once the browser signs in through the
-    server, and before that through `/auth/login`, with the listing sent as the request the portal
-    itself makes for it, `/api` put in front of its path, and the email read from
-    `GET /auth/session`;
-  - the public client, only while the portal signs in through Amplify: in the portal;
-  - the dev client, once it exists: under `next dev`.
-
-  Between SPEC-262's two merges the public client still exists and no browser signs in through it,
-  so `describe-user-pool-client` is its only evidence.
+- [ ] After the apply, `list-user-pool-clients` returns exactly the clients the module declares,
+  `server` and `dev`. A client made outside the infrastructure, or one whose destroy never
+  completed, keeps the default lists, and nothing in the repository can see it.
+- [ ] After the apply, as the control, a member signs in fresh through each of the two clients, in
+  a sign-in that starts after the apply. Through each one a listing of their shared space's files
+  succeeds, which it cannot without the slot claim, and their email is shown:
+  - the server client: in the deployed portal, with the web tier on;
+  - the dev client: in the portal under `next dev`, which signs in through the same server routes
+    and reaches the same deployed API.
 - [ ] After the apply, a space create or a member add writes a new slot through the plane, and
   that member, signing in fresh, lists the space's files. The control above uses slots written
   before the apply, so without this nothing shows that the write list leaves the plane's admin
@@ -553,7 +565,7 @@ infra/modules/auth/cognito.tf                     # FR-001 read/write attributes
 infra/plane-shared-spaces.tf                      # FR-004 one-shot function, in the plane's function map
 infra/planes/shared-spaces/execution.json.tftpl   # FR-004 ListLakeFormationOptIns
 lambdas/
-├── test_session_infrastructure.py                # FR-001 the mirror test's absent-lists assertion goes
+├── test_session_infrastructure.py                # FR-001 the attribute-list sweep; the mirror test's absent-lists assertion goes
 ├── shared-space-common/teardown.py               # FR-002 revoke only on own
 ├── shared-space-common/registry.py               # FR-002 NameTaken, raised at the collision
 ├── shared-space-create/create_space.py           # FR-002, FR-003
@@ -571,14 +583,16 @@ apps/portal/src/features/
 ### Phase 1: The slot is not writable (FR-001)
 
 - Andrew runs the probe against the deployed pool, and the outcome is recorded.
-- Add both attribute lists to every client and the test over `cognito.tf`, and delete the mirror
-  test's absent-lists assertion.
-- In the same change, correct the two `cognito.tf` comments the lists make wrong or make true: the
-  one above the server client, which says neither client carries a read list, and the slot
-  comment's "Only the orchestrator role writes these".
+- Add both attribute lists to every client and the test that sweeps every client under `infra/`,
+  and delete the mirror test's absent-lists assertion.
+- In the same change, correct the `cognito.tf` comments the lists make wrong or make true, or that
+  SPEC-262 left wrong: the one above the server client, which says neither client carries a read
+  list, the slot comment's "Only the orchestrator role writes these", and the dev client's "A third
+  client", which has been the second since the public client was destroyed.
 - Apply, re-run the probe, and read every client's lists.
 - Switch the web tier on through the repository variable and CI, run the fresh-sign-in control
-  through each client, and switch the tier off the same way.
+  through the server client in the portal and through the dev client under `next dev`, and switch
+  the tier off the same way.
 - This phase depends on nothing else in the spec and is the most urgent. It lands on its own, first.
 
 ### Phase 2: IAM before the code that needs it
