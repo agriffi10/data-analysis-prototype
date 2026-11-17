@@ -20,6 +20,9 @@ Attributes:
   CLIENT_FLOOR: The number of app clients the IaC declares today. The revocation sweep must find at
     least this many, so a sweep that reads the wrong tree, or a parser that stops recognising a
     header, fails instead of passing over nothing.
+  CLIENT_READ_ATTRIBUTES: The read list every app client references, whitespace removed: email,
+    its verified flag and every membership slot, iterated over the same range as the pool's slot
+    schema.
   RENDERED: The values root's names are resolved with, as the deployed account has them.
   KEY_ADMINISTRATION: The actions the deployed session key lets the deploy role administer it with.
     None is cryptographic, so none reads a token.
@@ -64,8 +67,6 @@ SIGN_IN_SETTINGS = {
 }
 
 CLIENT_FLOOR = 2
-#: The read list every app client references, whitespace removed: email, its verified flag and every
-#: membership slot, iterated over the same range as the pool's slot schema.
 CLIENT_READ_ATTRIBUTES = re.sub(
     r"\s",
     "",

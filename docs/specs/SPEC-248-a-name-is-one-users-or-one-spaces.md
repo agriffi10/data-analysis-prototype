@@ -147,7 +147,7 @@ again at `81fb468e`, after SPEC-262 completed, for the two clients that are left
       sign-up path still open to strangers is the one this spec knows least about, and it is left
       with the rest of sign-up (Out of Scope).
   - **So destroying the public client narrowed this and did not close it.** FR-001 is still
-    needed: it shuts the path that is measured, a user writing their own slot, for everyone who
+    needed: it shuts the path the probe measures, a user writing their own slot, for everyone who
     holds a secret.
   - **What a written slot reaches.** A slot naming a space gets that space's objects and catalog.
     A slot naming a user gets that user's catalog through `SharedSpaceGlue`.
@@ -565,7 +565,7 @@ infra/modules/auth/cognito.tf                     # FR-001 read/write attributes
 infra/plane-shared-spaces.tf                      # FR-004 one-shot function, in the plane's function map
 infra/planes/shared-spaces/execution.json.tftpl   # FR-004 ListLakeFormationOptIns
 lambdas/
-├── test_session_infrastructure.py                # FR-001 the mirror test's absent-lists assertion goes
+├── test_session_infrastructure.py                # FR-001 the attribute-list sweep; the mirror test's absent-lists assertion goes
 ├── shared-space-common/teardown.py               # FR-002 revoke only on own
 ├── shared-space-common/registry.py               # FR-002 NameTaken, raised at the collision
 ├── shared-space-create/create_space.py           # FR-002, FR-003
@@ -583,8 +583,8 @@ apps/portal/src/features/
 ### Phase 1: The slot is not writable (FR-001)
 
 - Andrew runs the probe against the deployed pool, and the outcome is recorded.
-- Add both attribute lists to every client and the test over `cognito.tf`, and delete the mirror
-  test's absent-lists assertion.
+- Add both attribute lists to every client and the test that sweeps every client under `infra/`,
+  and delete the mirror test's absent-lists assertion.
 - In the same change, correct the `cognito.tf` comments the lists make wrong or make true, or that
   SPEC-262 left wrong: the one above the server client, which says neither client carries a read
   list, the slot comment's "Only the orchestrator role writes these", and the dev client's "A third

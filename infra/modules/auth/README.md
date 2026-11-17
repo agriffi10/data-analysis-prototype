@@ -66,14 +66,16 @@ replacement — but they can never be modified or removed afterwards. **Raise
 `AdminUpdateUserAttributes`.
 
 **That rests on every app client saying so.** Each client declares `write_attributes =
-["email"]`, which AWS documents as governing every write made through that client, so a user holding
-a token or a client secret cannot write a slot into their own account and reach any space's files or
-any name's catalog; an admin call under IAM is documented not to be limited by a client's list.
-Measured: SPEC-248's probe for `UpdateUserAttributes`. Not measured: `SignUp`, and sign-up through
-Managed Login, which this account keeps until it is decommissioned. Each also declares `read_attributes = local.client_read_attributes`, which
-names `email`, `email_verified` and every slot over the schema's own range. The two are set
-together: a read list that omits a slot drops that claim from the ID token, and that presents as the
-propagation delay above rather than as a fault, while an unset read list is documented both as
+["email"]`, which AWS documents as governing every write made through that client, so a user
+holding a token or a client secret cannot write a slot into their own account and reach any space's
+files or any name's catalog; an admin call under IAM is documented not to be limited by a client's
+list. SPEC-248's probe measures the `UpdateUserAttributes` half, before and after the apply, and its
+delivery doc records the outcome. Nothing measures `SignUp`, or sign-up through Managed Login, which
+this account keeps until it is decommissioned. Each also declares `read_attributes =
+local.client_read_attributes`, which names `email`, `email_verified` and every slot over the
+schema's own range. The two are set together: a read list that omits a slot drops that claim from
+the ID token, and that presents as the next-refresh delay described above rather than as a fault,
+while an unset read list is documented both as
 "every attribute" and as "standard attributes only". `test_every_app_client_declares_both_attribute_lists`
 holds every client in the tree to both.
 
