@@ -2,15 +2,15 @@
 type: Spec
 id: SPEC-248
 title: "A Name Is One User's or One Space's, and Only the Plane Writes a Membership"
-description: "Closes the access gap where a signup or shared-space name could be claimed as the other's Glue database name and anyone could write any name into their own membership list, so only the plane writes memberships."
+description: "Closes the access gap where a shared-space name could be claimed as a user's Glue database name and anyone could write any name into their own membership list, so only the plane writes memberships; sign-up is left out because the target environment has none."
 spec_status: Draft
 depends_on: [SPEC-012, SPEC-051, SPEC-056, SPEC-257]
 ---
 
 **Dependency notes:** SPEC-012, SPEC-051, SPEC-056, and SPEC-257, whose confidential server client
 and whose test over `cognito.tf` FR-001 changes. The control-plane data-loss audit this spec was
-written beside merged on 2026-09-26 (#892), so FR-003 to FR-006 read its database marker from
-`main`. FR-001 and FR-002 depend on nothing else in this list, and FR-001 lands first.
+written beside merged on 2026-09-26 (#892), so FR-002 to FR-004 read its database marker from
+`main`. FR-001 depends on nothing else in this list, and it lands first.
 
 **This spec builds before, between or after SPEC-262's two merges, and neither spec waits for the
 other.** SPEC-262 adds a dev client and then destroys the public one. FR-001 is written against
@@ -27,8 +27,7 @@ of your spaces is called". So whoever controls a name controls a catalog.
 The data-loss half of this was fenced on 2026-09-26. A space named after a user no longer takes over
 that user's database, and deleting a space only ever drops a database the space made.
 
-This spec closes the access half. It has four parts:
-- A person signing up must not be able to take a space's name and so reach its catalog.
+This spec closes the access half on the side of spaces and memberships. It has three parts:
 - A person creating a space must not be able to name it after a user and so reach that user's
   catalog, not even for the few hundred milliseconds before the create is refused.
 - Above all, no one may write a space's name or a user's name into their own account's membership
@@ -37,11 +36,20 @@ This spec closes the access half. It has four parts:
 - Nobody should notice any of this except a person trying one of these things. That person is
   refused with the same short sentence whichever name they collided with.
 
+**Sign-up is not one of the doors this spec guards.** In the target environment nobody signs up:
+users arrive federated, and their database names are predetermined. So the work that would only
+guard self-sign-up in the current account is left out, as Andrew decided on 2026-11-17: a pre-signup
+check on the requested name, a post-confirmation guard against taking over a space's database, a
+pre-signup refusal of `custom:` attributes, and a live `SignUp` check. The current account keeps
+self-sign-up until it is decommissioned, and what that leaves open there is stated under Out of
+Scope. FR-001's write list still applies to `SignUp`, because a client's write list governs every
+call that writes attributes.
+
 ## What was measured, and what it means
 
 A security spec rests on its premises, so each one is stated with where it was read. None was
 exercised against the deployed account. P6 is measured by FR-001 before anything else is built, and
-P3 by FR-006. Each was read again against `main` at `5408a55e`, after SPEC-257 merged; P5 and P6 are
+P3 by FR-004. Each was read again against `main` at `5408a55e`, after SPEC-257 merged; P5 and P6 are
 rewritten for what the audit and that spec changed, and the rest stood.
 
 - **P1. One namespace, two writers.** `post_confirmation._ensure_database(username)` and
@@ -67,7 +75,7 @@ rewritten for what the audit and that spec changed, and the rest stood.
   - **This rests on what the IaC declares, not on what the account holds.** `infra/` has no
     `aws_lakeformation_opt_in`, but an opt-in made outside Terraform would not show there. A
     comment in `infra/modules/analytics/lakeformation.tf` also describes the portal role as reading
-    "by LF credential vending", which contradicts the hybrid setting. FR-006 reads the account's
+    "by LF credential vending", which contradicts the hybrid setting. FR-004 reads the account's
     opt-ins once and records them.
   - **The condition would not survive a change.** An opt-in, or a move to Lake Formation
     enforcement (transition Phase 1 re-registers these buckets), would have Lake Formation hand
@@ -85,6 +93,8 @@ rewritten for what the audit and that spec changed, and the rest stood.
   - The same person also loses everything later. When the space is deleted, the teardown drops
     that database (its marker says it is the space's), along with every table they made there
     believing it was their own.
+  - **This spec leaves this door open.** It is a sign-up door, and the target environment has no
+    sign-up (Overview). FR-004's lists (a), (b) and (f) name anyone who has already come through it.
 - **P5. The forward door leaves a window even after the audit.**
   - The create refuses a database that is not the space's own, but only inside `_ensure_database`.
     That runs **after** `membership.assign_or_find_slot` has written `custom:shared_space_k = <name>` onto the
@@ -133,35 +143,43 @@ rewritten for what the audit and that spec changed, and the rest stood.
 - **P7. The marker cannot be forged from a session.** No statement on the portal role grants
   `glue:CreateDatabase` or `glue:UpdateDatabase`, and the `data` module's portal-role policy has no
   Glue action at all. So neither the API nor Athena DDL (`CREATE DATABASE`,
-  `ALTER DATABASE … SET DBPROPERTIES`) can write a database parameter. That is what lets FR-003 and
-  FR-006 trust the marker.
+  `ALTER DATABASE … SET DBPROPERTIES`) can write a database parameter. That is what lets FR-002 to
+  FR-004 trust the marker.
 - **P8. What a refusal discloses.**
   - Usernames are already visible to anyone signed in. The username directory publishes everyone
     with a personal prefix, and adding a non-member to a space answers "no such user".
   - Whether a space name exists can already be tested by anyone signed in, because a create of a
     taken name fails "name already taken".
-  - **What is new is FR-002**, which lets an anonymous visitor test one name per sign-up attempt.
-    The identity-and-access fences decline a published **list** of spaces as a disclosure. This
-    publishes no list.
-  - Andrew accepted the one-name-at-a-time test on 2026-09-26, on condition that the sentence is the
-    same whatever the name collided with. The successor account has no self-sign-up.
+  - So FR-002's refusal discloses nothing new, as long as its sentence is the same whatever the name
+    collided with. The successor account has no self-sign-up.
 
 ## Scope
 
 ### In Scope
 
-- FR-001: every app client declares which attributes it may read and write, so the membership slots
-  cannot be written at sign-up or afterwards. Measured live before and after.
-- FR-002: sign-up refuses a username that already names a Glue database.
-- FR-003: provisioning never takes over a space's database, and a user found holding one is
-  disabled.
-- FR-004: a space cannot be named after a user in the pool.
-- FR-005: the creator holds no slot for a name until the database under it is the space's own.
-- FR-006: one read-only report says whether a collision, a self-written slot or an inherited
+- FR-001: every app client declares which attributes it may read and write, so a signed-in user
+  cannot write a membership slot. Measured live before and after.
+- FR-002: a space cannot be named after a user in the pool.
+- FR-003: the creator holds no slot for a name until the database under it is the space's own.
+- FR-004: one read-only report says whether a collision, a self-written slot or an inherited
   database already exists. It also records the decision not to backfill markers.
 
 ### Out of Scope
 
+- **The sign-up door, in the current account.** The target environment has no self-sign-up, and its
+  database names are predetermined, so nothing here guards sign-up (Andrew, 2026-11-17). Left out:
+  - a pre-signup check that refuses a username already naming a Glue database;
+  - a post-confirmation guard that refuses to grant on, and disables a user who lands on, a
+    database marked as a space's;
+  - a pre-signup refusal of any sign-up carrying a `custom:` attribute, which would have been a
+    second layer behind FR-001's write list;
+  - a live `SignUp` check that a submitted slot creates no account.
+
+  What that leaves open in the current account until it is decommissioned: P4's reverse door, so a
+  stranger who signs up under a space's name reaches that space's catalog, and a name freed by
+  self-deletion can be registered again, prefix and all. There are no production users, and FR-004's
+  lists (a), (b) and (f) name anyone who has already come through. FR-001's write list still covers
+  a slot submitted at sign-up, though no live check proves it for `SignUp`.
 - **The successor account's fence.**
   - `transition_plan.md` §3.12 item 3 leaves two choices to Phase 0: a check where credentials are
     minted, or database names that cannot overlap by construction. This spec builds neither for the
@@ -172,21 +190,17 @@ rewritten for what the audit and that spec changed, and the rest stood.
     `identitycenter_<subject>`.
 - **A minting check in the current account** (`apicommon/identity.py` reading Glue before it stamps
   a tag). Declined. It would make every credential depend on Glue being reachable, file uploads and
-  downloads included, and once FR-001 to FR-005 are in place every writer of either kind of name
-  passes a door.
+  downloads included, and once FR-001 to FR-003 are in place every space create passes a door.
+  The other writer, sign-up, is left out above.
 - **Space databases named so they cannot overlap usernames** (for example a leading underscore).
   Declined by Andrew on 2026-09-26: users see and type these names in SQL, and existing spaces would
   need a migration.
 - **A backfill that marks the databases of spaces created before the marker.** Decided against in
-  FR-006.
+  FR-004.
 - **Removing `ALLOW_USER_SRP_AUTH`.** It is not what the slot write depends on, because `SignUp`
   writes attributes with no token at all, and FR-001's write list closes both paths. Removing it
   would also stop self-deletion through `DeleteUser`, but nothing has measured that Managed Login
   works without it.
-- **A name freed by self-deletion when there is no database behind it.** FR-002 keeps a name taken
-  while its database exists. A user whose post-confirmation never ran, who has files, and who
-  deletes their own account leaves a name that can be registered again, prefix and all. No code
-  path in the repo deletes users. This hazard is recorded here and not closed.
 - **Fixing what the report finds.** Clearing a self-written slot, resolving a collision, or
   dropping a leftover database is done by hand and recorded. The report writes nothing.
 - The archive and table-share keys' own versions of this hazard, named in the audit's register
@@ -230,13 +244,6 @@ client carries either list, because a list that omits a slot drops that slot's c
 claim presents as the documented propagation delay and not as a fault. FR-001's test asserts the
 stronger thing, that both lists are present and the read list covers every slot, so that assertion
 is deleted and the mirror test's other assertions stay.
-
-Pre-signup also refuses any sign-up whose `request.userAttributes` carries a `custom:` key,
-whichever client or page it came through and whatever the trigger source. This is a second layer
-behind the write list, and it keeps a live sign-up probe from creating an account. The check makes
-no AWS call and runs before the Glue read FR-002 adds. It refuses with **"Sign-up could not be
-completed."**, a sentence only someone sending such an attribute ever sees, and records the
-username with reason `custom-attribute`, never the attribute's name or value.
 
 The premise is measured before the change with a **probe that changes nothing**:
 - It is a short throwaway Python script that uses `pycognito`, in a virtual environment outside the
@@ -287,11 +294,6 @@ After the apply the probe shows the list refusing on that client, and
   - changing the pool schema's `for_each` to `range(1, var.max_shared_memberships + 2)`, which is
     the one plant the range comparison alone catches;
   - adding a client block that declares neither list, in a new `.tf` file beside `cognito.tf`.
-- [ ] Unit: pre-signup refuses a sign-up carrying any `custom:` attribute, a slot or not and
-  whatever its value, with "Sign-up could not be completed." and reason `custom-attribute`, for
-  `PreSignUp_SignUp` and `PreSignUp_AdminCreateUser` alike. The record carries the username and
-  neither the attribute's name nor its value. It admits a sign-up carrying only `email`, and the
-  keep-warm payload still passes.
 - [ ] The CI plan shows every client updated in place, and neither the pool nor any client
   replaced. A replaced client is a new client id, which would end every session held under the old
   one.
@@ -299,23 +301,6 @@ After the apply the probe shows the list refusing on that client, and
 - [ ] After the apply, `describe-user-pool-client` for every client the module declares returns a
   `WriteAttributes` of exactly `email` and a `ReadAttributes` naming `email`, `email_verified` and
   every slot.
-- [ ] After the apply, and before the sign-up check below, the deployed pre-signup function is
-  invoked directly with a sign-up event that carries a `custom:` attribute, and answers "Sign-up
-  could not be completed." A merge does not prove a deploy, and without the refusal deployed a
-  write list that does not guard sign-up would let the check create an account.
-- [ ] After the apply, a `SignUp` request with a fresh, well-formed username that submits
-  `custom:shared_space_1` creates no account. Andrew sends it with `aws cognito-idp sign-up`, to
-  the client the probe used, with a secret hash where that client has a secret, an email address
-  of his and a password from his own shell. The slot's value is `0`, which the catalog rule
-  refuses as a name, so a slot carrying it could never match a space. The refusal is recorded with
-  its code and message, and it is one of two. Any other outcome fails this criterion, and an
-  account it created is deleted.
-  - **Cognito's `NotAuthorizedException` about an attribute the client may not write.** The write
-    list refused at sign-up. This is the expected answer.
-  - **Pre-signup's "Sign-up could not be completed."** Cognito handed the attribute to the
-    trigger, so the write list has not been shown to guard sign-up, and pre-signup is the only
-    layer shown to. Phase 6's fence then names pre-signup, and not the write list, as what closes
-    sign-up, and the delivery doc says the write list is proven for `UpdateUserAttributes` only.
 - [ ] After the apply, as the control, a member signs in fresh, through each client a browser can
   sign in through on that day, in a sign-in that starts after the apply. The web tier is on for
   it. Through each one a listing of their shared space's files succeeds, which it cannot without
@@ -329,152 +314,11 @@ After the apply the probe shows the list refusing on that client, and
 
   Between SPEC-262's two merges the public client still exists and no browser signs in through it,
   so `describe-user-pool-client` is its only evidence.
-- [ ] If the probe before the apply had any verdict other than "not writable", FR-006's report runs
+- [ ] If the probe before the apply had any verdict other than "not writable", FR-004's report runs
   against the deployed account before this spec closes. A slot someone already wrote for
   themselves survives FR-001.
 
-### FR-002: Sign-up refuses a username that already names a database
-
-#### Description:
-
-After the format check, `pre_signup.py` calls Glue `GetDatabase` on the requested username. Only
-`EntityNotFoundException` admits the name. Every other answer refuses it:
-
-- **A returned database, or `AccessDeniedException`**, refuses with **"That username is not
-  available."** Access-denied is not read as absence. Lake Formation governs Glue metadata here,
-  because `create_database_default_permissions` is empty, and this role holds no Lake Formation
-  permission, so an existing database should answer exactly that way.
-- **A throttle, a server fault or a timeout** refuses with **"Sign-up is briefly unavailable.
-  Please try again in a minute."**
-
-Details:
-- The "not available" sentence is the same whatever kind of database it is: a space's, a user's, a
-  leftover from a deleted space, or anything else.
-- The record names the username and a reason that says which Glue answer refused the name. It never
-  names the email.
-- The check runs for every trigger source, so an operator's `AdminCreateUser` passes through it too.
-
-Budget:
-- Cognito waits five seconds for a trigger. The function's timeout rises from 3 to 5 seconds and its
-  memory from 128 to 256 MB, to leave a cold start room.
-- The Glue client allows 1 second to connect and 2 to read, with one attempt and no retries.
-- A timeout at the function level still refuses. Cognito reports its own error instead of the
-  try-again sentence, which is an accepted cost of failing closed.
-
-Placement and permissions:
-- The client is built with `boto3` directly, not `cpcommon.clients`. The singleton import-safety
-  guard keeps pre-signup to `observability` from `cpcommon`, and that stays.
-- The role gains `glue:GetDatabase` on the catalog and `database/*`, and nothing else.
-
-Because no code path in the repo drops a user's database, this also stops the name of a provisioned
-user who deleted their account from being registered again, together with that user's catalog and
-prefix.
-
-#### Acceptance Criteria:
-
-- [ ] Unit: a name the format rule refuses is refused with the existing sentence, and no Glue call
-  is made.
-- [ ] Unit: a returned database refuses with "That username is not available." So does
-  `AccessDeniedException`, with the same sentence byte for byte, and a reason field that tells the
-  two apart.
-- [ ] Unit: a throttle and a timeout each refuse with the try-again sentence, and neither admits the
-  name.
-- [ ] Unit: `EntityNotFoundException` admits the name and returns the event unchanged.
-- [ ] Unit: a sign-up carrying a `custom:` attribute is refused by FR-001's check with no Glue call
-  made.
-- [ ] Unit: the check runs for `PreSignUp_AdminCreateUser` as well as `PreSignUp_SignUp`.
-- [ ] Unit: the record carries the username and the reason, and does not contain the email address.
-- [ ] The singleton import-safety test still passes, with pre-signup's allowlist unchanged at
-  `observability`.
-- [ ] Live: signing up with a fresh name that follows the rule is admitted. This is the positive
-  control. It fails if the IAM is wrong, or if Glue answers access-denied for names that do not
-  exist. The trigger's reported duration on that cold start is recorded.
-- [ ] Live: signing up with an existing space's name is refused, and the managed-login page shows
-  "That username is not available." The record's reason says which Glue answer refused it.
-  Access-denied is the expected answer. A returned database would mean Lake Formation lets this role
-  see the database, and that is recorded.
-
-### FR-003: Provisioning never takes over a space's database
-
-#### Description:
-
-The marker key moves to a new `cpcommon.markers` module, and is declared there once. The audit's
-`teardown` and `create_space`, and `post_confirmation`, all read it from there. The module holds
-constants only: it imports nothing and reads no environment.
-
-**Why not `cpcommon.config`.** Post-confirmation sets none of the environment variables `config`
-governs, and the singleton import-safety guard has two halves:
-- The AST half checks which `cpcommon` **modules** a singleton names, not which attributes it
-  reads. Allowlisting `config` would let a later `config.ADMIN_BUCKET` on some branch through,
-  which is the exact failure the guard's docstring describes. It would do so for `backfill.py`
-  too, since the guard globs the whole directory.
-- The subprocess half runs only the import, and cannot see a deferred read.
-
-So post-confirmation's allowlist widens from `observability` to `observability` and `markers`, with
-that reason written beside it, and `config` stays forbidden.
-
-When `provision_user` meets `AlreadyExistsException`, it reads the database before granting or
-tagging anything. What it does next depends on what it finds:
-
-- **Marked as a space's database (any space name).** It grants nothing and tags nothing.
-  - In the Cognito trigger it calls `AdminDisableUser` on the new user and records an error with
-    reason `username-is-a-space`, naming the username. Once a session is stamped with that
-    username it already reaches the space's catalog, so refusing to grant stops nobody. Disabling
-    does.
-  - In the backfill it exits non-zero for that user, and its message names the collision.
-- **Unreadable.** It grants nothing and tags nothing, and fails closed for the same reason.
-  - In the trigger it also disables the user, and records reason `database-unreadable`.
-  - In the backfill it exits non-zero for that user.
-  - A legitimate user reaches this branch only through a Cognito retry of their own confirmation
-    whose read also fails. The retry exists because the first attempt was slow, so the two faults
-    are **correlated**, not independent: a Glue slowdown during sign-up will disable some
-    legitimate new users. An operator re-enables each one after checking the database. That is the
-    accepted cost of failing closed, in an account with few sign-ups.
-- **Unmarked.** It carries on exactly as today. This is either an earlier attempt of the same
-  confirmation (Cognito retries triggers) or, in the backfill, a user database that predates the
-  marker. Once FR-002 is live it refuses any database that exists at sign-up. Pool usernames are
-  unique, so between sign-up and confirmation the only thing that can create a database under this
-  name is a space create, and a space create marks what it makes.
-
-The collision record (`username-is-a-space` or `database-unreadable`) is written **before** the
-first `AdminDisableUser` call. So a function timeout part-way through containment still leaves the
-collision on record, and a Cognito retry of the trigger re-enters the same branch and tries again.
-If `AdminDisableUser` fails, it is retried once. If it fails again, a second record with reason
-`collision-uncontained`, at error level, follows, and the trigger still returns the event. FR-006
-lists (a), (b) and (f) will then name the user.
-
-The Glue, Lake Formation and Cognito clients are built with `boto3` directly, and each allows
-1 second to connect and 1 to read, with one attempt and no retries. Botocore's defaults (60 seconds
-each, with retries) would let one slow call outlast the trigger. The pool id comes from the trigger
-event. Post-confirmation's timeout rises from 3 to 5 seconds. The role gains
-`cognito-idp:AdminDisableUser` on the pool.
-
-#### Acceptance Criteria:
-
-- [ ] Unit, with fakes: when the existing database is space-marked, the trigger makes no
-  `GrantPermissions` call, no `AddLFTagsToResource` call, and exactly one `AdminDisableUser` for
-  that username. It records reason `username-is-a-space`, and it returns the event.
-- [ ] Unit: when reading the existing database fails, the trigger makes no grant and no tag, makes
-  one `AdminDisableUser`, and records reason `database-unreadable`.
-- [ ] Unit: when `AdminDisableUser` fails twice, exactly two disable attempts were made, a
-  `collision-uncontained` record follows the collision record, and the event is returned.
-- [ ] Unit: the fakes' call order shows the collision record written before the first
-  `AdminDisableUser` call.
-- [ ] Unit: the Glue, Lake Formation and Cognito clients post-confirmation builds carry a 1-second
-  connect limit, a 1-second read limit and a single attempt.
-- [ ] Unit: when the existing database is unmarked, the trigger grants and tags exactly as it does
-  today, and disables nobody.
-- [ ] Unit: the backfill exits non-zero for a username whose database is space-marked or unreadable,
-  its output names the collision, and another username in the same run is still provisioned.
-- [ ] Unit: `teardown`, `create_space` and `post_confirmation` all resolve the marker key to the
-  one `cpcommon.markers` constant, and no module declares a second literal of it.
-- [ ] The singleton import-safety test passes with post-confirmation's allowlist widened to
-  `markers`, including its subprocess import with no environment set, and still fails if
-  post-confirmation names `config`. That last case is planted once and reverted.
-- [ ] Deleting the marker read in `provision_user` turns the first criterion red, and the deletion
-  is then reverted.
-
-### FR-004: A space cannot be named after a user
+### FR-002: A space cannot be named after a user
 
 #### Description:
 
@@ -562,7 +406,7 @@ the user ever signs in, so the audit's marker check is what covers the forward d
 - [ ] Unit: `revoke_portal_role` makes no `RevokePermissions` call when `owns_database` is `None`,
   and none when it is `False`. It revokes both grants when it is `True`.
 
-### FR-005: The creator holds no slot until the database is the space's own
+### FR-003: The creator holds no slot until the database is the space's own
 
 #### Description:
 
@@ -589,7 +433,7 @@ record drops it.
 - [ ] Moving `assign_or_find_slot` back in front of the database step turns the first criterion red,
   and the move is then reverted.
 
-### FR-006: One read-only report says what already exists
+### FR-004: One read-only report says what already exists
 
 #### Description:
 
@@ -602,7 +446,7 @@ reads the registry, lists and reads pool users, and lists and reads Glue databas
 - **(a) Usernames equal to the name of a real space.** A real space is a registry record that is
   active, or ever-active, or whose database `owns_database` says is its own. A refused
   reservation, meaning a `failed` record that was never active and owns no database, is what
-  FR-004 leaves behind on every refusal, so it is not a collision.
+  FR-002 leaves behind on every refusal, so it is not a collision.
 - **(a′) Refused reservations whose name is a username.** For information only.
 - **(b) Users whose personal database carries a space's marker.**
 - **(c) Slots no registry record backs.** That is, every non-empty `custom:shared_space_k` that is
@@ -633,8 +477,9 @@ built.
   only evidence it could go on is circumstantial: the pool, and the registry's `createdAt` against
   Glue's `CreateTime`.
 - **Leaving them unmarked costs little, and is safe.** Tearing down a legacy space leaves its
-  database behind, as the audit accepted. With FR-002 that leftover retires the name for sign-ups
-  too, so no one can inherit it.
+  database behind, as the audit accepted. In the current account a sign-up under that name would
+  inherit it, which is the sign-up door this spec leaves open (Out of Scope), and list (f) would
+  name that user.
 - **The population is small and temporary.** There are no production users, the current account is
   decommissioned at cutover, and spaces in the successor are seeded by code that marks.
 - **An operator can still find every leftover.** List (e) names each one, so a name can be dropped
@@ -663,16 +508,6 @@ built.
 ## Data Model
 
 ```python
-# lambdas/control-plane-common/cpcommon/markers.py  (new; constants only, no imports, no env)
-DATABASE_MARKER_KEY: str = "dataquarry.shared-space"  # moved here; one declaration
-
-# lambdas/post-confirmation/post_confirmation.py
-class ExistingDatabase(enum.Enum):
-    """What an already-existing database under the username turned out to be."""
-    UNMARKED = "unmarked"      # own earlier attempt, or a pre-marker user database: carry on
-    SPACE = "space"            # a space's database: grant nothing, disable in the trigger
-    UNREADABLE = "unreadable"  # grant nothing, disable in the trigger
-
 # shared-space name-collision report result
 class CollisionReport(TypedDict):
     usernames_that_are_spaces: list[str]             # (a) fails the run
@@ -689,48 +524,32 @@ class CollisionReport(TypedDict):
 ## API / Interface Contract
 
 No route changes. The browser changes in one place: a failed create card whose cache entry carries
-`retryable: false` offers Dismiss without Retry (FR-004). Otherwise the create refusal arrives
-through the existing failed card and notification, and the sign-up refusal is the trigger's message
-on the managed-login page.
+`retryable: false` offers Dismiss without Retry (FR-002). Otherwise the create refusal arrives
+through the existing failed card and notification.
 
 ```text
-pre-signup, name exists or unreadable:   "That username is not available."
-pre-signup, Glue throttled or timed out: "Sign-up is briefly unavailable. Please try again in a minute."
-pre-signup, a custom: attribute sent:    "Sign-up could not be completed."   reason="custom-attribute"
 create, user, space or foreign db holds it: "name already taken"   (unchanged sentence)
                                            cache entry retryable: false
-post-confirmation, space-marked db:      reason="username-is-a-space", user disabled
-post-confirmation, db unreadable:        reason="database-unreadable", user disabled
-post-confirmation, disable failed twice: reason="collision-uncontained"
 ```
 
 ## File & Folder Structure
 
 ```
-infra/modules/auth/
-├── cognito.tf                                    # FR-001 read/write attributes on every client
-├── lambda.tf                                     # FR-002, FR-003 timeouts and memory
-└── policies/
-    ├── pre-signup-permissions.json.tftpl         # FR-002 glue:GetDatabase
-    └── post-confirmation-permissions.json.tftpl  # FR-003 cognito-idp:AdminDisableUser
-infra/plane-shared-spaces.tf                      # FR-006 one-shot function, in the plane's function map
-infra/planes/shared-spaces/execution.json.tftpl   # FR-006 ListLakeFormationOptIns
+infra/modules/auth/cognito.tf                     # FR-001 read/write attributes on every client
+infra/plane-shared-spaces.tf                      # FR-004 one-shot function, in the plane's function map
+infra/planes/shared-spaces/execution.json.tftpl   # FR-004 ListLakeFormationOptIns
 lambdas/
 ├── test_session_infrastructure.py                # FR-001 the mirror test's absent-lists assertion goes
-├── control-plane-common/cpcommon/markers.py      # FR-003 marker key, one declaration (new)
-├── control-plane-common/test_layer_import_safety.py   # FR-003 post-confirmation allowlist
-├── pre-signup/pre_signup.py                      # FR-001 custom: refusal, FR-002 Glue read
-├── post-confirmation/{post_confirmation,backfill}.py   # FR-003
-├── shared-space-common/{config,teardown}.py      # FR-003 read the moved key; FR-004 revoke only on own
-├── shared-space-common/registry.py               # FR-004 NameTaken, raised at the collision
-├── shared-space-create/create_space.py           # FR-004, FR-005
-└── shared-space-name-collisions/                 # FR-006 (new, report only)
+├── shared-space-common/teardown.py               # FR-002 revoke only on own
+├── shared-space-common/registry.py               # FR-002 NameTaken, raised at the collision
+├── shared-space-create/create_space.py           # FR-002, FR-003
+└── shared-space-name-collisions/                 # FR-004 (new, report only)
 apps/portal/src/features/
-├── shared-spaces/sharedSpaces.{service,types}.ts # FR-004 read the entry's retryable flag
-├── connections/{useConnections,connection.types}.ts  # FR-004 carry it; fields are copied by name
-├── shared-spaces/ConnectionsPage.tsx             # FR-004 carry it to the row; no Retry when false
-└── help/helpContent.ts                           # FR-004 the create steps' "Retry to try again"
-.github/workflows/report-name-collisions.yml      # FR-006
+├── shared-spaces/sharedSpaces.{service,types}.ts # FR-002 read the entry's retryable flag
+├── connections/{useConnections,connection.types}.ts  # FR-002 carry it; fields are copied by name
+├── shared-spaces/ConnectionsPage.tsx             # FR-002 carry it to the row; no Retry when false
+└── help/helpContent.ts                           # FR-002 the create steps' "Retry to try again"
+.github/workflows/report-name-collisions.yml      # FR-004
 ```
 
 ## Implementation Phases
@@ -738,60 +557,47 @@ apps/portal/src/features/
 ### Phase 1: The slot is not writable (FR-001)
 
 - Andrew runs the probe against the deployed pool, and the outcome is recorded.
-- Add both attribute lists to every client and the test over `cognito.tf`, delete the mirror test's
-  absent-lists assertion, and add pre-signup's refusal of `custom:` attributes.
+- Add both attribute lists to every client and the test over `cognito.tf`, and delete the mirror
+  test's absent-lists assertion.
 - In the same change, correct the two `cognito.tf` comments the lists make wrong or make true: the
   one above the server client, which says neither client carries a read list, and the slot
   comment's "Only the orchestrator role writes these".
-- Apply, re-run the probe, read every client's lists, confirm the deployed pre-signup refuses a
-  `custom:` attribute, and only then run the sign-up check.
+- Apply, re-run the probe, and read every client's lists.
 - Switch the web tier on through the repository variable and CI, run the fresh-sign-in control
   through each client, and switch the tier off the same way.
 - This phase depends on nothing else in the spec and is the most urgent. It lands on its own, first.
 
 ### Phase 2: IAM before the code that needs it
 
-- `glue:GetDatabase` for the pre-signup role.
-- `cognito-idp:AdminDisableUser` for the post-confirmation role.
 - `lakeformation:ListLakeFormationOptIns` for the orchestrator role.
-- Whatever the deploy role needs to create the FR-006 function, read from
+- Whatever the deploy role needs to create the FR-004 function, read from
   `infra/info/deploy-role-iam.md` and `lambdas/info/deployment.md`.
 
-### Phase 3: The sign-up door (FR-002)
-
-- The Glue read in pre-signup, with its client limits and its two sentences.
-- The timeout and memory changes.
-- The live checks: a fresh name is admitted, and a space's name is refused.
-- This comes before Phase 5, because FR-003's handling of an unmarked database rests on FR-002
-  being live.
-
-### Phase 4: The report (FR-006)
+### Phase 3: The report (FR-004)
 
 - The function, the workflow, and one run against the deployed account.
 - Record the counts, and handle any finding by hand.
 
-### Phase 5: The create verb and provisioning (FR-003, FR-004, FR-005)
+### Phase 4: The create verb (FR-002, FR-003)
 
-- Move the marker key into `cpcommon.markers`, and widen post-confirmation's import allowlist to it.
 - Make the teardown revoke only on a database that is the space's own.
 - Put the pool check after the reservation, and the database step in front of the slot.
 - Raise `NameTaken` at all three taken-name refusals and write `retryable: false` on it alone,
   carry the flag through the connection mapping, and drop Retry from the card that reads it.
 - In Help, the create steps' last step stops promising Retry for every failure: a taken name
   offers Dismiss only.
-- Classify the existing database in `provision_user`, disabling the user in the trigger.
 
-### Phase 6: Where the decisions are written down
+### Phase 5: Where the decisions are written down
 
 - A register entry in `docs/decisions/control-planes/`, and one in
   `docs/decisions/identity-and-access/`.
 - Clauses in the identity fences:
   - The slot claims are an authorization input only because no client can write them.
-  - A name is a user's or a space's, and pre-signup and create are the two doors.
+  - A name is a user's or a space's. The space create is the door this account guards; sign-up is
+    left open until the account is decommissioned, because the target environment has no sign-up.
 - Mark as superseded, in place, `transition_plan.md` §6.1's "this repo's app client sets neither"
   and the sentence in §3.12 item 3 saying no fence exists.
 - Update:
   - `infra/modules/auth/README.md`;
-  - the pre-signup and post-confirmation sizing comments in `lambda.tf`;
-  - the `analytics/lakeformation.tf` credential-vending comment, if FR-006's opt-in read
+  - the `analytics/lakeformation.tf` credential-vending comment, if FR-004's opt-in read
     contradicts it.
