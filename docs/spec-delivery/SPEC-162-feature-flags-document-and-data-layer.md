@@ -66,7 +66,7 @@ indefinitely on any surface reachable while signed out.
   total: unset resolves the document's own `defaults` and still reports `'ready'`.
 - **`ci.yml`** — `ruff check lambdas/` → `ruff check lambdas/ scripts/`, plus the validator step.
 - **SPEC-146's username-directory tripwire** gained a second allowlist entry.
-  `lambdas/test_feature_flags_config.py` names `_directory/usernames.json` to explain why the publish
+  `lambdas/test_feature_flags_config.py` named `_directory/usernames.json` to explain why the publish
   addresses one exact key and never syncs — the reasoning is the point, and the tripwire's real
   subject (a control plane treating the directory as an authorization input) is untouched. *The
   allowlist is gone: the tripwire was deleted in a later suite cut, and its restored form exempts
