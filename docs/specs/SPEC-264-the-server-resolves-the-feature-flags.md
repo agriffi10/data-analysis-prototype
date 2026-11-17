@@ -74,7 +74,7 @@ The parsing and resolution in `featureFlags.service.ts` (the version check, the 
 named environment's overrides, the per-key fallback to the compiled-in defaults, and the reading of an
 empty body as no document) moves unchanged into
 a pure module, `resolveFeatureFlags.ts`, beside it. That module imports only the flag types, the
-defaults and `lib/serviceResult`, and nothing that reaches the network, React or configuration. The
+defaults and `lib/serviceResult` (which now re-exports the `ServiceResult` type for it), and nothing that reaches the network, React or configuration. The
 browser's `getFeatureFlags` calls it on the body the API returned. The server calls the same function,
 so a document can never resolve one way in the browser and another way on the server.
 
@@ -132,7 +132,11 @@ runtime document carries). Only one refresh is in flight per process: a request 
 starts no other.
 
 **What lives in module scope** is the held set, the time of the last failure and a boolean saying a
-refresh is in flight, and nothing else. The token is a local of the refresh function, never captured
+refresh is in flight, and nothing else. *(Decided in the build: the three live on the process's
+global object under a `Symbol.for` key rather than in the module's own variables, because Next may
+evaluate a server module once per route entry and again on a dev reload, and an area layout reading
+a copy the root layout never warmed would answer `open` for ever. It is still process scope, and
+still never a token.)* The token is a local of the refresh function, never captured
 by a module-scope promise or closure. None of these is session state: the set is the same document
 for every user, which is why the session decision's "nothing about a session lives in module scope"
 still holds (FR-005 says so).
@@ -190,7 +194,11 @@ authorization.
 
 The root layout awaits `serverFeatureFlags()` and passes the result, the flags and the time the API
 answered, to `PortalMount` as a `flags` prop, which passes it through `PortalBoot` to the frame.
-`PortalBoot` types the prop inline, because its import sweep counts type imports too. When a set is
+`PortalBoot` types the prop inline, because its import sweep counts type imports too. *(Decided in
+the build: inline as `ComponentProps<typeof import('./AppFrame').AppFrame>`, a type-level import the
+compiler erases and the sweep's `import … from` reading does not count, so the flag-key union has
+one source rather than a copy; `PortalMount` and `UnavailableMount` type their props the same way
+from the component they render.)* When a set is
 present, `AppFrame` calls `seedServerFlags(queryClient, environment, seeded)` before its first render.
 That function, in `features/feature-flags/`, writes the set under
 `featureFlagKeys.resolved(environment)` with `updatedAt` set to the time the API answered, and is the
