@@ -70,9 +70,14 @@ export function useFeatureFlags(): UseFeatureFlagsResult {
   // Read as `'loading'`, that made `FeatureRoute` swap its page for the loader, unmounting the
   // page whose own read started the fetch and remounting it when the fetch failed again, for
   // as long as the document was unreadable.
+  //
+  // A set the server sent with the page is an answer while auth is still resolving: it is ready
+  // from the first frame, so a gated surface renders at once rather than waiting on `/auth/session`.
   const status: FeatureFlagsStatus =
     authStatus === 'loading'
-      ? 'loading'
+      ? query.data
+        ? 'ready'
+        : 'loading'
       : !enabled
         ? 'fallback'
         : query.isPending

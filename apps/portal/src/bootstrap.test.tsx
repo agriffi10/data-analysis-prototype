@@ -12,15 +12,17 @@ import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 
 const state = vi.hoisted(() => ({
   frameEvaluated: false,
-  order: [] as string[]
+  order: [] as string[],
+  frameFlags: [] as unknown[]
 }));
 
 vi.mock('./AppFrame', () => {
   // Runs on IMPORT, so it stays false unless the dynamic import is actually reached.
   state.frameEvaluated = true;
   return {
-    AppFrame: function AppFrameMock({children}: {children: ReactNode}) {
+    AppFrame: function AppFrameMock({children, flags}: {children: ReactNode; flags?: unknown}) {
       state.order.push('render');
+      state.frameFlags.push(flags);
       return <div data-testid="app-frame">{children}</div>;
     }
   };
@@ -55,6 +57,7 @@ async function freshBoot() {
 beforeEach(() => {
   state.frameEvaluated = false;
   state.order = [];
+  state.frameFlags = [];
 });
 
 afterEach(() => {
@@ -77,6 +80,17 @@ describe('the boot', () => {
 
     expect(await screen.findByTestId('app-frame')).toHaveTextContent('the page');
     expect(state.order).toEqual(['fetch', 'render']);
+  });
+
+  it('hands the frame the flag set the server sent with the page', async () => {
+    respondWith(completeDocument());
+    const PortalBoot = await freshBoot();
+    const seeded = {flags: {query: false}, readAt: 1};
+
+    render(<PortalBoot flags={seeded as never}>{PAGE}</PortalBoot>);
+
+    expect(await screen.findByTestId('app-frame')).toBeInTheDocument();
+    expect(state.frameFlags).toEqual([seeded]);
   });
 
   it('fetches the document exactly once, even when React mounts it twice', async () => {

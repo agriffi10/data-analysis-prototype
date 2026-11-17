@@ -4,7 +4,7 @@ import {act, screen, waitFor, within} from '@testing-library/react';
 import type {UserEvent} from '@testing-library/user-event';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
-import {GATED_SURFACES} from './gatedSurfaces';
+import {GATED_SURFACES, firstEnabledDestination, navDestination} from './gatedSurfaces';
 import {FEATURE_FLAG_KEYS} from './featureFlagDefaults';
 import {getFeatureFlags} from './featureFlags.service';
 import type {FeatureFlagKey, FeatureFlags} from './featureFlags.types';
@@ -1291,6 +1291,16 @@ describe('every registered surface disappears with its flag off and returns with
 });
 
 // ─── Guard the guard (FR-002 AC4) ───────────────────────────────────────────
+
+describe('the fallback an unavailable page offers', () => {
+  it('skips an enabled flag with no destination, and offers none when only such flags are on', () => {
+    const on = (keys: string[]) => (key: string) => keys.includes(key);
+    expect(navDestination('asyncFileOperations')).toBeUndefined();
+
+    expect(firstEnabledDestination(on(['asyncFileOperations', 'dataQuality']))).toBe('dataQuality');
+    expect(firstEnabledDestination(on(['asyncFileOperations', 'resultsConversion', 'archive']))).toBeUndefined();
+  });
+});
 
 describe('the registry itself', () => {
   it('is not empty, and no flag has zero surfaces', () => {

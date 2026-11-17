@@ -1,15 +1,37 @@
 ---
 type: Decision
 title: "A feature flag is presentation, never authorization — and it lives beside the username directory (SPEC-162)"
-description: "**A feature flag is presentation, never authorization** — and the flag document lives beside the username directory in the **user-space** bucket, not the admin one: the admin bucket was specced first, and its grant would not have worked. Gating is by **registry**, not per-component opt-in, and one test walks every gated surface in **both** states. **A document that belongs to no user has no space, so it gets its OWN route** — `_config/` and `_directory/` are not prefixes any caller's claims authorize, and leaving one on the object surface makes every read a 403 that falls back to defaults, which looks exactly like health."
+description: "**A feature flag is presentation, never authorization** — and the flag document lives beside the username directory in the **user-space** bucket, not the admin one: the admin bucket was specced first, and its grant would not have worked. Gating is by **registry**, not per-component opt-in, and one test walks every gated surface in **both** states. **A document that belongs to no user has no space, so it gets its OWN route** — `_config/` and `_directory/` are not prefixes any caller's claims authorize, and leaving one on the object surface makes every read a 403 that falls back to defaults, which looks exactly like health. **The flags resolve first on the Next.js server and are sent with the page** (one held set per process, refreshed in the background with a session's token); the browser's read is the second line, for a page sent with no set and a stale tab. **The API pass-through never consults the flags** — a route handler, the proxy or a session module reaching them would make a flag authorization — and one set serves every user only because the document is bucket-wide."
 ---
 
 **The document is `_config/feature-flags.json` in the USER-SPACE bucket**, published by
 `.github/workflows/deploy-config.yml` from `config/feature-flags.json` in git. Four flags — `files`,
 `query`, `sharedWorkspaces`, `dataQuality` — a total `defaults` block and per-environment partial
-overrides, resolved in the browser against ~~`VITE_ENVIRONMENT`~~ **— superseded by SPEC-192:**
+overrides, resolved ~~in the browser~~ against ~~`VITE_ENVIRONMENT`~~ **— superseded by SPEC-192:**
 `/config.json`'s `environment`, since a production bundle reads no `VITE_` name. Since SPEC-198 the
-browser reads the document through `GET /v1/feature-flags`, not from S3.
+browser reads the document through `GET /v1/feature-flags`, not from S3. **— Superseded in part by
+SPEC-264 (2026-11-17):** the Next.js server resolves it first, below.
+
+**The server resolves the flags first, and the browser's read is the second line.** The root layout
+sends the set the server holds with the page, and the boot seeds it into the query cache dated by
+when the API answered, so a signed-in tab renders its gated surfaces from the first frame and makes
+no request for the flags when it starts. The server reads the document through the same route with
+the requesting session's ID token, in the background and never on a page's critical path: a page
+costs one session-store read, and a set that is stale or missing is refreshed for a later page. One
+resolver serves both callers, so a document cannot resolve one way on each side. A page sent with no
+set, and a tab whose set has aged past the hour, read it in the browser as before, which is why
+`FeatureRoute` stays. Each signed-in area also has a server layout that answers a disabled area with
+the "not available" page from the held set, so that area's view is never loaded — but only from a
+set younger than five minutes, because a layout never refreshes it and another task's older "off"
+would otherwise override a tab's newer "on" for up to an hour; one route row, the
+shared-space report, stays in the browser because a layout reads no `params`.
+
+**Two traps the server side creates.** The held set is shared by every user on a task, which is
+correct **only because the document is bucket-wide**: a per-user flag would have to leave the held
+set. And **nothing a request to the API passes through may consult the flags** — a route handler,
+the request proxy or a session module that read them could gate a request, which is authorization by
+another name. `featureFlagsFence.test.ts` walks every one of them through its imports and fails if
+one reaches the server's flag module.
 
 **A FLAG HIDES A SURFACE AND REVOKES NOTHING.** Turning Query off hides the tab and its entry points;
 the portal role's Athena, Glue and S3 grants are byte-identical either way. This is SPEC-146's
@@ -86,6 +108,10 @@ rebuild, which is why the upload carries `Cache-Control: no-cache`.
 **A document that belongs to no user has no space, so it gets its OWN route.** `_config/` and `_directory/` are not prefixes any caller's claims authorize, and leaving one on the object surface makes every read a 403 that falls back to defaults, which looks exactly like health.
 
 ## History
+
+### 2026-11-17
+
+- **Changed:** The Next.js server resolves the flags first and sends them with the page; the area layouts answer a disabled area on the server; the API pass-through never consults them (SPEC-264).
 
 ### 2026-08-30
 

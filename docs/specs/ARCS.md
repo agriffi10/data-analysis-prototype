@@ -3387,7 +3387,9 @@ to that API, and nothing else: a business route in the Next.js server is a secon
 one change is the audience it accepts (257 and 262 below). File bytes still go straight from the
 browser to S3 on presigned URLs. Server state stays in TanStack Query and UI state in Context and
 `useReducer`; pages stay client components that fetch through the API, and server components are
-used for layout shells only. The runtime configuration stays a runtime document read at startup,
+used for layout shells only. *(Note, 2026-11-17: after the arc closed, SPEC-264 let server layouts
+read one document, the feature flags, and nothing else: the root layout sends the server's held set
+with the page and each gated area's layout answers a disabled area from it.)* The runtime configuration stays a runtime document read at startup,
 now rendered by the server instead of nginx's entrypoint. Vitest stays the test runner; it runs on
 Vite internally, so Vite survives as a test-only dependency.
 
@@ -3550,7 +3552,9 @@ placement is reversed to the Next.js server, and every state rule in §4.7 stand
 
 **What the arc does not do.** No Entra ID, Identity Center or token-exchange work: those remain the
 transition plan's Phase 1, which extends 257's session store rather than building another. No new
-features, no visual redesign, and no server rendering of data. No API route changes, and no
+features, no visual redesign, and no server rendering of data *(note, 2026-11-17: SPEC-264 lets the
+server resolve the feature-flag document and send it with the page, after the arc closed; no other
+data)*. No API route changes, and no
 verifier change beyond its audience. No holding page while the tier is off.
 
 **How the arc runs.** The session that wrote this entry orchestrates: one build session per spec,

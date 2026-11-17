@@ -1,6 +1,8 @@
 import type {ErrorParams} from '../types/apiContract.generated';
 import type {ServiceResult} from '../types/service.types';
 
+export type {ServiceResult};
+
 /**
  * Return a `ServiceResult`'s data, or throw its error — the queryFn/mutationFn adapter.
  *

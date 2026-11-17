@@ -1,5 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {FEATURE_FLAGS_KEY, getFeatureFlags} from './featureFlags.service';
+import {resolveFeatureFlagDocument} from './resolveFeatureFlags';
 import {FEATURE_FLAG_DEFAULTS, FEATURE_FLAG_KEYS} from './featureFlagDefaults';
 import {apiRequest} from '../../lib/apiClient';
 import {apiFailure, documentBody, mockApi, type ApiMock} from '../../test/apiMock';
@@ -67,159 +68,181 @@ describe('getFeatureFlags — where it reads', () => {
   });
 });
 
-describe('getFeatureFlags — resolution', () => {
-  it('merges the named environment over the defaults', async () => {
-    api.on('featureFlags.get', body(document({environments: {prod: {query: false, dataQuality: false}}})));
+/**
+ * One caller of the resolver: the browser's service, programmed through the mocked API, or the pure
+ * resolver itself, handed the same text. Every resolution case runs through both, so the move into
+ * `resolveFeatureFlags.ts` changed nothing either caller returns.
+ */
+type Caller = {give: (value: unknown) => void; read: (environment: string | undefined) => Promise<unknown>};
 
-    expect(await getFeatureFlags('prod')).toEqual({
-      success: true,
-      data: {
-        files: true,
-        query: false,
-        sharedWorkspaces: true,
-        dataQuality: false,
-        dataExplorer: true,
-        asyncFileOperations: true,
-        resultsConversion: true,
-        archive: true
-      }
+const throughTheService: Caller = {
+  give: (value) => api.on('featureFlags.get', body(value)),
+  read: (environment) => getFeatureFlags(environment)
+};
+
+let handed: unknown;
+const throughTheResolver: Caller = {
+  give: (value) => {
+    handed = value;
+  },
+  read: async (environment) =>
+    resolveFeatureFlagDocument(typeof handed === 'string' ? handed : JSON.stringify(handed), environment)
+};
+
+describe.each([
+  ['getFeatureFlags', throughTheService],
+  ['resolveFeatureFlagDocument', throughTheResolver]
+])('%s', (_name, caller) => {
+  describe('resolution', () => {
+    it('merges the named environment over the defaults', async () => {
+      caller.give(document({environments: {prod: {query: false, dataQuality: false}}}));
+
+      expect(await caller.read('prod')).toEqual({
+        success: true,
+        data: {
+          files: true,
+          query: false,
+          sharedWorkspaces: true,
+          dataQuality: false,
+          dataExplorer: true,
+          asyncFileOperations: true,
+          resultsConversion: true,
+          archive: true
+        }
+      });
+    });
+
+    it('honours a partial environment block, inheriting the rest', async () => {
+      caller.give(document({defaults: {...allOn, files: false}, environments: {prod: {query: false}}}));
+
+      expect(await caller.read('prod')).toMatchObject({data: {files: false, query: false, sharedWorkspaces: true}});
+    });
+
+    it('throws the archive switch from an environment block and leaves every other key alone', async () => {
+      // How an operator withdraws archive and restore: the published document names the switch
+      // under the environment's block and nowhere else. A document that never names it resolves
+      // it on — the first test in this file, whose document has no `archive` anywhere.
+      caller.give(document({defaults: allOn, environments: {prod: {archive: false}}}));
+
+      expect(await caller.read('prod')).toEqual({success: true, data: {...allOn, archive: false}});
+    });
+
+    it('resolves an environment the document does not name to the defaults, and calls it a success', async () => {
+      // Not an error: the document was fetched and understood. FR-004 is explicit that this
+      // reports 'ready' — an environment with no block has simply overridden nothing.
+      caller.give(document({defaults: {...allOn, query: false}}));
+
+      expect(await caller.read('staging')).toEqual({success: true, data: {...allOn, query: false}});
+    });
+
+    it('resolves an UNSET environment to the defaults rather than crashing', async () => {
+      // FR-007: an unwired VITE_ENVIRONMENT must never white-screen the app.
+      caller.give(document({defaults: {...allOn, query: false}}));
+
+      expect(await caller.read(undefined)).toEqual({success: true, data: {...allOn, query: false}});
+    });
+
+    it('always returns every key as a boolean, whatever the document named', async () => {
+      // The resolver walks the KEY LIST, not the document, so no consumer ever sees undefined.
+      caller.give(document({defaults: {}, environments: {}}));
+
+      const result = await caller.read('prod');
+
+      expect(result).toMatchObject({success: true});
+      const flags = (result as {data: Record<string, unknown>}).data;
+      expect(Object.keys(flags).sort()).toEqual([...FEATURE_FLAG_KEYS].sort());
+      expect(Object.values(flags).every((value) => typeof value === 'boolean')).toBe(true);
     });
   });
 
-  it('honours a partial environment block, inheriting the rest', async () => {
-    api.on(
-      'featureFlags.get',
-      body(document({defaults: {...allOn, files: false}, environments: {prod: {query: false}}}))
-    );
+  describe('one bad value is not a bad document', () => {
+    it('falls back for that KEY ONLY when a default is malformed', async () => {
+      // FR-005: one string where a boolean belonged must not discard three good values.
+      caller.give(document({defaults: {...allOn, query: 'false', sharedWorkspaces: false}}));
 
-    expect(await getFeatureFlags('prod')).toMatchObject({data: {files: false, query: false, sharedWorkspaces: true}});
-  });
+      expect(await caller.read('prod')).toEqual({
+        success: true,
+        // `query` takes the compiled-in default (true), NOT the string's truthiness — which
+        // would happen to agree here and disagree for `"false"` in a document whose default
+        // was off, so the assertion below pins the source rather than the value.
+        data: {
+          files: true,
+          query: FEATURE_FLAG_DEFAULTS.query,
+          sharedWorkspaces: false,
+          dataQuality: true,
+          dataExplorer: true,
+          asyncFileOperations: true,
+          resultsConversion: true,
+          archive: true
+        }
+      });
+    });
 
-  it('throws the archive switch from an environment block and leaves every other key alone', async () => {
-    // How an operator withdraws archive and restore: the published document names the switch
-    // under the environment's block and nowhere else. A document that never names it resolves
-    // it on — the first test in this file, whose document has no `archive` anywhere.
-    api.on('featureFlags.get', body(document({defaults: allOn, environments: {prod: {archive: false}}})));
+    it('falls back for that key only when an ENVIRONMENT override is malformed', async () => {
+      caller.give(document({defaults: {...allOn, files: false, query: false}, environments: {prod: {query: 'true'}}}));
 
-    expect(await getFeatureFlags('prod')).toEqual({success: true, data: {...allOn, archive: false}});
-  });
+      // The malformed override is skipped and the document's own default takes over — the
+      // compiled-in default is the LAST resort, not the first.
+      expect(await caller.read('prod')).toMatchObject({data: {files: false, query: false}});
+    });
 
-  it('resolves an environment the document does not name to the defaults, and calls it a success', async () => {
-    // Not an error: the document was fetched and understood. FR-004 is explicit that this
-    // reports 'ready' — an environment with no block has simply overridden nothing.
-    api.on('featureFlags.get', body(document({defaults: {...allOn, query: false}})));
+    it('ignores an unknown flag key rather than carrying it through', async () => {
+      caller.give(document({defaults: {...allOn, quries: false}}));
 
-    expect(await getFeatureFlags('staging')).toEqual({success: true, data: {...allOn, query: false}});
-  });
+      const result = await caller.read('prod');
 
-  it('resolves an UNSET environment to the defaults rather than crashing', async () => {
-    // FR-007: an unwired VITE_ENVIRONMENT must never white-screen the app.
-    api.on('featureFlags.get', body(document({defaults: {...allOn, query: false}})));
+      expect(result).toEqual({success: true, data: allOn});
+    });
 
-    expect(await getFeatureFlags(undefined)).toEqual({success: true, data: {...allOn, query: false}});
-  });
+    it('ignores an environment block that is not an object', async () => {
+      caller.give(document({environments: {prod: 'off'}}));
 
-  it('always returns every key as a boolean, whatever the document named', async () => {
-    // The resolver walks the KEY LIST, not the document, so no consumer ever sees undefined.
-    api.on('featureFlags.get', body(document({defaults: {}, environments: {}})));
-
-    const result = await getFeatureFlags('prod');
-
-    expect(result).toMatchObject({success: true});
-    const flags = (result as {data: Record<string, unknown>}).data;
-    expect(Object.keys(flags).sort()).toEqual([...FEATURE_FLAG_KEYS].sort());
-    expect(Object.values(flags).every((value) => typeof value === 'boolean')).toBe(true);
-  });
-});
-
-describe('getFeatureFlags — one bad value is not a bad document', () => {
-  it('falls back for that KEY ONLY when a default is malformed', async () => {
-    // FR-005: one string where a boolean belonged must not discard three good values.
-    api.on('featureFlags.get', body(document({defaults: {...allOn, query: 'false', sharedWorkspaces: false}})));
-
-    expect(await getFeatureFlags('prod')).toEqual({
-      success: true,
-      // `query` takes the compiled-in default (true), NOT the string's truthiness — which
-      // would happen to agree here and disagree for `"false"` in a document whose default
-      // was off, so the assertion below pins the source rather than the value.
-      data: {
-        files: true,
-        query: FEATURE_FLAG_DEFAULTS.query,
-        sharedWorkspaces: false,
-        dataQuality: true,
-        dataExplorer: true,
-        asyncFileOperations: true,
-        resultsConversion: true,
-        archive: true
-      }
+      expect(await caller.read('prod')).toEqual({success: true, data: allOn});
     });
   });
 
-  it('falls back for that key only when an ENVIRONMENT override is malformed', async () => {
-    api.on(
-      'featureFlags.get',
-      body(document({defaults: {...allOn, files: false, query: false}, environments: {prod: {query: 'true'}}}))
-    );
+  describe('an unusable document is a FAILURE, not an empty success', () => {
+    // This is the one place this service diverges from getUserDirectory(), and it is
+    // load-bearing: the compiled-in fallback is all-on, which is indistinguishable from a
+    // healthy environment, so the distinction has to survive the return or 'fallback' could
+    // never be reported.
 
-    // The malformed override is skipped and the document's own default takes over — the
-    // compiled-in default is the LAST resort, not the first.
-    expect(await getFeatureFlags('prod')).toMatchObject({data: {files: false, query: false}});
-  });
+    it('refuses an unparseable body', async () => {
+      caller.give('{not json');
 
-  it('ignores an unknown flag key rather than carrying it through', async () => {
-    api.on('featureFlags.get', body(document({defaults: {...allOn, quries: false}})));
+      expect(await caller.read('prod')).toMatchObject({success: false, error: {code: 'FeatureFlagsUnusable'}});
+    });
 
-    const result = await getFeatureFlags('prod');
+    it('refuses a version it does not understand, and names it', async () => {
+      caller.give(document({version: 2}));
 
-    expect(result).toEqual({success: true, data: allOn});
-  });
+      const result = await caller.read('prod');
 
-  it('ignores an environment block that is not an object', async () => {
-    api.on('featureFlags.get', body(document({environments: {prod: 'off'}})));
+      expect(result).toMatchObject({success: false});
+      expect((result as {error: {message: string}}).error.message).toContain('2');
+    });
 
-    expect(await getFeatureFlags('prod')).toEqual({success: true, data: allOn});
+    it('refuses a document with no usable defaults block', async () => {
+      caller.give(document({defaults: 'all-on'}));
+
+      expect(await caller.read('prod')).toMatchObject({success: false});
+    });
+
+    it('refuses a body that is a JSON array', async () => {
+      caller.give([{files: true}]);
+
+      expect(await caller.read('prod')).toMatchObject({success: false});
+    });
+
+    it('refuses an empty body', async () => {
+      caller.give('');
+
+      expect(await caller.read('prod')).toMatchObject({success: false});
+    });
   });
 });
 
-describe('getFeatureFlags — an unusable document is a FAILURE, not an empty success', () => {
-  // This is the one place this service diverges from getUserDirectory(), and it is
-  // load-bearing: the compiled-in fallback is all-on, which is indistinguishable from a
-  // healthy environment, so the distinction has to survive the return or 'fallback' could
-  // never be reported.
-
-  it('refuses an unparseable body', async () => {
-    api.on('featureFlags.get', body('{not json'));
-
-    expect(await getFeatureFlags('prod')).toMatchObject({success: false, error: {code: 'FeatureFlagsUnusable'}});
-  });
-
-  it('refuses a version it does not understand, and names it', async () => {
-    api.on('featureFlags.get', body(document({version: 2})));
-
-    const result = await getFeatureFlags('prod');
-
-    expect(result).toMatchObject({success: false});
-    expect((result as {error: {message: string}}).error.message).toContain('2');
-  });
-
-  it('refuses a document with no usable defaults block', async () => {
-    api.on('featureFlags.get', body(document({defaults: 'all-on'})));
-
-    expect(await getFeatureFlags('prod')).toMatchObject({success: false});
-  });
-
-  it('refuses a body that is a JSON array', async () => {
-    api.on('featureFlags.get', body([{files: true}]));
-
-    expect(await getFeatureFlags('prod')).toMatchObject({success: false});
-  });
-
-  it('refuses an empty body', async () => {
-    api.on('featureFlags.get', body(''));
-
-    expect(await getFeatureFlags('prod')).toMatchObject({success: false});
-  });
-
+describe('getFeatureFlags — a failed read is a FAILURE, not an empty success', () => {
   it('refuses a MISSING document rather than treating it as a starting state', async () => {
     // Unlike the username directory, absence here is not "the builder has not run yet" — it
     // means the publish workflow has never reached this bucket, which is a deploy defect.

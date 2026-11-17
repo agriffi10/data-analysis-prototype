@@ -101,6 +101,42 @@ function isEntry(file: string): boolean {
   return file.endsWith('/page.tsx') || file === '/src/app/not-found.tsx';
 }
 
+/**
+ * A server layout beside a page, held by {@link layoutFindings} rather than as the page's neighbour:
+ * it runs on the server, so it may import the server's flag module, which no page may. Named exactly
+ * `layout.tsx`, so a `layout.ts` or a `Layout.tsx` stays a neighbour under the page's rules.
+ */
+function isAreaLayout(file: string): boolean {
+  return file.startsWith('/src/app/') && file !== '/src/app/layout.tsx' && file.endsWith('/layout.tsx');
+}
+
+/** What an area layout may import, resolved: the server's flag module and the unavailable mount. */
+const LAYOUT_IMPORTS = ['/src/server/featureFlags', '/src/app/(signed-in)/UnavailableMount'];
+
+/**
+ * The rules for an area's server layout: it imports the server's flag module, the unavailable mount
+ * and React's types, and nothing else, statically or dynamically; and it declares no parameter but
+ * `children`, since a native navigation leaves `params` stale.
+ *
+ * @param file - The layout's path, `/src/app/…/layout.tsx`.
+ * @param source - Its source.
+ * @returns A finding per broken rule.
+ */
+export function layoutFindings(file: string, source: string): string[] {
+  const findings: string[] = [];
+  for (const [statement, specifier] of source.matchAll(/^(?:import|export)\s[^'"(=;]*['"]([^'"]+)['"]/gm)) {
+    const allowed = specifier.startsWith('.')
+      ? LAYOUT_IMPORTS.includes(resolve(file, specifier))
+      : specifier === 'react' && /^import type\s/.test(statement);
+    if (!allowed) findings.push(`${file} imports ${specifier}`);
+  }
+  if (/\bimport\(/.test(source) || /\bdynamic\(/.test(source)) findings.push(`${file} loads a module dynamically`);
+  const declared = /export default function \w*\(([^)]*)\)/.exec(source);
+  if (!declared) findings.push(`${file} has no default-exported layout function`);
+  else if (!/^\{\s*children\s*\}\s*:/.test(declared[1].trim())) findings.push(`${file} declares more than children`);
+  return findings;
+}
+
 /** The root layout and its mount, held by {@link rootFindings} rather than as any page's neighbours. */
 const ROOT_COMPOSITION = ['/src/app/layout.tsx', '/src/app/PortalMount.tsx'];
 
@@ -122,6 +158,7 @@ export function pageUnits(appFiles: readonly string[]): string[][] {
         !file.slice(directory.length).includes('/') &&
         /\.tsx?$/.test(file) &&
         !isEntry(file) &&
+        !isAreaLayout(file) &&
         !ROOT_COMPOSITION.includes(file)
     );
     return [entry, ...neighbours];
@@ -288,6 +325,59 @@ describe('the page rules, against fixtures', () => {
     ]);
   });
 
+  it('pass a conforming area layout, and name each import, dynamic load and parameter it may not have', () => {
+    const layout = '/src/app/(signed-in)/query/layout.tsx';
+    const conforming = `import type {ReactNode} from 'react';
+import {serverRouteGate} from '../../../server/featureFlags';
+import {UnavailableMount} from '../UnavailableMount';
+export default function QueryLayout({children}: {children: ReactNode}) {
+  return serverRouteGate('/query').kind === 'open' ? children : <UnavailableMount flag="query" fallback={undefined} />;
+}`;
+    expect(layoutFindings(layout, conforming)).toEqual([]);
+    expect(
+      layoutFindings(layout, `import {useFeature} from '../../../features/feature-flags';\n${conforming}`)
+    ).toEqual([`${layout} imports ../../../features/feature-flags`]);
+    expect(layoutFindings(layout, conforming.replace('import type {ReactNode}', 'import {ReactNode}'))).toEqual([
+      `${layout} imports react`
+    ]);
+    expect(layoutFindings(layout, `${conforming}\nconst later = () => import('../../../routes/areas/query');`)).toEqual(
+      [`${layout} loads a module dynamically`]
+    );
+    expect(
+      layoutFindings(layout, conforming.replace('{children}: {children: ReactNode}', '{children, params}: Props'))
+    ).toEqual([`${layout} declares more than children`]);
+  });
+
+  it('judge an area layout apart from its page, but a file merely named like one as a neighbour', () => {
+    const directory = '/src/app/(signed-in)/query/';
+    expect(
+      pageUnits([`${directory}page.tsx`, `${directory}layout.tsx`, `${directory}layout.ts`, `${directory}Layout.tsx`])
+    ).toEqual([[`${directory}page.tsx`, `${directory}layout.ts`, `${directory}Layout.tsx`]]);
+    const lookalike = "import {serverRouteGate} from '../../../server/featureFlags';";
+    expect(pageFindings({[`${directory}page.tsx`]: CONFORMING, [`${directory}Layout.tsx`]: lookalike})).toEqual([
+      `${directory}Layout.tsx imports ../../../server/featureFlags statically`
+    ]);
+  });
+
+  it('name an unavailable mount that reaches its view without ssr: false, or statically', () => {
+    const mount = '/src/app/(signed-in)/UnavailableMount.tsx';
+    const conforming = `'use client';
+import dynamic from 'next/dynamic';
+import type {ComponentProps} from 'react';
+const UnavailableView = dynamic(() => import('../../routes/areas/unavailable').then((m) => m.UnavailableView), {ssr: false});
+export function UnavailableMount(props: ComponentProps<typeof UnavailableView>) {
+  return <UnavailableView {...props} />;
+}`;
+    expect(pageFindings({[mount]: conforming})).toEqual([]);
+    expect(pageFindings({[mount]: conforming.replace(', {ssr: false}', '')})).toEqual([
+      `${mount} loads through next/dynamic without ssr: false`,
+      `${mount} reaches no view through dynamic(…, {ssr: false})`
+    ]);
+    expect(
+      pageFindings({[mount]: `import type {FeatureFlagKey} from '../../features/feature-flags';\n${conforming}`})
+    ).toEqual([`${mount} imports ../../features/feature-flags statically`]);
+  });
+
   it('name a metadata export, a key in the layout chain and a module-scope client, and pass their absence', () => {
     expect(metadataFindings('a.tsx', 'export const metadata = {title: "x"};')).toEqual(['a.tsx exports metadata']);
     expect(metadataFindings('a.tsx', 'export async function generateMetadata() {}')).toEqual([
@@ -320,6 +410,22 @@ describe('the App Router’s files', () => {
       pageFindings(Object.fromEntries(unit.map((file) => [file, SOURCES[file]])))
     );
     expect(findings).toEqual([]);
+  });
+
+  it('keep every area layout to the flag gate and the unavailable mount', () => {
+    const layouts = appFiles.filter(isAreaLayout);
+    expect(layouts).toEqual(
+      expect.arrayContaining([
+        '/src/app/(signed-in)/files/layout.tsx',
+        '/src/app/(signed-in)/query/layout.tsx',
+        '/src/app/(signed-in)/connections/layout.tsx',
+        '/src/app/(signed-in)/explore/layout.tsx',
+        '/src/app/(signed-in)/data-quality/layout.tsx'
+      ])
+    );
+    expect(layouts.flatMap((file) => layoutFindings(file, SOURCES[file]))).toEqual([]);
+    const mount = '/src/app/(signed-in)/UnavailableMount.tsx';
+    expect(pageFindings({[mount]: SOURCES[mount]})).toEqual([]);
   });
 
   it('reach the boot only through the root layout’s client-only mount', () => {

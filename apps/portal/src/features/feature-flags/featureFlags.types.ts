@@ -50,3 +50,10 @@ export type FeatureFlagDocument = {
   defaults: FeatureFlags;
   environments: Record<string, Partial<FeatureFlags>>;
 };
+
+/**
+ * A flag set the Next.js server resolved and sent with the page, and when the API answered it, epoch
+ * milliseconds. The browser seeds its query cache with it, dated by `readAt`, so the set ages from
+ * the API's answer rather than from the page load.
+ */
+export type SeededFeatureFlags = {flags: FeatureFlags; readAt: number};

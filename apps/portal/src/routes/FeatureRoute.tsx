@@ -1,6 +1,6 @@
 import type {ReactNode} from 'react';
 import {LoadingState} from '../components/LoadingState';
-import {FEATURE_FLAG_KEYS, navDestination, useFeatureSet} from '../features/feature-flags';
+import {firstEnabledDestination, navDestination, useFeatureSet} from '../features/feature-flags';
 import type {FeatureFlagKey} from '../features/feature-flags';
 import {FeatureUnavailablePage} from './FeatureUnavailablePage';
 
@@ -37,7 +37,7 @@ export function FeatureRoute({flag, children}: FeatureRouteProps) {
   if (status === 'loading') return <LoadingState />;
   if (isEnabled(flag)) return <>{children}</>;
 
-  const fallbackKey = FEATURE_FLAG_KEYS.find((key) => isEnabled(key) && navDestination(key));
+  const fallbackKey = firstEnabledDestination(isEnabled);
   return (
     <FeatureUnavailablePage
       feature={navDestination(flag)?.label}
