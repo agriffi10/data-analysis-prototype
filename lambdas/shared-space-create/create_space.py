@@ -125,7 +125,8 @@ def _ensure_database(name):
 
     **An existing database is this create's own only when it carries the space's marker.** A
     space's database and a user's personal one share one Glue namespace under the bare name, so a
-    space named after a user finds that user's database already there. Read as a retry of this
+    name the pool check let through can still find a database there: one whose user has gone, or a
+    space's from before the marker. Read as a retry of this
     create, it was adopted — tagged, granted on, and then dropped with every table in it by the
     teardown of the space's failed or still-provisioning record. A database without the marker
     is somebody else's, and the name is refused as taken.

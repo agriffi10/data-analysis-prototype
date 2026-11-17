@@ -253,3 +253,19 @@ def test_the_run_record_carries_counts_and_never_a_name(monkeypatch):
     for key in nc.DEPENDS_ON:
         assert isinstance(fields[key], int), (key, fields[key])
     assert set(fields) == {*nc.DEPENDS_ON, "passed", "failed_reads"}
+
+
+def test_a_never_active_space_that_owns_its_marked_database_is_real():
+    """A membership-limit refusal leaves a failed, never-active record whose database is marked as
+    its own. Its name is a space's catalog, so a user of that name is a collision, not a refused
+    reservation."""
+    s3, glue, _lf, cognito = _world()
+    cognito.users["capped"] = {}
+    _record(s3, "capped", "alice", ["alice"], status="failed", ever_active=False)
+    glue.seed_space_database("capped")
+
+    out = nc.report()
+
+    assert "capped" in out["usernames_that_are_spaces"]
+    assert out["refused_reservations_named_for_users"] == []
+    assert out["passed"] is False
