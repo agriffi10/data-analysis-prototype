@@ -257,7 +257,9 @@ the server refreshes ahead of them.
 #### Acceptance Criteria:
 
 - [ ] `session-store` takes no input from `network` or `spa`, and its key policy's only principal is
-      the account root, both asserted by tests over the HCL.
+      the account root, both asserted by tests over the HCL. **(Superseded in part 2026-11-17 by
+      SPEC-270: the deployed store's key now names the deploy role and the web task role, the account
+      root may only read its metadata, and only the dev store's key delegates. The first half stands.)**
 - [ ] The table and key pass Checkov `CKV_AWS_119` and `CKV_AWS_7`, which join
       `.github/checkov-enforced.txt`; `CKV_AWS_28` fails on the table by decision and is accepted
       with the backup reason above in `docs/security-baseline.md`'s Checkov table, which is how this

@@ -2350,8 +2350,11 @@ binding then holds whoever can reach the API, and a sealed context that leaks fr
 without its own user's bearer. Four rules keep it a binding:
 
 - **The key's policy names its principals.** The task role alone may `Encrypt`, the API's role
-  alone may `Decrypt`, and everyone else is denied by `aws:PrincipalArn`. This departs on purpose
-  from the session table's key, whose policy delegates to the account's IAM: delegated, any
+  alone may `Decrypt`, and everyone else is denied by `aws:PrincipalArn`. ~~This departs on purpose
+  from the session table's key, whose policy delegates to the account's IAM~~ *(superseded
+  2026-11-17: SPEC-270 narrowed the session table's key to name the deploy role and the task role,
+  so the two keys no longer differ on this point; the session key carries no Deny, for the reason
+  its module README gives)*: delegated, any
   principal IAM allows could unseal, or re-seal a raw context to its own `sub`, and exclusive
   `Encrypt` is the property the binding rests on.
 - **A cache never skips the check.** The API's cache of a carrier session (it never caches a
