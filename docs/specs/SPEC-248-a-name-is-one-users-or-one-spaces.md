@@ -44,8 +44,8 @@ pre-signup refusal of `custom:` attributes, and a live `SignUp` check. The curre
 self-sign-up until it is decommissioned, and what that leaves open there is stated under Out of
 Scope. FR-001's write list still applies to `SignUp`, because a client's write list governs the
 calls made through that client, `SignUp` and `UpdateUserAttributes` alike. For `SignUp` that is
-documented and not measured. Admin calls made under IAM are not limited by it, which is why the
-plane can still write a slot.
+documented and not measured. Admin calls made under IAM are documented not to be limited by it,
+which is why the plane can still write a slot, and FR-001's control checks that after the apply.
 
 ## What was measured, and what it means
 
@@ -180,9 +180,11 @@ rewritten for what the audit and that spec changed, and the rest stood.
   - a live `SignUp` check that a submitted slot creates no account.
 
   What that leaves open in the current account until it is decommissioned: P4's reverse door, so a
-  stranger who signs up under a space's name reaches that space's catalog, and a name freed by
-  self-deletion can be registered again, prefix and catalog both, because post-confirmation treats
-  an existing database as success and grants on it. There are no production users, and FR-004's
+  stranger who signs up under a space's name reaches that space's catalog; a name freed by any user
+  deletion can be registered again, prefix and catalog both, because post-confirmation treats an
+  existing database as success and grants on it; and anyone can block a space name by signing up
+  under it and never confirming, because FR-002 refuses a name an unconfirmed user holds, and the
+  block lasts until an operator deletes that user. There are no production users, and FR-004's
   lists (a), (b) and (f) name anyone who had come through by the time the report ran. FR-001's
   write list is documented to cover a slot submitted at sign-up, though no live check proves it
   for `SignUp`.
@@ -322,6 +324,10 @@ After the apply the probe shows the list refusing on that client, and
 
   Between SPEC-262's two merges the public client still exists and no browser signs in through it,
   so `describe-user-pool-client` is its only evidence.
+- [ ] After the apply, a space create or a member add writes a new slot through the plane, and
+  that member, signing in fresh, lists the space's files. The control above uses slots written
+  before the apply, so without this nothing shows that the write list leaves the plane's admin
+  writes alone, and a list that limited them would break every create and add.
 - [ ] If the probe before the apply had any verdict other than "not writable", FR-004's report runs
   against the deployed account before this spec closes. A slot someone already wrote for
   themselves survives FR-001.
@@ -600,7 +606,8 @@ apps/portal/src/features/
 - A register entry in `docs/decisions/control-planes/`, and one in
   `docs/decisions/identity-and-access/`.
 - Clauses in the identity fences:
-  - The slot claims are an authorization input only because no client can write them.
+  - The slot claims are an authorization input only because no client can write them. The fence
+    says this is measured for `UpdateUserAttributes` and documented, not measured, for `SignUp`.
   - A name is a user's or a space's. The space create is the door this account guards; sign-up is
     left open until the account is decommissioned, because the target environment has no sign-up.
 - Mark as superseded, in place, `transition_plan.md` §6.1's "this repo's app client sets neither"
