@@ -583,7 +583,8 @@ shared spaces — crosses this revision unchanged. That is what makes them safe 
                      the shape AWS's own Entra walkthrough uses. Verified 2026-08-19)
                     — the one the callback's code exchange just returned. Each assertion
                       exchanges once; a later, refreshed Cognito ID token also exchanges
-                      (measured 2026-11-15), which §4.7's refused-refresh decision declines to use
+                      (measured 2026-11-15), which §4.7's retry from `pending` relies on, and which its refused-refresh decision declines to use
+after a refusal
    → IdC validates the signature against the TTI's JWKS, checks the audience,
      maps the configured claim (typically `email`) to exactly ONE IdC user
    → returns accessToken, refreshToken (when the grant is enabled), idToken, and
@@ -912,7 +913,7 @@ says. It is NOT what Phase 0 measured on 2026-11-15; see the amendment below.)*
 > object access to every principal it does not name (§3.12 item 5), so the obligation there is to
 > keep the carrier role off that list, and to put the Access Grants location role on it, because
 > vended credentials act as that role (Phase 5's Access Grants item). The shared-space bucket has no
-> such policy, and whether it gains one is Phase 5's Access Grants item's call. This also unsettles the reason §3.4 and
+> such policy, and whether it gains one is open (§8, *Gating Phase 5*). This also unsettles the reason §3.4 and
 > §3.9 give for Access Grants, the P1-implies-P3 tension in §5, and the allow-list's role in the
 > actor contract (`docs/specs/ARCS.md`). Neither is decided here.
 
@@ -1017,17 +1018,21 @@ architecture today, and it is an account-wide singleton to own in the coordinati
    listing, and that grant already exposes every user's keys unless the role-policy narrowing below
    applies. These permissions are on the user-space bucket; §3.11's per-(member, space) grants need a
    registered location on the shared-space bucket too, and whether this role is widened to it or a
-   second role serves it is §3.11's to settle, with that bucket's own reserved prefixes. Athena's result writes on the Identity
+   second role serves it is open (§8, *Gating Phase 5*). Athena's result writes on the Identity
    Center workgroup also go through Access Grants, as the same role.
 3. **Create grants**: bind an **Identity Center user or group** to a **prefix** with
-   `READ` / `WRITE` / `READWRITE`. **The fence on grants has three rules.** Only the deploy role may
-   call `s3:CreateAccessGrant`; no other identity policy grants it. Grantees are directory users and
+   `READ` / `WRITE` / `READWRITE`. **The fence on grants has three rules.** Only the roles this plan names as grant issuers may call `s3:CreateAccessGrant` and
+`s3:DeleteAccessGrant`: the deploy role, the provisioner's identity-shaped pass (§3.12) and the
+shared-space control plane (§3.11). No other identity policy grants either, and a test holds the
+list. *(SPEC-266 wrote "only the deploy role"; the plan's runtime issuers are the correction.)* Grantees are directory users and
    groups only, never an IAM principal, because a grant to the carrier role would apply to every
    user's carrier session. And no grant is scoped to the location root **unless** Phase 0 chooses
    the role-policy-narrowed form (below, and Phase 0's *Decide the Access Grants prefix identity*),
    in which case that one standing grant is the root grant, the location role's permissions narrow
    it by `${identitystore:UserId}`, and the `_*` Deny above still holds. Under the literal per-user
-   form, a root grant is a defect. This fence does not decide between the two forms; Phase 0 does.
+      form, a root grant is a defect. This fence does not decide between the two forms; Phase 0 does.
+   One consequence is already fixed: §3.5 keys query results on the username, which the narrowed
+   form cannot express, so under it the results location still needs literal per-user grants.
 
 **The backend calls `GetDataAccess` on the user's identity-enhanced session and gets back
 prefix-scoped temporary credentials.** From there the bytes reach the browser the way Arc B already
@@ -2064,15 +2069,19 @@ runs the dispatch straight after flipping it. **AWS deletes an Access Grants ins
 grants and locations are deleted and its Identity Center association is removed**
 (`DeleteAccessGrantsInstance`), and the per-user grants (§3.12) and per-(member, space) grants
 (§3.11) are made outside Terraform, so in any real environment the override destroy fails mid-apply
-unless a revoke-all-grants step runs first. Switching off therefore begins with that step. Being a
+unless every grant made outside Terraform (and any location so registered) is deleted first. Where
+that step runs, and how it keeps the runtime issuers from creating a grant between it and the
+destroy, is open (§8, *Gating Phase 5*). Being a
 gate, it owes a fixture corpus asserting each refusal's reason, cases that assert silence, and one
 mutation per rule.
 
 **The deploy role's grant covers calls made on our behalf.** It lands in its own pull request and
 applies green before any consumer. Associating Access Grants, creating Lake Formation's configuration
 and creating an Identity Center workgroup each create an Identity Center application against the
-instance, and Lake Formation's also creates a RAM share, so the grant carries those Identity Center
-and RAM actions. It also carries `iam:PassRole` on the location role, conditioned on
+instance, so the grant carries those Identity Center actions. *SPEC-266 also said Lake Formation's
+configuration creates a RAM share; AWS's "Prerequisites for IAM Identity Center integration" page
+asks for RAM permissions only when sharing catalog resources across accounts, which we do not plan,
+so RAM actions join the grant only if the first apply's CloudTrail shows a share.* It also carries `iam:PassRole` on the location role, conditioned on
 `access-grants.s3.amazonaws.com`. The action list is derived, not guessed: from each resource's
 create, read, update and delete at the pinned provider version, from AWS's documented permissions for
 each on-behalf call, and from a simulate for each action placed on `Resource: "*"`. The first-use
@@ -2107,7 +2116,7 @@ the flag off and dispatch without the override, recording the guard's refusal. D
 the override and confirm that the Access Grants instance, the Lake Formation configuration and the
 workgroup read back as absent. If an Access Grants instance can be planted first, the same run
 records the apply refusing to adopt it. Plant one grant outside Terraform before the destroy, so the
-run also proves the revoke-all-grants step. The run cannot prove the cross-account calls, or that
+run also proves whatever step §8's question settles on. The run cannot prove the cross-account calls, or that
 STS populates the carrier's two Identity Center keys.
 
 ### 4.5 A third counterparty — unchanged
@@ -2378,11 +2387,10 @@ either side. Second, `aws:PrincipalArn` matches a role by name, not by unique id
 role does not exist anyone able to create a role of that name would gain Encrypt; that is accepted
 only because no identity policy outside the deploy role's grants `iam:CreateRole`, and a test holds
 it. Losing administration of the key with the deploy role is accepted, and so is losing the key
-itself: a sealed context lives at most an hour, so a replacement key costs each session one re-seal,
-but until that session's next refresh its requests carry a value sealed under the old key, which the
-pinned `KeyId` answers as `IdentityContextMismatch`. So the server re-seals at once when the key ARN
-it is configured with differs from the one a stored context was sealed under, and stores that ARN
-beside the sealed value.
+itself: a sealed context lives at most an hour. The server cannot re-seal what it stores (it holds no
+plaintext and may not `Decrypt`), so after a key replacement each session's requests answer
+`IdentityContextMismatch` until its next successful refresh seals a new context, and a context with
+no refresh token until it lapses. How the server recovers sooner is open (§8, *Gating Phase 5*).
 
 The cost is one `Decrypt` per request on the API, less what its cache saves, and one `Encrypt` per
 context on the server. An HMAC under a shared key was weighed and is not simpler: it needs the same
@@ -2639,7 +2647,8 @@ session. Sign out and sign in again to restore it."; and for unavailable, "Your 
 ready yet. Try again in a moment." With the exchange switched off, a carrier route would answer
 `IdentityContextUnavailable` permanently, so **no route declares the carrier plane in a release that
 reaches an environment whose flag is off**: the flag goes on everywhere the release deploys first,
-non-production before production, and the first carrier route ships after.
+non-production before production, and the first carrier route ships after. Switching the consumers
+off once carrier routes exist is open (§8, *Gating Phase 5*).
 
 #### The server's half
 
@@ -2704,9 +2713,9 @@ after a fault; **`pending`**, a `retryAt` and no exchange before it; **`ended`**
 **`unreadable`**, what the store adapter reads when an identity attribute is present but does not
 parse. Every identity write goes through one function that refuses any transition not in this list:
 
-- the sign-in callback creates the item with the identity `present`, or `pending` with `retryAt`
-  300 seconds on: the creating put is the one write that carries both the tokens and the identity,
-  because there is nothing yet to roll back;
+- the sign-in callback creates the item with no identity while the exchange is off, and otherwise
+  with the identity `present`, or `pending` with `retryAt` 300 seconds on: the creating put is the
+  one write that carries both the tokens and the identity, because there is nothing yet to roll back;
 - no attribute becomes `pending`, with a jittered `retryAt`, on the first load that sees it;
 - `pending` becomes `pending` with a later `retryAt`, by a retry's claim;
 - `pending` becomes `present`, by a retry's successful exchange;
@@ -2728,8 +2737,8 @@ session still loads. An item written before the flag was turned on is given `pen
 minutes instead of spending the instance-wide quota at once.
 
 **Two writes under one version.** The identity is written by its own conditional write, under the
-same `version` the provider-token writes compare and advance. A token write never carries the
-identity, and an identity write never carries the tokens, so the provider refresh's forced re-write
+same `version` the provider-token writes compare and advance. After the creating put, a token write
+never carries the identity, and an identity write never carries the tokens, so the provider refresh's forced re-write
 cannot roll the identity back and an identity write cannot roll a newer provider token back. An
 identity write that loses re-reads the item and writes against the new version only if the stored
 identity is still the one it acted on (the same state; for `present` the same or an earlier issue
@@ -3250,8 +3259,7 @@ the one that holds `memberships/`. Each entry is `{object_id, username}`. The ob
 lowercase GUID equal to the key's stem, and the username must fullmatch
 `cpcommon.config.CATALOG_IDENTIFIER_RE`, so there is no third copy of the rule. The provisioner
 (§3.12) writes one entry per row of the username list; until it exists, an operator writes an entry
-by hand for a live check. The index is an authorization input, in the same class as the list: no user
-and no portal role may write it (the guardrail above).
+by hand for a live check. The index is an authorization input, in the same class as the list: no user and no portal role but the provisioner's may write it (the guardrail above).
 
 **How the trigger validates, and what it emits.** It trusts a subject only when
 `cognito:user_status` is `EXTERNAL_PROVIDER`, so an administrator-created local user named like a
@@ -3711,8 +3719,9 @@ they already were.
   username as the prefix and making a grant a provisioning step — or **one broad grant narrowed by
   `${identitystore:UserId}` in the location role's own policy**, which is standing but replaces the
   username with an Identity Store id. There is no variable grant scope; the two mechanisms are a
-  grant and a policy. It may split, because the workgroup's user-identity result prefix
-  (`${user_id}`) may move **results** regardless. §3.5 now records that the **prefix** is optional;
+  grant and a policy. *(2026-11-16: results stay keyed on the username, so they take literal grants
+  whichever form the file browser gets — §3.5's workgroup bullet.)* It may split, because the
+  workgroup's user-identity result prefix (`${user_id}`) may move **results** regardless. §3.5 now records that the **prefix** is optional;
   what is still open — and what to establish here — is whether *Override client-side settings* can
   be left off on an IdC workgroup that declines it. *(narrowed again 2026-11-15: an IdC workgroup
   was created with it off — §3.5)* What remains is whether a query then honours a client-side result
@@ -4153,8 +4162,9 @@ freeze. This is the whole reason the old account survives the quiet period.
   which is the only plan that needs both in the successor account.
 - **The Access Grants prefix identity** (§3.9): one literal grant per user, or one broad grant
   narrowed by `${identitystore:UserId}` in the **location role's policy**? It decides whether a
-  grant is a provisioning step and whether the username survives as the prefix, and it may split
-  between the file browser and query results. **Sub-question — narrowed 2026-08-19, because §3.5
+  grant is a provisioning step and whether the username survives as the prefix. Query results
+  cannot take the narrowed form while §3.5's 2026-11-16 decision keys them on the username, so the
+  question is now the file browser's. **Sub-question — narrowed 2026-08-19, because §3.5
   answers half of it:** the `${user_id}` prefix is optional; what is still open is whether *Override
   client-side settings* can be left off. *(narrowed again 2026-11-15: an IdC workgroup was created
   with it off — §3.5)* What remains is whether a query then honours a client-side result location.
@@ -4260,6 +4270,20 @@ freeze. This is the whole reason the old account survives the quiet period.
   change-request dependency is gone.)
 
 **Gating Phase 5:**
+
+- **Switching the consumers off once they are in use** (§4.4). AWS deletes an Access Grants instance
+  only after its grants and locations, and the runtime issuers (§3.11, §3.12) keep creating grants
+  until their configuration changes. Where the delete-every-grant step runs (inside the override
+  dispatch, before the apply, is the obvious place) and how the issuers are stopped first are open,
+  and so is the fate of routes that already declare the carrier plane, which would answer
+  `IdentityContextUnavailable` permanently once the exchange is off (§4.7's interface).
+- **Recovering from a replaced sealing key** (§4.7, *The key itself*). Until each session's next
+  refresh, its requests answer `IdentityContextMismatch`. Whether the server should refresh at once
+  on seeing a different key ARN, and where in the identity states that write sits, is open.
+- **The shared-space bucket under Access Grants** (§3.9 item 2, §3.11): a registered location on it,
+  whether the user-space location role is widened to it or a second role serves it, that bucket's
+  reserved prefixes, and whether it gains a bucket policy naming its principals as the user-space
+  bucket has (§3.6's amendment).
 
 - ~~**Gate G7 (§3.5, §5.5) — settled in Phase 0 or not?**~~ **Settled 2026-11-15 — it runs** from
   our own identity-enhanced session (§5.5's measurements); §3 stands.
