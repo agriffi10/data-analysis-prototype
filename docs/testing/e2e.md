@@ -904,7 +904,9 @@ it is CLI-only — see `owed.md`.
 | Add a member who does not exist | Silently ignored — the others are still added, and the execution still SUCCEEDS. |
 | Add the same member twice | Idempotent. The owner can never be added as a member. |
 | **Remove** a member | Their slot is cleared and their cache entry dropped; the space leaves their rail. The objects under it are **not** deleted. |
-| Create a space whose name is already taken | Refused by name. The registry record **is** the name lock. |
+| Create a space whose name is already taken | Refused by name. The registry record **is** the name lock. The card offers **Dismiss** and no Retry. |
+| Create a space named after a user — your own username will do | Refused with the same sentence as a taken space name, `name already taken`, and the card offers **Dismiss** and no Retry. You hold no new slot: your other spaces still list, and the refused name never appears in the rail. |
+| After any change to an app client, dispatch **Report name collisions** from `main` | Passes, every list empty but the informational ones. A failed read fails it, and a list it could not compute is `null`, never empty. |
 | Read the roster | Every member sees a read-only roster, and **the reader's own row is never `Pending`**. No page ever asserts `Active` and `Pending` about one member at once. |
 | Query the space's database | It runs, and its results go to **your own** `system_settings/athenaresults/`, not the space's. That is by design: the API writes every query under the caller's own prefix, because that prefix is how every query route proves an execution is the caller's (`cpcommon/results.py`). |
 | Leave a space, then reload with its `?space=` still in the URL | Falls back, with **zero S3 requests naming the space** — no existence oracle. |
