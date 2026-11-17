@@ -1274,12 +1274,24 @@ on it.
 so a permanently-blocked read renders *exactly* like a healthy all-on environment. "It looks fine"
 is not a pass.
 
-**The read is real** (all flags on):
+**The server sends the set with the page** (SPEC-264; all flags on, signed in):
 
-1. Hard-reload signed in. In the network panel, find `GET $APP_URL/api/v1/feature-flags` → **200**.
-   That status is the assertion. `ProtectedLayout` mounts the hook and discards the result precisely
-   so this request exists to be observed. A **404** carrying `"code": "NotFound"` means nothing has
-   ever been published to this bucket — a deploy defect, and the app renders all-on over it.
+1. Reload `/files` until a load's HTML carries the flag set — in the RSC payload, `PortalMount`'s
+   `flags` prop: `{"flags":{…},"readAt":…}`. Each task warms its own held set, so at most the number
+   of running tasks plus one loads. On that load the network panel shows **no**
+   `$APP_URL/api/v1/feature-flags` request at boot, and the nav rail's tabs are in the DOM on the
+   first render after `/auth/session` answers.
+2. A signed-out load of `/` carries no flag set (`flags` is `$undefined`).
+3. The server's log for the check's window has no `feature flags: a refresh failed` line. One such
+   line a minute per task, naming `status 404`, means nothing has ever been published to this bucket.
+
+**The read is real** (all flags on). The browser's own read is now the second line, so make it
+happen: load a page the server sent with no set (the first load after a task starts), or wait past
+the hour on one tab.
+
+1. In the network panel, find `GET $APP_URL/api/v1/feature-flags` → **200**. That status is the
+   assertion. A **404** carrying `"code": "NotFound"` means nothing has ever been published to this
+   bucket — a deploy defect, and the app renders all-on over it.
 2. The response is `{"body": …, "etag": …}`, and **`body` is a string**: the document's JSON text,
    passed through unparsed. It must be non-empty and, parsed, carry `"version": 1` and a `defaults`
    object — the reader refuses an empty `body` or any other `version`, silently, into the all-on
@@ -1295,7 +1307,11 @@ is not a pass.
 1. Run the precondition row's two reads at the top of this file now, and note the image tag.
    Set `environments.prod` to `{"query": false, "dataQuality": false}`. Merge, wait for **Publish
    Config**. **Do not redeploy the app** — that is the point.
-2. Hard-reload. Expect:
+2. Hard-reload until the HTML's set carries the change. The server answers from the set it holds:
+   a reload once that set is a minute old only starts its refresh and still carries the old set, and
+   the next reload on the same task carries the new one. Each task holds its own, so with several
+   running it takes a few more. `/query` typed in is answered by the server itself, in the HTML, with no
+   Query chunk loaded. Expect:
 
    | Where | Expect |
    |---|---|

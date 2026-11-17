@@ -1772,7 +1772,7 @@ specs:
   - id: "SPEC-264"
     title: "The Server Resolves the Feature Flags"
     description: "The Next.js server resolves the feature flags and sends them with the page, so a signed-in tab starts with its flags instead of fetching them after sign-in, and a disabled area's page is decided on the server without loading its code."
-    spec_status: "In Progress"
+    spec_status: "Completed"
     depends_on: ["SPEC-162", "SPEC-163", "SPEC-262", "SPEC-263"]
     path: "docs/specs/SPEC-264-the-server-resolves-the-feature-flags.md"
   - id: "SPEC-265"
