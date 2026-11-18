@@ -431,9 +431,9 @@ refused "OPTIONS *"
 fetch "/data-quality/a%40b/r1"
 check_eq "an escape that decodes still reaches its page" "$(status)" "200"
 
-# The portal defines no server action, yet Next ran its action decoder for every request carrying a
-# Next-Action header, and for a form body to a page with no header at all, and logged an error with a
-# stack for each. The guard refuses both on every path; `/api/../` is here because Next resolves it to
+# The portal defines no server action, yet Next's action handler took every POST carrying a
+# Next-Action header, and a form body to a page with no header at all, and logged each one's error
+# with a stack. The guard refuses both on every path; `/api/../` is here because Next resolves it to
 # the page at `/`. The log rows tell the guard from none: Next's own error must not appear.
 fetch "/" -X POST -H 'Next-Action: x' -H 'Content-Type: text/plain;charset=UTF-8' --data '[]'
 refused "a server-action call to /"

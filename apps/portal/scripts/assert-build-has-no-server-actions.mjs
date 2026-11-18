@@ -2,7 +2,7 @@
 // Assert that the build defines no server action.
 //
 // The guard the image starts ahead of Next (`server-guard.cjs`) refuses every request Next would
-// decode as a server action, because the portal has none and each such request is a probe. The guard
+// treat as a server action, because the portal has none and each such request is a probe. The guard
 // runs only in the image, so a server action added to the code works under `next dev` and is refused
 // in production. This fails the build first: Next lists every action the build defines in the server
 // reference manifest, under its `node` and `edge` runtimes, and that list must be empty.

@@ -1681,11 +1681,12 @@ the boot, the pages, the request proxy, the guard or the image.
   400 with no policy, so a status check passes with the guard absent.
 - **The guard refuses a server-action probe.** `curl -sS -D - -o /dev/null -X POST -H 'Next-Action: x'
   -H 'Content-Type: text/plain' --data '[]' "$APP_URL/"` and `curl -sS -D - -o /dev/null -X POST -F a=b
-  "$APP_URL/files"` each answer `400` with the lockdown policy, and each writes one line `request:
-  refused a server-action request (POST)` to `/ecs/<prefix>-spa`. Read the **log**, not the status:
-  Next answers the first with its own 400 and the same policy when the guard is absent, and logs
-  `The Server Reference ID did not match the expected format`, which must not appear
-  (`--filter-pattern '"Server Reference"'` over the same window returns nothing).
+  "$APP_URL/files"` each answer `400` with the lockdown policy and the body `Bad request`, and each
+  writes one line `request: refused a server-action request (POST)` to `/ecs/<prefix>-spa`. Read the
+  **log or the body**, not the status and the policy alone: with the guard absent, Next answers the
+  first with its own 400 and the same policy (the second gets 409), and logs `The Server Reference ID
+  did not match` for the first and `Failed to find Server Action` for the second, so
+  `--filter-pattern '?"Server Reference" ?"Server Action"'` over the same window must return nothing.
 - **`/config.json` carries the production values**: 200, `no-store`, `version: 1` and the four keys
   (`userSpaceBucket`, `sharedSpaceBucket`, `maxUploadBytes`, `environment`), and nothing else.
 - **`npm run dev` signs in** (first run on SPEC-270's store 2026-11-18). Run `npm run dev:session-env`, which writes the dev client's session

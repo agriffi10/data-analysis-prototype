@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "Response headers / CSP: the request proxy stamps a per-request nonce (SPEC-140, SPEC-255)"
-description: "The request proxy (`src/proxy.ts`) serves the only page CSP and the seven security headers. **The nonce goes in `script-src` only**: one in `style-src` switches off the `'unsafe-inline'` Monaco needs, and `'unsafe-eval'` is development only. **A request carrying a body skips the proxy**, because Next would wait for the whole body before answering anything, and gets `next.config.ts`'s lockdown floor. **The image's guard ahead of Next refuses every server-action request**, so an action added to the code passes `next dev` and is refused in production; `check:actions` fails the build on one. Enumerate `connect-src` from the hosts the app fetches, prove enforcement with a positive `connect-src` violation plus a same-origin control, and diff scanner findings per check ID, never by count."
+description: "The request proxy (`src/proxy.ts`) serves the only page CSP and the seven security headers. **The nonce goes in `script-src` only**: one in `style-src` switches off the `'unsafe-inline'` Monaco needs, and `'unsafe-eval'` is development only. **A request carrying a body skips the proxy**, because Next would wait for the whole body before answering anything, and gets `next.config.ts`'s lockdown floor. **The image's guard ahead of Next refuses every `Next-Action` header and every `multipart/form-data` body, on every path, `/api/` included**, so a server action or a route taking a form upload passes `next dev` and the suites and is refused in production; `check:actions` fails the build on an action, and nothing catches the form route. Enumerate `connect-src` from the hosts the app fetches, prove enforcement with a positive `connect-src` violation plus a same-origin control, and diff scanner findings per check ID, never by count."
 ---
 
 The portal's browser-facing security posture is set by the Next.js server's request proxy,
@@ -34,13 +34,13 @@ cannot boot, which no browser does on its own. Responses Next answers before rou
 at all, which `the-nginx-configuration-reproduces-cloudfronts-jobs-and-three-are.md` records; since
 SPEC-263 that class is only same-origin redirects, because a guard the image starts ahead of Next
 (`apps/portal/server-guard.cjs`) answers a malformed percent-escape, a target that is not a path,
-every WebSocket upgrade and every request Next would decode as a server action with 400, the seven
+every WebSocket upgrade and every request Next would treat as a server action with 400, the seven
 headers and the lockdown policy, from its own copy of `SECURITY_HEADERS` and `LOCKDOWN_POLICY`, which
 `src/server/serverGuard.test.ts` holds equal to `src/lib/securityHeaders.ts`. It reads no body, so it
 holds nothing. A server-action request is one carrying a `Next-Action` header, or a
 `multipart/form-data` body, which Next decodes on a page path with no header at all; the portal
 defines no action and sends no form body, so every one is a probe, and Next answered each by running
-its action decoder and logging an error with a stack (an outside `POST /` did so on 2026-11-18). It
+its action handler and logging the error with a stack (an outside `POST /` did so on 2026-11-18). It
 is refused on every path, `/api/` included, because Next resolves `/api/../` to the page at `/`, so a
 path exemption would be a way round it. The guard runs only in the image, so an action added to the
 code would work under `next dev` and be refused in production: `npm run check:actions` reads the

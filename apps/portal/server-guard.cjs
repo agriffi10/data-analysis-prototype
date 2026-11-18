@@ -2,7 +2,7 @@
 
 /**
  * The image's entry point: a guard ahead of Next's standalone server for the requests Next answers
- * with a bare 500, answers off-site, or hands to a decoder the portal has no use for, before any of
+ * with a bare 500, answers off-site, or hands to an action handler the portal has no use for, before any of
  * its own handling runs.
  *
  * A path whose percent-escape does not decode (`/%ZZ`, `/files%`, `/%E0`) makes Next's router throw,
@@ -16,10 +16,10 @@
  * Every WebSocket upgrade is refused too. The portal serves none, and Next leaves an upgrade to a path
  * it would redirect (`/files/`) open with no answer at all, a socket held until the client gives up.
  *
- * So is every request Next would decode as a server action: one carrying a `Next-Action` header, or
+ * So is every request Next would treat as a server action: one carrying a `Next-Action` header, or
  * one whose body is `multipart/form-data`, which Next decodes on a page path even with no header. The
  * portal defines no server action and sends no form body, so each such request is a probe, and Next
- * answered every one by running its action decoder and logging an error with a stack. It is refused
+ * answered every one by running its action handler and logging the error with a stack. It is refused
  * on every path, `/api/` included, because Next resolves `/api/../` to the page at `/` and a path
  * exemption would be a way round it. The build check `assert-build-has-no-server-actions.mjs` fails
  * the day the build defines one, since this runs only in the image and `next dev` would not show it.
