@@ -16,6 +16,7 @@
     "test:ui": "vitest --ui",
     "check:bundle": "node scripts/assert-bundle-has-no-vite-names.mjs && node scripts/assert-bundle-has-no-aws-clients.mjs",
     "check:pages": "node scripts/assert-pages-hydrate-no-app-graph.mjs",
+    "check:actions": "node scripts/assert-build-has-no-server-actions.mjs",
     "prelint": "node ../../scripts/check-local-install.mjs",
     "preformat:check": "node ../../scripts/check-local-install.mjs",
     "pretest": "node ../../scripts/check-local-install.mjs",

@@ -1521,6 +1521,14 @@ instrument recorded the render frame by frame; it needs an observer in place bef
 loads, such as a DevTools performance recording, with the tier on. The whole of FR-006 was owed while
 the web tier was off (2026-11-17).
 
+## The guard refuses server-action probes (2026-11-18) — owed while the web tier is off
+
+The bullet "The guard refuses a server-action probe" in [`e2e.md`](e2e.md), against the deployed
+task. The image's behaviour matrix runs the same requests against the built image in CI and reads the
+container's log, so what is owed is the deployed path only: that the load balancer passes both
+requests on and that the line reaches `/ecs/<prefix>-spa`. It needs the web tier, which was off when
+the guard merged (`infra/info/web-tier.md`).
+
 ## 3. Discharged, and worth not re-litigating
 
 Kept short on purpose — the reasoning lives in `docs/decisions/` and the delivery docs. These are

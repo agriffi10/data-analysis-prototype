@@ -2,7 +2,8 @@
 
 /**
  * The image's entry point: a guard ahead of Next's standalone server for the requests Next answers
- * with a bare 500, or answers off-site, before any of its own handling runs.
+ * with a bare 500, answers off-site, or hands to an action handler the portal has no use for, before any of
+ * its own handling runs.
  *
  * A path whose percent-escape does not decode (`/%ZZ`, `/files%`, `/%E0`) makes Next's router throw,
  * and an App Router build has no pages `_error` to render the 400 Next means, so every page, route
@@ -14,6 +15,14 @@
  *
  * Every WebSocket upgrade is refused too. The portal serves none, and Next leaves an upgrade to a path
  * it would redirect (`/files/`) open with no answer at all, a socket held until the client gives up.
+ *
+ * So is every request Next would treat as a server action: one carrying a `Next-Action` header, or
+ * one whose body is `multipart/form-data`, which Next decodes on a page path even with no header. The
+ * portal defines no server action and sends no form body, so each such request is a probe, and Next
+ * answered every one by running its action handler and logging the error with a stack. It is refused
+ * on every path, `/api/` included, because Next resolves `/api/../` to the page at `/` and a path
+ * exemption would be a way round it. The build check `assert-build-has-no-server-actions.mjs` fails
+ * the day the build defines one, since this runs only in the image and `next dev` would not show it.
  *
  * Run as the entry point, it replaces `http.createServer` so the server Next's standalone build
  * creates answers through it, then starts that server; imported, it only exports its parts. It is
@@ -42,21 +51,29 @@ const LOCKDOWN_POLICY = "default-src 'none'; base-uri 'none'; form-action 'none'
 const REASONS = Object.freeze({
   'malformed-escape': 'a path with a malformed percent-escape',
   'not-a-path': 'a request target that is not a path',
-  upgrade: 'a WebSocket upgrade'
+  upgrade: 'a WebSocket upgrade',
+  'server-action': 'a server-action request'
 });
+
+/** The header Next's client sends to invoke a server action, as Node's parser lowercases it. */
+const ACTION_HEADER = 'next-action';
 
 const BODY = 'Bad request\n';
 
 /**
- * Why a request target is refused, or null when it passes to Next.
+ * Why a request is refused, or null when it passes to Next.
  *
  * The path is the target up to its first `?` or `#`, so an escape in the query, which no router
- * decodes, passes; each `/`-separated segment must decode as UTF-8.
+ * decodes, passes; each `/`-separated segment must decode as UTF-8. A request is a server action
+ * when it carries the action header, whatever its value or method, or when its content type is
+ * `multipart/form-data` in any case, which is broader than Next's own test and refuses nothing the
+ * portal sends.
  *
  * @param {string | undefined} target - The request target as the request line carries it.
- * @returns {'malformed-escape' | 'not-a-path' | null} The reason, or null.
+ * @param {import('node:http').IncomingHttpHeaders} [headers] - The request's headers, keys lowercased.
+ * @returns {'malformed-escape' | 'not-a-path' | 'server-action' | null} The reason, or null.
  */
-function refusal(target) {
+function refusal(target, headers = {}) {
   if (typeof target !== 'string' || !target.startsWith('/')) return 'not-a-path';
   const end = target.search(/[?#]/);
   const path = end < 0 ? target : target.slice(0, end);
@@ -66,6 +83,11 @@ function refusal(target) {
     } catch {
       return 'malformed-escape';
     }
+  }
+  if (headers[ACTION_HEADER] !== undefined) return 'server-action';
+  const type = headers['content-type'];
+  if (typeof type === 'string' && type.trimStart().toLowerCase().startsWith('multipart/form-data')) {
+    return 'server-action';
   }
   return null;
 }
@@ -128,6 +150,13 @@ function refuseUpgrade(req, socket) {
 }
 
 /**
+ * The events through which Node hands a server a request and its response. A request with an
+ * `Expect` header goes to `checkContinue` or `checkExpectation` instead of `request` when the server
+ * listens for those, so the guard checks all three or a listener added there would route round it.
+ */
+const REQUEST_EVENTS = new Set(['request', 'checkContinue', 'checkExpectation']);
+
+/**
  * Puts the guard in front of every server `http.createServer` makes from here on: a request it
  * refuses is answered before any listener sees it, and an upgrade never reaches one.
  *
@@ -143,8 +172,8 @@ function install() {
         refuseUpgrade(rest[0], rest[1]);
         return true;
       }
-      if (event === 'request') {
-        const reason = refusal(rest[0].url);
+      if (REQUEST_EVENTS.has(event)) {
+        const reason = refusal(rest[0].url, rest[0].headers);
         if (reason) {
           refuse(rest[0], rest[1], reason);
           return true;

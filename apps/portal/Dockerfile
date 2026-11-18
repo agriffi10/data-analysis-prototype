@@ -69,6 +69,7 @@ USER 1000
 EXPOSE 8080
 
 # The guard starts Next's standalone server behind it: it answers a path whose percent-escape does
-# not decode, a request target that is not a path, and every WebSocket upgrade with a 400 carrying
-# the security headers, where Next would answer a bare 500, an off-site redirect, or nothing at all.
+# not decode, a request target that is not a path, every WebSocket upgrade and every server-action
+# request with a 400 carrying the security headers, where Next would answer a bare 500, an off-site
+# redirect, nothing at all, or its action handler's error.
 CMD ["node", "apps/portal/server-guard.cjs"]
