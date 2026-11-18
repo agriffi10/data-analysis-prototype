@@ -10,6 +10,36 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-11-18 (SPEC-270's sign-in rows and SPEC-264's FR-006)
+
+**What was under test.** SPEC-270's two owed rows and SPEC-264's FR-006 on `b8840ea7` (#1046), served
+after this session switched the tier on inside the PR queue lock: Deploy Infrastructure run
+44369589321 (green 18:30Z), then Deploy SPA image run 44371460257 (green 18:39Z), task definition
+`dat-prod-spa:308`, its one task logging *Ready* at 18:38:23Z. No deploy ran from then to the last
+check, the sign-out at 20:41:58Z. Username `agriffith`. The in-app
+browser pane, 460 px wide and reading `visibilityState: visible`, because Claude in Chrome was not
+connected; the pane is Chromium, the engine of record since 2026-09-01, so it stands in for the
+recipes' "Andrew's Chrome". Instruments: in-page `fetch`
+from the portal's own origin returning statuses, keys and booleans only (no token is readable: the
+session is an HttpOnly cookie), Resource Timing, `read_network_requests`, the load balancer's access
+log, and the CLI for DynamoDB and CloudWatch Logs.
+
+| Check | Result |
+|---|---|
+| **SPEC-270, the dev server.** `npm run dev:session-env`, then `npm run dev` from a worktree at `b8840ea7`, signed in at `http://localhost:5173` | Andrew typed his password on the Managed Login page himself. Back on `/files`, the listing loaded through the local `/api/`, and a 39 B `spec270-dev-upload.txt` read *Uploaded*. A projected scan of `dat-prod-dev-sessions` counted 1 row before the sign-in and 2 after, the earlier row's fingerprint unchanged. The deployed table cannot be counted by an administrator, so its half is shown by refusal, not by a count: a scan of `dat-prod-sessions` at 18:36Z still failed with KMS `AccessDeniedException`, so the developer's credentials cannot use that table's key. |
+| **SPEC-270, the deployed sign-in** | One click on **Sign in** at 18:40:11Z, no password screen: the Hosted UI cookie was warm from the dev sign-in, so what ran is the authorization-code exchange and a new server session, not the credential prompt. Landed on `/files` listing agriffith's space. |
+| **SPEC-270, the six-minute idle** | **The first attempt was not idle, and is not the evidence.** A signed-in tab polls `GET /api/v1/objects/content` (the notifications store) every 60 s; the load balancer's access log shows it at 18:48:17Z and each minute to 18:53:19Z, so the 18:54:11Z request reached a session read a minute earlier. **Re-run 20:34–20:42Z with no portal tab open:** Andrew signed the pane in himself (the Hosted UI cookie had expired), it was moved to `example.com` at 20:34:50Z, and at 20:41:49Z a load of `/files` answered `/auth/session` **200** and `/api/v1/objects` **200** and rendered the listing. The access log's last portal request before that was the sign-in load's at 20:34:38Z, so the session sat unread for 7 min 11 s. |
+| **SPEC-270, sign-out** | **Sign out** from the account menu at 18:54:24Z landed on `/` offering **Sign in**. The same header-bearing listing request that answered 200 at 18:47:35Z answered **401**, and `/files` then carried `"flags":"$undefined"`. After the re-run, sign-out at 20:41:58Z did the same: `/`, and that request **401**. |
+| **SPEC-264 §4.14 (1), the set with the page** | On one load, the idle re-run's `/files` at 20:41:49Z: the document's own inline RSC scripts carried `"flags":{"flags":{…` and a `readAt`, Resource Timing held **no** `/api/v1/feature-flags` request and one `/auth/session`, and the nav rail held Files, Query, Data Explorer, Shared spaces and Data quality. (Earlier, at 18:47Z, a fetch of `/files` and a separate reload showed the same two halves on two loads.) **The clause that the rail's tabs are in the DOM on the first render after `/auth/session` answers was not measured** — nothing recorded the render frame by frame — and stays owed. |
+| **SPEC-264 §4.14 (2), signed out** | `curl` of `/` with no cookie: 200, `\"flags\":\"$undefined\"`, no `readAt`. |
+| **SPEC-264 §4.14 (3), the server's log** | `/ecs/dat-prod-spa` from 18:38Z to 20:43Z, both sittings, the one task throughout: the five start-up lines at 18:38:23Z and **no** `feature flags` line. The window's only other lines are one Next.js error at 19:02:00Z, *"The Server Reference ID did not match the expected format. Received "x""*, from an outside `POST /` the load balancer answered 400; the app defines no server actions, so this reads as a scanner's probe, not this sitting. |
+| **SPEC-264, the read is real** | The sign-in load, the first after the task started, made `GET /api/v1/feature-flags` → **200**. A repeat at 18:47:35Z answered 200 with keys `body` and `etag`; `body` is a 283-character string that parses with `version: 1` and a `defaults` object. |
+
+**Not run:** SPEC-264's nav-rail first-render clause, above. SPEC-256's real-reload prompt. Andrew was asked to press Cmd+R during a 1 GB upload in
+his Chrome and gave no result, so that row stays owed.
+
+---
+
 ## Live-check session — 2026-11-16 (SPEC-263, the landing page and the 404 move, react-router retires)
 
 **What was under test.** SPEC-263's FR-006 on `724c2713` (#1018), served after this session switched

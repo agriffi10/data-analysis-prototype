@@ -1276,7 +1276,7 @@ on it.
 so a permanently-blocked read renders *exactly* like a healthy all-on environment. "It looks fine"
 is not a pass.
 
-**The server sends the set with the page** (SPEC-264; all flags on, signed in):
+**The server sends the set with the page** (SPEC-264, first run 2026-11-18 on `b8840ea7`, the first-render clause still owed; all flags on, signed in):
 
 1. Reload `/files` until a load's HTML carries the flag set — in the RSC payload, `PortalMount`'s
    `flags` prop: `{"flags":{…},"readAt":…}`. Each task warms its own held set, so at most the number
@@ -1681,18 +1681,22 @@ the boot, the pages, the request proxy, the guard or the image.
   400 with no policy, so a status check passes with the guard absent.
 - **`/config.json` carries the production values**: 200, `no-store`, `version: 1` and the four keys
   (`userSpaceBucket`, `sharedSpaceBucket`, `maxUploadBytes`, `environment`), and nothing else.
-- **`npm run dev` signs in.** Run `npm run dev:session-env`, which writes the dev client's session
+- **`npm run dev` signs in** (first run on SPEC-270's store 2026-11-18). Run `npm run dev:session-env`, which writes the dev client's session
   settings and the document's keys into `apps/portal/.env.local` and prints only names, then
   `npm run dev`, and sign in at `http://localhost:5173`: Managed Login returns to
   `http://localhost:5173/auth/callback`, the file listing loads through the local server's `/api/`, and
   an upload succeeds. The API has no CORS since SPEC-262, and a dev origin is never a reason to add it.
   The session lands in `<prefix>-dev-sessions`, never in the deployed table (SPEC-270): a projected
   `aws dynamodb scan --projection-expression pk --query 'length(Items)'` of the dev table counts it.
-- **The deployed session key admits only the task role.** As an administrator,
+- **The deployed session key admits only the task role** (first run signed in 2026-11-18). As an administrator,
   `aws dynamodb scan --table-name <prefix>-sessions --max-items 1 --projection-expression pk --query 'length(Items)'`
   fails with a KMS `AccessDeniedException`, more than five minutes after that principal last touched
   the table (DynamoDB caches a table key per caller for five minutes). Then, signed in on the portal,
-  a request made after six minutes idle is still signed in, and sign-out ends the session.
+  a request made after six minutes idle is still signed in, and sign-out ends the session. **Idle
+  means no request reached the portal:** a visible signed-in tab polls the notifications store every
+  60 s (`useNotifications`), and the key cache is per caller, so any session read by the task keeps it
+  warm. Move every portal tab off the portal for the six minutes, then confirm in the load balancer's
+  access log that no portal request falls in that window before loading it.
 
 **What a signed-in session cannot settle here** — the platform's own verification (the no-NAT pull
 read beside a route table, superseded in part since SPEC-257 added a NAT gateway, the redirect, target health), the container under real concurrency, and

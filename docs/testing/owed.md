@@ -121,24 +121,24 @@ own dialog is what is left: the in-app browser pane handles page dialogs itself,
 there shows nothing, and Andrew chose not to run the manual step that day.
 SPEC-258's FR-003 owes the same step: on 2026-11-15 two uploads ran on Files in Andrew's Chrome while
 the reload was asked for, and no one was at the keyboard before they finished. One real reload
-settles both specs.
+settles both specs. It was asked for again on 2026-11-18, with a 1 GB fixture, and no result came back.
 
 | Check | Why | Recipe |
 |---|---|---|
 | **A reload while an upload runs raises the browser's prompt, and Cancel keeps the upload** (SPEC-256 FR-002, and SPEC-258 FR-003) | The guard's half is proven: with an upload running, a `beforeunload` dispatched in the deployed page came back cancelled, and one dispatched during a sign-out did not. Whether the browser then shows its dialog depends on its own rule, a real gesture on the page first, which only a person's reload exercises. | In Chrome, signed in, click anything on Files, start an upload of a file of 1 GB or more, and press Cmd+R while it runs: expect *Reload site?*; choose **Cancel**, and the drawer's progress keeps rising. |
 
-### SPEC-270's sign-in checks — owed: the web tier was off (2026-11-17)
+### SPEC-270's sign-in checks — RUN 2026-11-18: both rows settled
 
 The key narrowing applied on 2026-11-17 (#1038, `81fb468`). Its refusal half ran from the CLI: an
 AdministratorAccess principal's projected `Scan` of `dat-prod-sessions` printed `1` before the apply
-and failed with KMS `AccessDeniedException` after it. The rows below need a real sign-in, which needs
+and failed with KMS `AccessDeniedException` after it. The rows below needed a real sign-in, which needs
 the web tier on and Andrew at the keyboard; he chose to record them rather than switch the tier on for
-them. Each is a short sitting in [`e2e.md`](e2e.md)'s session section.
+them, until 2026-11-18. Each is a short sitting in [`e2e.md`](e2e.md)'s session section.
 
 | Check | Why it matters | What it takes |
 |---|---|---|
-| A fresh sign-in on `portal.dataquarry.app` succeeds, a request after at least six minutes idle is still signed in, and sign-out ends the session | The task role now reads sessions through the key's own policy alone. Six minutes is past DynamoDB's five-minute per-caller key cache, so the idle request proves a fresh `Decrypt` under the named statement | The web tier on (`infra/info/web-tier.md`, under the PR queue lock), one sign-in |
-| After `npm run dev:session-env`, a local dev server signs in and its session is in `dat-prod-dev-sessions`, not in `dat-prod-sessions` | Dev servers moved to their own store; the deployed table's key no longer admits a developer's credentials | A local sign-in through the dev client, then a projected `Scan` (`--projection-expression pk --query 'length(Items)'`) of each table |
+| ~~A fresh sign-in on `portal.dataquarry.app` succeeds, a request after at least six minutes idle is still signed in, and sign-out ends the session~~ **RUN 2026-11-18 on `b8840ea7`** ([`sessions.md`](sessions.md)): a new server session from a sign-in, a load of `/files` after 7 min 11 s with **no portal tab open** (no request in the load balancer's log) answered 200, and after sign-out the same request answered 401. **A visible signed-in tab polls every 60 s, and any portal request warms the per-caller key cache**, which voided the sitting's first attempt | The task role now reads sessions through the key's own policy alone. Six minutes is past DynamoDB's five-minute per-caller key cache, so the idle request proves a fresh `Decrypt` under the named statement | The web tier on (`infra/info/web-tier.md`, under the PR queue lock), one sign-in |
+| ~~After `npm run dev:session-env`, a local dev server signs in and its session is in `dat-prod-dev-sessions`, not in `dat-prod-sessions`~~ **RUN 2026-11-18 on `b8840ea7`** ([`sessions.md`](sessions.md)): the dev table went from 1 row to 2, the listing and a 39 B upload worked through the local server, and the deployed-table half is shown by refusal, not by a count: an administrator's scan of `dat-prod-sessions` still fails on its key | Dev servers moved to their own store; the deployed table's key no longer admits a developer's credentials | A local sign-in through the dev client, then a projected `Scan` (`--projection-expression pk --query 'length(Items)'`) of each table |
 
 ### Needs a second (or third) account
 
@@ -1512,14 +1512,14 @@ aws iam simulate-principal-policy --policy-source-arn "$R" --action-names <actio
   --query 'EvaluationResults[0].EvalDecision' --output text
 ```
 
-## SPEC-264 — the server sends the flags with the page (2026-11-17)
+## SPEC-264 — the server sends the flags with the page (2026-11-17) — RUN 2026-11-18: one clause owed
 
-**Owed: all of FR-006**, the three checks in [`e2e.md`](e2e.md) §4.14 *The server sends the set with
-the page*. The web tier was off (`TF_VAR_web_tier_enabled` false) when the spec landed, so there was
-no portal to load. What it takes: the tier on, signed in through Chrome, the three checks run and
-dated into §4.14. What already stands in, and is **not** a discharge: the execution review ran the
-standalone build against a stubbed store and API, and saw the HTML carry the set, `/query` answered
-with the unavailable mount, a signed-out load carry none, and a refresh timing out log one line.
+**Run 2026-11-18 on `b8840ea7`, in the in-app pane (Chromium, the engine of record)** ([`sessions.md`](sessions.md)):
+checks 2 and 3 and the real read passed, and check 1 passed on one load but for one clause. **Still
+owed: the nav rail's tabs are in the DOM on the first render after `/auth/session` answers.** No
+instrument recorded the render frame by frame; it needs an observer in place before the document
+loads, such as a DevTools performance recording, with the tier on. The whole of FR-006 was owed while
+the web tier was off (2026-11-17).
 
 ## 3. Discharged, and worth not re-litigating
 
