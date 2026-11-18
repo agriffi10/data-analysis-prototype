@@ -1,4 +1,4 @@
-import http, {type IncomingMessage, type ServerResponse} from 'node:http';
+import http, {type IncomingHttpHeaders, type IncomingMessage, type ServerResponse} from 'node:http';
 import type {Duplex} from 'node:stream';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {LOCKDOWN_POLICY, SECURITY_HEADERS} from '../lib/securityHeaders';
@@ -22,7 +22,16 @@ function recordingResponse() {
   return {res, written};
 }
 
-const request = (method: string, url: string) => ({method, url}) as IncomingMessage;
+const request = (method: string, url: string, headers: IncomingHttpHeaders = {}) =>
+  ({method, url, headers}) as IncomingMessage;
+
+/** The headers the App Router's client sends on a navigation that fetches the next page's payload. */
+const RSC_NAVIGATION: IncomingHttpHeaders = {
+  rsc: '1',
+  'next-router-state-tree': '%5B%22%22%2C%7B%7D%5D',
+  'next-url': '/files',
+  accept: '*/*'
+};
 
 describe('the guard’s check', () => {
   it.each([
@@ -60,6 +69,29 @@ describe('the guard’s check', () => {
   );
 });
 
+describe('the guard’s check of what Next would decode as a server action', () => {
+  it.each<[string, string, IncomingHttpHeaders]>([
+    ['an App Router navigation', '/files?_rsc=1x2y', RSC_NAVIGATION],
+    ['a prefetch', '/query', {...RSC_NAVIGATION, 'next-router-prefetch': '1'}],
+    ['a JSON call to the API', '/api/objects', {'content-type': 'application/json'}],
+    ['a sign-out', '/auth/logout', {}],
+    ['a form-encoded body, which Next declines to decode', '/', {'content-type': 'application/x-www-form-urlencoded'}]
+  ])('passes %s to Next', (_, target, headers) => {
+    expect(guard.refusal(target, headers)).toBeNull();
+  });
+
+  it.each<[string, string, IncomingHttpHeaders]>([
+    ['the action header on a page', '/', {'next-action': 'x'}],
+    ['the action header on the API', '/api/objects', {'next-action': '7f00aa', 'content-type': 'application/json'}],
+    ['the action header with an empty value', '/files', {'next-action': ''}],
+    ['a form body with no header', '/', {'content-type': 'multipart/form-data; boundary=x'}],
+    ['a form body named in another case', '/files', {'content-type': 'Multipart/Form-Data; boundary=x'}],
+    ['a form body on a path Next resolves to a page', '/api/../', {'content-type': 'multipart/form-data; boundary=x'}]
+  ])('refuses %s', (_, target, headers) => {
+    expect(guard.refusal(target, headers)).toBe('server-action');
+  });
+});
+
 describe('the guard’s refusal', () => {
   it('carries the security headers as securityHeaders.ts states them, and the lockdown policy', () => {
     const {res, written} = recordingResponse();
@@ -88,6 +120,14 @@ describe('the guard’s refusal', () => {
     expect(error.mock.calls).toEqual([['request: refused a path with a malformed percent-escape (POST)']]);
     expect(String(error.mock.calls[0][0])).not.toMatch(/secret-name|%E0/);
   });
+
+  it('names a server-action request as one, and none of what it carried', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    guard.refuse(request('POST', '/', {'next-action': 'probe-id'}), recordingResponse().res, 'server-action');
+
+    expect(error.mock.calls).toEqual([['request: refused a server-action request (POST)']]);
+  });
 });
 
 describe('the guard in front of a server', () => {
@@ -112,6 +152,23 @@ describe('the guard in front of a server', () => {
     expect(listener.mock.calls.map(([req]) => (req as IncomingMessage).url)).toEqual(['/files']);
     expect(String(socket.end.mock.calls[0][0])).toMatch(/^HTTP\/1\.1 400 Bad Request\r\n[\s\S]*Connection: close\r\n/);
     expect(String(socket.end.mock.calls[0][0])).toContain(`Content-Security-Policy: ${LOCKDOWN_POLICY}\r\n`);
+    server.close();
+  });
+
+  it('answers a server-action probe itself, and passes a navigation to the listener', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const listener = vi.fn();
+    guard.install();
+    const server = http.createServer(listener);
+
+    const probe = recordingResponse();
+    server.emit('request', request('POST', '/', {'next-action': 'x', 'content-type': 'text/plain'}), probe.res);
+    server.emit('request', request('GET', '/files', RSC_NAVIGATION), recordingResponse().res);
+
+    expect(probe.written.status).toBe(400);
+    expect(probe.written.headers).toMatchObject({'Content-Security-Policy': LOCKDOWN_POLICY});
+    expect(error.mock.calls).toEqual([['request: refused a server-action request (POST)']]);
+    expect(listener.mock.calls.map(([req]) => (req as IncomingMessage).headers)).toEqual([RSC_NAVIGATION]);
     server.close();
   });
 });

@@ -125,8 +125,9 @@ and it answers `portal.dataquarry.app`. A Node app has no static fallback, so wi
 through CI while someone is working (`infra/info/web-tier.md`). Every page is an App Router page since
 SPEC-263, the landing page and the 404 included; an address no page serves answers the not-found page
 under a 404. The image starts a guard ahead of Next's standalone server (`apps/portal/server-guard.cjs`)
-that answers a malformed percent-escape, a request target that is not a path and every WebSocket
-upgrade with 400 and the security headers.
+that answers a malformed percent-escape, a request target that is not a path, every WebSocket
+upgrade and every request Next would decode as a server action (the portal defines none) with 400
+and the security headers.
 
 The server does the jobs a static origin did: it renders `/config.json`, refuses to start without
 its configuration, and its request proxy stamps every page with an enforcing CSP carrying a fresh

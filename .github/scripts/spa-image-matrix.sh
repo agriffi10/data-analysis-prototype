@@ -428,6 +428,26 @@ refused "OPTIONS *"
 fetch "/data-quality/a%40b/r1"
 check_eq "an escape that decodes still reaches its page" "$(status)" "200"
 
+# The portal defines no server action, yet Next ran its action decoder for every request carrying a
+# Next-Action header, and for a form body to a page with no header at all, and logged an error with a
+# stack for each. The guard refuses both on every path; `/api/../` is here because Next resolves it to
+# the page at `/`. The log rows tell the guard from none: Next's own error must not appear.
+fetch "/" -X POST -H 'Next-Action: x' -H 'Content-Type: text/plain;charset=UTF-8' --data '[]'
+refused "a server-action call to /"
+fetch "/files" -X POST -F 'a=b'
+refused "a form body to /files, with no action header"
+fetch "/api/../" --path-as-is -X POST -F 'a=b'
+refused "a form body to /api/../, which Next resolves to /"
+GUARD_LOG=$(docker logs "$NAME" 2>&1)
+check_contains "the guard logged the refusal, naming the method" "$GUARD_LOG" "request: refused a server-action request (POST)"
+check_absent "…and Next never decoded one" "$GUARD_LOG" "Server Action"
+check_absent "…or read a reference from one" "$GUARD_LOG" "Server Reference"
+# The App Router's own fetch of a page's payload still passes: Next answers it with a redirect that
+# adds its cache-busting parameter, then the payload.
+check_eq "an App Router navigation's payload fetch still reaches its page" \
+  "$(curl -sS -L -o /dev/null -w '%{http_code} %{content_type}' -H 'RSC: 1' \
+    -H 'Next-Router-State-Tree: %5B%22%22%2C%7B%7D%5D' "${BASE}/files")" "200 text/x-component"
+
 # Next leaves an upgrade to a path it would redirect open with no answer at all; the portal serves no
 # WebSocket, so the guard refuses every upgrade. Raw sockets, read with a two-second bound.
 UPGRADE_HEAD=""

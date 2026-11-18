@@ -273,6 +273,14 @@ jobs:
         working-directory: apps/portal
         run: npm run check:pages
 
+      # The image's guard refuses every server-action request ahead of Next, and runs nowhere but the
+      # image, so an action would pass under `next dev` and be refused in production. The build's
+      # server reference manifest lists every action it defines; this fails on one, or on no manifest.
+      - name: Assert the build defines no server action
+        if: steps.scope.outputs.app == 'true'
+        working-directory: apps/portal
+        run: npm run check:actions
+
       # DISABLED -- see "WHAT IS DISABLED, AND THE RESTORE RULE" in the header above.
       # - name: Test
       #   if: steps.scope.outputs.app == 'true'

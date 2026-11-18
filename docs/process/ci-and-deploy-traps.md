@@ -7,7 +7,7 @@ These pass locally and fail later — check them as part of the work, not as an 
 - **Six steps now fail NOWHERE but your machine** — lint, both suites and mypy are commented out in
   `ci.yml`, whose header names all six and carries the restore rule, so a green PR is no evidence
   any ran. CI still makes `tsc -b` (via `npm run build`) and checks that build's output
-  (`check:bundle`, and `check:pages`, which needs the build's `--analyze`); `npm run test` never
+  (`check:bundle`, `check:actions`, and `check:pages`, which needs the build's `--analyze`); `npm run test` never
   typechecks and `tsc -p tsconfig.json` checks nothing. The Python linter is `ruff check lambdas/
   scripts/ .github/scripts/` — **all three trees**; `pytest` never sees it. All, by exit code.
 - **A fresh worktree borrows the parent's `node_modules`, so the JS gates pass wrongly. `npm ci`
