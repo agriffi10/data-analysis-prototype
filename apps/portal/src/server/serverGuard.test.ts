@@ -155,6 +155,22 @@ describe('the guard in front of a server', () => {
     server.close();
   });
 
+  it('checks a request sent with an Expect header when the server listens for one', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const listener = vi.fn();
+    guard.install();
+    const server = http.createServer();
+    server.on('checkContinue', listener);
+
+    const refused = recordingResponse();
+    server.emit('checkContinue', request('POST', '/', {'next-action': 'x', expect: '100-continue'}), refused.res);
+    server.emit('checkContinue', request('POST', '/api/objects', {expect: '100-continue'}), recordingResponse().res);
+
+    expect(refused.written.status).toBe(400);
+    expect(listener.mock.calls.map(([req]) => (req as IncomingMessage).url)).toEqual(['/api/objects']);
+    server.close();
+  });
+
   it('answers a server-action probe itself, and passes a navigation to the listener', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const listener = vi.fn();

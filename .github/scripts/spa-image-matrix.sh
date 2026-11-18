@@ -413,6 +413,9 @@ refused() {
   check_eq "$label: nosniff" "$(header x-content-type-options)" "nosniff"
   check_eq "$label: HSTS" "$(header strict-transport-security)" "max-age=31536000; includeSubDomains"
   check_absent "$label: a plain body, not a page" "$(header content-type)" "text/html"
+  # Next answers some of these with its own 400 and, for a request with a body, the same policy;
+  # the guard's body is the one thing only the guard writes.
+  check_eq "$label: the guard's body" "$(cat /tmp/matrix-body)" "Bad request"
 }
 # `%` without two hex digits gets the load balancer's own 400 before the container sees it; bytes
 # that are not UTF-8 reach the container. The image answers both.

@@ -150,6 +150,13 @@ function refuseUpgrade(req, socket) {
 }
 
 /**
+ * The events through which Node hands a server a request and its response. A request with an
+ * `Expect` header goes to `checkContinue` or `checkExpectation` instead of `request` when the server
+ * listens for those, so the guard checks all three or a listener added there would route round it.
+ */
+const REQUEST_EVENTS = new Set(['request', 'checkContinue', 'checkExpectation']);
+
+/**
  * Puts the guard in front of every server `http.createServer` makes from here on: a request it
  * refuses is answered before any listener sees it, and an upgrade never reaches one.
  *
@@ -165,7 +172,7 @@ function install() {
         refuseUpgrade(rest[0], rest[1]);
         return true;
       }
-      if (event === 'request') {
+      if (REQUEST_EVENTS.has(event)) {
         const reason = refusal(rest[0].url, rest[0].headers);
         if (reason) {
           refuse(rest[0], rest[1], reason);
