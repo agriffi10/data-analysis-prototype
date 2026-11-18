@@ -45,9 +45,9 @@ FR-003 test.
 ### Deliberate deviations
 
 - **FR-003 landed before FR-005's sign-in half ran.** The spec orders the removal after FR-005's
-  checks. The sign-in, idle and sign-out checks are owed (the web tier is off, and Andrew chose not to
-  switch it on for them). The removed statements had granted nothing since #1038 applied, because the
-  key's policy no longer delegates, so removing them changed no effective access, and restoring them
+  checks. The sign-in, idle and sign-out checks were owed then (the web tier was off, and Andrew
+  chose not to switch it on for them), and ran on 2026-11-18. The removed statements had granted
+  nothing since #1038 applied, because the key's policy no longer delegates, so removing them changed no effective access, and restoring them
   could not have repaired a faulty key policy.
 - **The module gained `aws_region` and lost `project_name` and `environment`.** A module behind
   `depends_on` reads no data source, and `names.tf` and the `Name` tag were the two variables' only
@@ -74,5 +74,6 @@ Local gates green by exit code on both PRs, Checkov's enforced list at zero with
 `dat-prod-sessions` printed `1` before the apply (17:26Z) and failed with KMS `AccessDeniedException`
 after it (18:20Z); the live policy carries exactly the five statements. No infrastructure plan ran
 between the apply and the completion PR, so that PR's own plan is FR-005's first plan after the apply,
-and its result is recorded in the PR's body. Two rows are owed in `docs/testing/owed.md`: the deployed
-sign-in, six-minute idle request and sign-out, and the dev server's sign-in into its own table.
+and its result is recorded in the PR's body. Two rows were owed in `docs/testing/owed.md`: the deployed
+sign-in, six-minute idle request and sign-out, and the dev server's sign-in into its own table. Both
+ran on 2026-11-18 on `b8840ea7` and passed (`docs/testing/sessions.md`).

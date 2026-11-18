@@ -53,5 +53,8 @@ checks covered single-flight, the failure pause, the token-life check, the gate'
 window, the seed's `updatedAt`, the auth-loading `'ready'`, PortalMount's pass-through and the
 fallback's nav check. The execution review also ran the standalone build against a stubbed store and
 API: the HTML carried the set, `/query` answered with the mount, and a signed-out load carried none.
-The FR-006 live check is **owed**: the web tier was off when this landed (`docs/testing/owed.md`).
+The FR-006 live check was owed while the web tier was off, and ran on 2026-11-18 on `b8840ea7`: all
+three checks and the real read passed but one clause, that the nav rail's tabs are in the DOM on the
+first render after `/auth/session` answers, which no instrument measured and which stays owed
+(`docs/testing/owed.md`, evidence in `docs/testing/sessions.md`).
 Help and guides: nothing user-facing changed, since the same pages render and only sooner.
