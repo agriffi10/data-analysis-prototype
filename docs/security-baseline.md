@@ -23,8 +23,8 @@ CI run reproduces them.
 | SPA + Lambdas | Semgrep `p/owasp-top-ten` + language rulesets | 1 finding, 5 partial parses |
 | SPA | `eslint-plugin-security`, `no-unsanitized` (**blocking pre-push, not in CI** — `docs/process/ci-and-deploy-traps.md`) | clean — 10 pre-existing violations resolved in SPEC-138 |
 | Lambdas | ruff `S` (bandit) — pre-existing, **blocking pre-push, not in CI** — `docs/process/ci-and-deploy-traps.md` | clean |
-| SPA deps | `npm audit --omit=dev` (runtime) | 4 → **2** (2026-08-05, `react-router` pair cleared) |
-| SPA deps | `npm audit` (full) | 6 → **4** (2026-08-03, `postcss` + `brace-expansion` cleared) → **2** (2026-08-05, `react-router`; see below) |
+| SPA deps | `npm audit --omit=dev` (runtime) | 4 → **2** (2026-08-05, `react-router` pair cleared); still **2** at `6e245176e` (`dompurify` and `monaco-editor`) |
+| SPA deps | `npm audit` (full) | 6 → **4** (2026-08-03, `postcss` + `brace-expansion` cleared) → **2** (2026-08-05, `react-router`; see below) → **16** at `6e245176e` (`picomatch` and the 13 dev packages that depend on it, plus the runtime 2; see below) |
 | Lambda deps | `pip-audit`, 13 packages | 0 |
 | Repo | `gitleaks`, 357 commits / 9.5 MB | **0** |
 | `infra/` | `checkov`, 224 resources | 305 failed / 439 passed / 0 parse errors |
@@ -50,7 +50,7 @@ CI run reproduces them.
 
 ## Findings
 
-### Dependencies — npm (6 vulnerable packages at the snapshot, 4 reaching the browser; **2 and 2 today**)
+### Dependencies — npm (6 vulnerable packages at the snapshot, 4 reaching the browser; **16 and 2 at `6e245176e`**)
 
 The runtime/build split is the whole point of auditing at two scopes.
 
@@ -78,6 +78,7 @@ was published.
 | low | `dompurify` | runtime (via monaco) | GHSA-c6gr-qvv4-5v3f — the SMIL `attributeName=href` guard is skipped under `PARSER_MEDIA_TYPE: application/xhtml+xml` | **defer** (2026-11-17) — not reachable, see the notes |
 | low | `dompurify` | runtime (via monaco) | GHSA-6688-9rhm-gjv2 — `IN_PLACE` returns a force-removed rawtext root whose text still carries markup | **defer** (2026-11-17) — not reachable, see the notes |
 | medium | `minimatch` | build | GHSA-g3hv-75wg-m249 — DoS via globparts amplification | **FIXED** (11.0.9, 2026-11-17) — from 10.2.6, through `eslint` 10.15.0 and `typescript-eslint` 8.73.0 |
+| high | `picomatch` | build (a copy vendored in `next` ships, unaudited) | GHSA-fc5q-39xc-vjpf — ReDoS through single-branch repeated extglobs | **defer** (2026-11-18) — no patched release; not reachable, see the notes |
 | high | `postcss` | build | GHSA-r28c-9q8g-f849 — path traversal via `sourceMappingURL` | ~~fix~~ **DONE 2026-08-03** — 8.5.15 → 8.5.25 |
 | high | `nanoid` | build | GHSA-2v37-7h3g-55p8 — custom generators loop indefinitely when `size` is zero | ~~fix~~ **DONE 2026-08-30** — 3.3.17 → 3.3.18 |
 | high | `brace-expansion` | build | GHSA-mh99-v99m-4gvg — OOM via unbounded expansion | ~~fix~~ **DONE 2026-08-03** — 5.0.7 → 5.0.9 |
@@ -230,7 +231,8 @@ Notes that change the priority order:
   mediums, published after the snapshot above and taking full audit 4 → 5 for part of one day.
   Dev-only and transitive: `jsdom` (the vitest DOM environment) is the sole consumer, and a build
   of `apps/portal/dist/` contains no `undici`. Dependabot's 7.28.0 → 7.29.0 bump cleared it.
-  **Full and runtime read the same number** — every remaining advisory is in a runtime dependency,
+  *(Superseded by the `picomatch` note below: the two scopes differ again.)* **Full and runtime read
+  the same number** — every remaining advisory is in a runtime dependency,
   so `--omit=dev` no longer subtracts anything. (That was 4 when written; the Coverage rows carry
   the current values.)
 
@@ -268,6 +270,47 @@ Notes that change the priority order:
   `minimatch` 11.0.9 with its new `@isaacs/nonrecursive-glob-match` dependency, and
   `brace-expansion` 5.0.13; both TypeScript copies (7.0.2 in the workspace, 6.0.3 at the root) are
   unchanged.
+
+- **`picomatch` — deferred on 2026-11-18: there is no patched release, and no pattern comes from
+  outside this repository.** GHSA-fc5q-39xc-vjpf covers every version through 4.0.7, which is the
+  current `latest`, and names no patched version. The fix `npm audit` offers is `vite` 6.2.7, a
+  downgrade of two majors from 8.3.5 that drops the dependency rather than fixing it. The ReDoS
+  lives in the **pattern**: `+(*a)` compiles to `(?:[^/]*?a)+`, and against a run of `a`s ending in
+  `/` each added character roughly doubles the match time (about 55 ms at 24 characters and 220 ms
+  at 26 on a development Mac). A hostile subject
+  against a fixed pattern stays linear, since `**`, `src/**/*.{ts,tsx}` and `**/.git/**` each matched
+  a 100,000-character subject in under half a millisecond. So reachability turns on who supplies the
+  pattern.
+
+  The lockfile copy (4.0.7, `dev: true`) is reached through vite, vitest, tinyglobby and fdir, and
+  typescript-estree reaches it through tinyglobby. Every pattern those callers compile comes from
+  this repository or from the developer running it: vitest's and vite's own configuration in
+  `vite.config.ts` and their defaults (test and coverage globs, `server.fs.deny`, watch ignores),
+  the `import.meta.glob` literals in test files, the command line, and installed packages (plugin
+  filters, `exports` keys), which are already trusted to run code. The one socket is the
+  `npm run test:ui` websocket, which requires vitest's API token; it passes request data to
+  picomatch only as subjects, and a client holding the token can at most save a test file, the
+  developer's own source. A search for an extglob opener inside a quoted string
+  (``['"`][^'"`]*[*+?@!]\(``) matched a planted `import.meta.glob('./**/+(*a).tsx')`, and across
+  the code in `apps/portal` its only hits are four regular-expression constructions that never
+  reach a glob API. It cannot see a pattern assembled by concatenation, which is why the argument
+  rests on where patterns come from rather than on the search.
+
+  **The copy that matters more is one the audit cannot see.** `next` vendors its own picomatch at
+  `next/dist/compiled/picomatch`, with no lockfile entry, and the planted pattern backtracks the
+  same way there. It ships, because `npm run build` copies it into `.next/standalone`. Its runtime
+  callers are `match-remote-pattern.js` and `match-local-pattern.js` for the `/_next/image`
+  optimizer, and both compile only `images.remotePatterns` and `images.localPatterns` from
+  `next.config.ts`, which sets neither, so Next's defaults of `[]` and `undefined` apply. The
+  request's `url` is only ever the subject, and it is capped at 3,072 characters. As with monaco's
+  DOMPurify, **a picomatch release would clear the audit without clearing the shipped copy**; that
+  needs a `next` release that re-vendors it. Revisit when picomatch publishes a fix: a 4.x release
+  is in range of every dependent, so `npm update picomatch` clears the dev copy, and timing `+(*a)`
+  against `next/dist/compiled/picomatch` after the next `next` bump tells whether the shipped copy
+  moved with it. Neither event would bring a session here on its own, since a Dependabot bump of the
+  dev copy clears the audit and `next` is pinned by hand, so `apps/portal/src/test/vendoredPicomatch.test.ts`
+  pins the dev copy's version and the vendored file's SHA-256 and fails, naming this note, when
+  either changes (or with a bare `ENOENT` if npm stops hoisting either package to the root).
 
 ### Dependencies — Python
 
@@ -664,7 +707,7 @@ What the follow-up spec should implement, per scanner.
 | `gitleaks` | ~~`block` immediately~~ **DONE 2026-08-02** | Was at zero across 357 commits; flipped to `block`. No remediation was needed. |
 | `pip-audit` | ~~`block` immediately~~ **DONE 2026-08-02** | Was at zero across 13 packages; flipped to `block`. |
 | Semgrep | ~~`block` after excluding the Flask rule~~ **DONE 2026-08-09** | The one false positive is excluded by rule ID (`--exclude-rule`) on the Lambdas scan, and `GATE_SEMGREP` is `block`. The ruleset is otherwise unnarrowed — dropping `p/owasp-top-ten` to silence one rule would have dropped everything else it brings. `test_semgrep_excludes_exactly_the_flask_rule` asserts it is the **only** `--exclude-rule` in any workflow, so a second is a deliberate edit to that test and needs its own disposition here. |
-| `npm audit` (runtime) | stay `report` — **and it cannot be `block` today** | **The earlier note in this row was wrong twice over and is corrected here.** There is no `GATE_NPM_AUDIT_RUNTIME` variable — the gate is `GATE_NPM_AUDIT`, fed the runtime **total** — and `apply-gate.sh` has **no severity threshold**: it fails on `findings > 0`. So "block at `high` would pass today" was not available; flipping it would go red immediately on the accepted `dompurify` advisories — four of them as of 2026-08-30, which `.metadata.vulnerabilities.total` (the number the gate is actually fed) collapses to **2**. The two counts are easy to conflate; the gate reads the collapsed one. It becomes available when dompurify clears, which needs **monaco** to move: monaco vendors its own copy, so no override of the npm package clears the shipped code even though it would clear the gate. Adding a severity threshold to `apply-gate.sh` is the alternative, and is a change to every scanner's gate rather than this row's. |
+| `npm audit` (runtime) | stay `report` — **and it cannot be `block` today** | **The earlier note in this row was wrong twice over and is corrected here.** There is no `GATE_NPM_AUDIT_RUNTIME` variable — the gate is `GATE_NPM_AUDIT`, fed the runtime **total** — and `apply-gate.sh` has **no severity threshold**: it fails on `findings > 0`. So "block at `high` would pass today" was not available; flipping it would go red immediately on the deferred `dompurify` advisories — eight of them as of 2026-11-17, which `.metadata.vulnerabilities.total` (the number the gate is actually fed) collapses to **2**. The two counts are easy to conflate; the gate reads the collapsed one. It becomes available when dompurify clears, which needs **monaco** to move: monaco vendors its own copy, so no override of the npm package clears the shipped code even though it would clear the gate. Adding a severity threshold to `apply-gate.sh` is the alternative, and is a change to every scanner's gate rather than this row's. |
 | `npm audit` (full) | stay `report` | Build-time advisories should be visible, not blocking; they would gate PRs on unrelated toolchain churn. |
 | Checkov | ~~`block` only on an explicit allow-list of check IDs~~ **DONE 2026-08-09** | Implemented as an **enforce list**, `.github/checkov-enforced.txt` — 52 check IDs, every one measured at **zero failures** (checkov 3.3.9, 508 passed / 373 failed overall). `GATE_CHECKOV` is `block` and reads that narrowed count; the other 373 are still published and still do not block. The criterion is deliberately "passes today", not "matters most": picking the five that matter is an argument to re-litigate on every infra change, and holding everything already clean costs nothing to turn on. An enforced ID that gets evaluated against **nothing** is a hard error — a typo or a renamed check must not read as enforcement. |
 | ZAP | stay `report` | Unauthenticated surface only; findings are header hygiene, better fixed via CKV2_AWS_32 than gated on. **Measured 2026-08-03:** 0 fail, 2 Medium, 8 Low. After SPEC-140 two Lows survive by decision, so a total-count gate is wrong here — gate by **risk level** (`riskcode >= 2`) if at all. |
@@ -990,7 +1033,7 @@ gate a count it refuses.
 ## What still does not block, and why it is not an oversight
 
 - **`npm audit`** — the gate has no severity threshold (`apply-gate.sh` fails on `> 0`), and the
-  runtime scope still carries accepted `dompurify` advisories. Needs monaco to move, or a threshold in
+  runtime scope still carries deferred `dompurify` advisories. Needs monaco to move, or a threshold in
   the shared script.
 - **ZAP** — a count gate is wrong here; two Lows survive by decision. Gate by `riskcode >= 2` if at
   all.
