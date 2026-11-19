@@ -509,3 +509,70 @@ def test_a_destination_prefix_no_legal_KEY_could_sit_under_is_not_carried():
 
     within = _summary(destination_prefix="finance/" + "p" * 100)
     assert "destination" in notify.outcome_payload(within, _records(), "r-1")
+
+
+# ── A rename is told as a rename ─────────────────────────────────────────────
+
+
+def _rename(outcome, extra=None, prefix="alice/in/", destination_name="alice"):
+    """A finished one-item move carrying a new name, as the finaliser shapes its terminal.
+
+    Args:
+      outcome: The item's terminal outcome.
+      extra: Further fields on its record, such as a reason.
+      prefix: The destination folder; ``alice/in/`` is the item's own.
+      destination_name: The destination space's name.
+
+    Returns:
+      The terminal event ``emit_outcomes`` reads.
+    """
+    return {
+        "requestId": "r-1",
+        "actor": {"username": "alice"},
+        "summary": {
+            "operation": "move",
+            "source": {"kind": "personal", "name": "alice"},
+            "destination": {"kind": "personal", "name": destination_name, "prefix": prefix},
+            "items": [{"itemKey": "alice/in/old.csv", "kind": "file", "targetName": "new.csv"}],
+        },
+        "outcomes": _records(("alice/in/old.csv", outcome, extra or {})),
+    }
+
+
+def test_a_finished_rename_names_both_names_and_a_plain_move_still_says_moved(sent):
+    """The folder is the one thing a rename did not change, so naming it reads as a move."""
+    notify.emit_outcomes(_rename("moved"))
+    notify.emit_outcomes(_rename("moved", prefix="alice/out/"))
+
+    assert [text for _, text, _ in sent] == [
+        'Renamed "old.csv" to "new.csv".',
+        'Moved 1 item to "out".',
+    ]
+
+
+def test_a_rename_that_collides_is_asked_for_a_different_name_not_a_different_destination(sent):
+    notify.emit_outcomes(_rename("conflict", {"reason": "destination_occupied"}))
+
+    ((_, text, kwargs),) = sent
+    assert text == (
+        '1 item needs your attention: "old.csv" - something by that name is already there. '
+        "Please choose a different name, or move what is there first. Sending it again with "
+        "overwrite turned on replaces what is there, and that cannot be undone."
+    )
+    assert kwargs["payload"]["operation"] == "move"
+
+
+def test_the_same_folder_in_another_space_is_a_move_not_a_rename():
+    """The same key string names a different object in another space, so the space is compared
+    as well as the folder."""
+    assert notify.gesture_of(_rename("moved")["summary"]) == "rename"
+    assert notify.gesture_of(_rename("moved", destination_name="finance")["summary"]) == "move"
+
+
+def test_two_items_given_new_names_in_their_own_folder_are_a_move():
+    """A rename is ONE item; the browser never sends two with a ``targetName``, and a hand-built
+    request that does is not something the user renamed."""
+    summary = _rename("moved")["summary"]
+    summary["items"] = [*summary["items"], {**summary["items"][0], "itemKey": "alice/in/b.csv"}]
+
+    assert notify.gesture_of(summary) == "move"

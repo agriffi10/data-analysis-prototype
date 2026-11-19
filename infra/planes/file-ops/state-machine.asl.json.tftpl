@@ -360,10 +360,18 @@
             { "Variable": "$.transfer.itemCount", "IsPresent": true },
             { "Variable": "$.transfer.itemCount", "NumericGreaterThan": 0 }
           ],
-          "Next": "TransferObjects"
+          "Next": "BeginTransfer"
         }
       ],
       "Default": "CollectTransferResults"
+    },
+
+    "BeginTransfer": {
+      "Type": "Pass",
+      "Comment": "Marks the run as past the point where it started changing anything, on the one edge into TransferObjects. A fault from here on can leave the run part-done, so its notice says so rather than 'try again'; a run that reaches CollectTransferResults with nothing to copy never passes here, so its faults keep today's sentences. A top-level key the seeds never read: ChangesMayHaveBegun tests it with IsPresent, which cannot raise on a run that never set it. Every verb after this echoes its event, so it survives to every later Catch, and the verbs' own failure hooks read the same key.",
+      "Result": "transfer",
+      "ResultPath": "$.stage",
+      "Next": "TransferObjects"
     },
 
     "TransferObjects": {
@@ -442,7 +450,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "ReleaseLockOnFailure"
+          "Next": "ChangesMayHaveBegun"
         }
       ],
       "Next": "CollectTransferResults"
@@ -484,7 +492,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "ReleaseLockOnFailure"
+          "Next": "ChangesMayHaveBegun"
         }
       ],
       "Next": "NeedsSourceDeletion"
@@ -519,10 +527,18 @@
             { "Variable": "$.deletableCount", "IsPresent": true },
             { "Variable": "$.deletableCount", "NumericGreaterThan": 0 }
           ],
-          "Next": "DeleteSource"
+          "Next": "BeginDeletion"
         }
       ],
       "Default": "FinaliseOutcomes"
+    },
+
+    "BeginDeletion": {
+      "Type": "Pass",
+      "Comment": "Marks the run as past the point where it started changing anything, on the one edge into DeleteSource, which a delete reaches without passing BeginTransfer. A fault from here on can leave the run part-done, so its notice says so rather than 'try again'; a delete that faults earlier, in CollectTransferResults, has removed nothing and keeps today's sentences. A top-level key the seeds never read: ChangesMayHaveBegun tests it with IsPresent, which cannot raise on a run that never set it. Every verb after this echoes its event, so it survives to every later Catch, and the verbs' own failure hooks read the same key.",
+      "Result": "transfer",
+      "ResultPath": "$.stage",
+      "Next": "DeleteSource"
     },
 
     "DeleteSource": {
@@ -561,7 +577,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "ReleaseLockOnFailure"
+          "Next": "ChangesMayHaveBegun"
         }
       ],
       "Next": "FinaliseOutcomes"
@@ -603,7 +619,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "ReleaseLockOnFailure"
+          "Next": "ChangesMayHaveBegun"
         }
       ],
       "Next": "ReleaseLock"
@@ -785,6 +801,29 @@
         }
       },
       "Next": "RecordFailure"
+    },
+
+    "ChangesMayHaveBegun": {
+      "Type": "Choice",
+      "Comment": "Routes a fault after the copy or the deletion began through MarkTransferBegun, and every other fault straight on. Decided by the $.stage that BeginTransfer or BeginDeletion wrote on the way in, so a run with nothing to change is not told some of it may have happened. IsPresent cannot raise on an absent key, which a Pass reading the same path would.",
+      "Choices": [
+        {
+          "And": [
+            { "Variable": "$.stage", "IsPresent": true },
+            { "Variable": "$.stage", "StringEquals": "transfer" }
+          ],
+          "Next": "MarkTransferBegun"
+        }
+      ],
+      "Default": "ReleaseLockOnFailure"
+    },
+
+    "MarkTransferBegun": {
+      "Type": "Pass",
+      "Comment": "Writes stage:'transfer' INTO the error the Catch just placed, for a fault after BeginTransfer or BeginDeletion marked the run. notify-failure words such a fault as possibly part-done. It writes inside $.error rather than relying on the seed to carry $.stage, because RequestFailureSeed carries $.error whole while every other path into that seed lacks $.stage, and a Pass reading an absent path raises an uncatchable States.Runtime. Result and ResultPath only, so this state reads nothing.",
+      "Result": "transfer",
+      "ResultPath": "$.error.stage",
+      "Next": "ReleaseLockOnFailure"
     },
 
     "UnknownOperationSeed": {

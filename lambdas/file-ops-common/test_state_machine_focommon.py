@@ -219,7 +219,7 @@ def test_no_gate_between_the_copy_and_the_deletion_DEFAULTS_into_deleting():
         if STATES.get(name, {}).get("Type") == "Choice"
     }
 
-    assert deciding == {"NeedsSourceDeletion", "HasDeletableItems"}, (
+    assert deciding == {"NeedsSourceDeletion", "HasDeletableItems", "ChangesMayHaveBegun"}, (
         f"the gates between the copy and the deletion are now {sorted(deciding)}; a new one has to "
         "be held to this rule too"
     )
@@ -251,3 +251,15 @@ def test_the_paths_that_do_NOT_release_are_the_ones_that_never_took_the_lock():
             continue
 
         assert "AcquireLock" not in path, f"this path holds a lock at a terminal: {path}"
+
+
+def test_the_copy_and_the_deletion_are_entered_only_through_the_pass_that_marks_the_run():
+    """A fault's notice says some of it may have happened only when the run carries the stage mark,
+    so an edge into either state that skipped its Begin pass would word a part-done fault as though
+    nothing had changed."""
+    entries = {"TransferObjects": "BeginTransfer", "DeleteSource": "BeginDeletion"}
+    for target, begin in entries.items():
+        callers = {name for name in STATES if target in _successors(name)}
+
+        assert callers == {begin}, f"{target} is entered from {sorted(callers)}"
+        assert (STATES[begin]["Result"], STATES[begin]["ResultPath"]) == ("transfer", "$.stage")

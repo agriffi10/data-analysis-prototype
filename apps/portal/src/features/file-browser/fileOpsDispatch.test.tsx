@@ -602,6 +602,8 @@ describe('the conflict round trip', () => {
           ...CONFLICTED,
           payload: {
             ...CONFLICTED.payload,
+            // A rename lands in the folder and space its item already sits in.
+            destination: {kind: 'shared', name: 'finance', prefix: 'finance/'},
             conflicts: [{itemKey: 'finance/q1.csv', kind: 'file', targetName: 'q1.csv'}]
           }
         }
@@ -622,6 +624,10 @@ describe('the conflict round trip', () => {
     const request = mockSubmit.mock.calls[0][0];
     expect(request.operation !== 'delete' && request.onConflict).toBe('refuse');
     expect(request.source.items).toEqual([{kind: 'file', key: 'finance/q1.csv', targetName: 'q1-v2.csv'}]);
+    // A rename travels as a `move`, and the in-progress row says what the user pressed, naming the
+    // item as the first submit did.
+    const region = await screen.findByRole('region', {name: 'File operations in progress'});
+    expect(within(region).getByText('Renaming q1.csv')).toBeInTheDocument();
   });
 
   // A renamed FOLDER lands in the payload's destination, so its new name is checked there first. The

@@ -1,5 +1,12 @@
 import {describe, expect, it} from 'vitest';
-import {buildFileOpRequest, buildResubmitRequest, containingFolder, itemLabel, toFileOpItems} from './fileOps.request';
+import {
+  buildFileOpRequest,
+  buildResubmitRequest,
+  containingFolder,
+  itemLabel,
+  requestVerb,
+  toFileOpItems
+} from './fileOps.request';
 import {itemResultsFromPayload, outcomeHeading} from './fileOps.outcomes';
 import type {FileOpItemResult, FileOpOutcome, FileOpSpace} from './fileOps.types';
 import type {NotificationPayload} from '../notifications';
@@ -104,6 +111,51 @@ describe('buildFileOpRequest', () => {
     expect(() =>
       buildFileOpRequest({operation: 'copy', items: [{type: 'file', key: 'alice/a.csv'}]}, ALICE, IDS)
     ).toThrow(/destination/);
+  });
+});
+
+describe('requestVerb', () => {
+  const FINANCE: FileOpSpace = {kind: 'shared', name: 'finance'};
+  const move = (key: string, prefix: string, targetName?: string, space: FileOpSpace = FINANCE) =>
+    buildFileOpRequest(
+      {
+        operation: 'move',
+        items: [key.endsWith('/') ? {type: 'folder', prefix: key} : {type: 'file', key}],
+        destination: {space, prefix},
+        targetName
+      },
+      FINANCE,
+      IDS
+    );
+
+  it('calls a move of one item to a new name in its own folder a rename, a folder included', () => {
+    expect(requestVerb(move('finance/q1.csv', 'finance/', 'q2.csv'))).toBe('Rename');
+    expect(requestVerb(move('finance/reports/', 'finance/', 'archive'))).toBe('Rename');
+  });
+
+  it('calls a move a move when it changes folder or space, even carrying a new name', () => {
+    expect(requestVerb(move('finance/q1.csv', 'finance/out/', 'q2.csv'))).toBe('Move');
+    expect(requestVerb(move('finance/q1.csv', 'finance/', 'q2.csv', ALICE))).toBe('Move');
+    // Same kind, same folder string, another space: the key names a different object there.
+    expect(requestVerb(move('finance/q1.csv', 'finance/', 'q2.csv', {kind: 'shared', name: 'ops'}))).toBe('Move');
+    expect(requestVerb(move('finance/q1.csv', 'finance/out/'))).toBe('Move');
+  });
+
+  it('calls a move of two items a move even when they carry new names into their own folder', () => {
+    const request = buildFileOpRequest(
+      {
+        operation: 'move',
+        items: [
+          {type: 'file', key: 'finance/q1.csv'},
+          {type: 'file', key: 'finance/q2.csv'}
+        ],
+        destination: {space: FINANCE, prefix: 'finance/'},
+        targetName: 'q3.csv'
+      },
+      FINANCE,
+      IDS
+    );
+    expect(requestVerb(request)).toBe('Move');
   });
 });
 

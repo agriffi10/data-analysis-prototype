@@ -43,6 +43,13 @@ bearer at the edge and writes what it verified, and the queue is writable by no 
 timeout firing hours later reads a value that was never time-limited in the first place. The
 expiry relaxation this door used to need is gone with the thing it relaxed.
 
+**A fault after the copy began is told so, from a mark the machine writes.** ``BeginTransfer``
+sets the run's ``stage`` on the way into the copy, and a Catch from there on passes
+``MarkTransferBegun``, which copies it INTO the caught error that every failure seed carries whole.
+An error carrying it that no verb already reported is worded ``transfer_interrupted``: some
+recipients may have part of it, so a blind resend is not advised, since it is refused for each of
+them. The verb's own hook reads the same mark off its event, so the two notices agree.
+
 **Its sends wait rather than being capped** (``bounded=False``). The run has already failed, so a
 stall can fail nothing the user was told, and on the timed-out door a send held to this function's
 timeout fails the asynchronous invocation, which Lambda retries; a send abandoned at the cap would
@@ -51,6 +58,8 @@ be swallowed and never retried.
 Attributes:
   _TIMEOUT_DETAIL_TYPE: The EventBridge detail-type the timeout door matches on.
   _TIMEOUT_REASON: Reason code for a run the state machine's own timeout stopped.
+  _INTERRUPTED_REASON: The reason a fault the machine marked as arriving after the copy began is
+    worded under: some recipients may hold part of it, so a resend is not advised blind.
 """
 
 import json
@@ -58,7 +67,7 @@ import logging
 
 from cpcommon import actor as cpactor
 from cpcommon import events, observability
-from cpcommon.errors import TerminalError, failure_reason
+from cpcommon.errors import TerminalError, failure_reason, transfer_began
 from fscommon import messages, notify
 
 logger = logging.getLogger()
@@ -69,6 +78,8 @@ observability.init(service="file-send")
 _TIMEOUT_DETAIL_TYPE = "Step Functions Execution Status Change"
 
 _TIMEOUT_REASON = "send_timed_out"
+
+_INTERRUPTED_REASON = "transfer_interrupted"
 
 
 def _is_execution_timeout(event) -> bool:
@@ -206,9 +217,11 @@ def _verb_already_notified(error) -> bool:
     rule would have silenced exactly the class of failure this function exists to report.
 
     The price is paid deliberately: an unexpected in-verb exception notifies through the
-    decorator and again here, as two sentences — the decorator's asks the user to try again and
-    this one does not — so the queue keeps both. A duplicate is a papercut on a path that is
-    already a bug; a guess that suppresses is unrecoverable.
+    decorator and again here. Before the copy began they are two sentences — the decorator's asks
+    the user to try again and this one does not — so the queue keeps both; after it, both carry
+    the same body, which the queue's content-based dedup collapses when this runs inside its
+    window. A duplicate is a papercut on a path that is already a bug; a guess that suppresses is
+    unrecoverable.
 
     Args:
       error: The raw Step Functions error object.
@@ -270,6 +283,7 @@ def handler(event, context) -> dict:
 
     reason = failure_reason(request.get("error"))
     logger.info("notify-failure: actor=%s reason=%s", username, reason)
+    worded = _INTERRUPTED_REASON if transfer_began(request.get("error")) else reason
 
     if _verb_already_notified(request.get("error")):
         logger.info("reason %s came from a verb; the decorator already notified", reason)
@@ -293,7 +307,7 @@ def handler(event, context) -> dict:
 
     notify.emit_notification(
         username,
-        messages.failure_message(reason),
+        messages.failure_message(worded),
         payload=notify.request_payload(request),
         bounded=False,
     )

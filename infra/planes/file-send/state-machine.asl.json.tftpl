@@ -230,11 +230,19 @@
             { "Variable": "$.transfer.itemCount", "IsPresent": true },
             { "Variable": "$.transfer.itemCount", "NumericGreaterThan": 0 }
           ],
-          "Next": "TransferObjects"
+          "Next": "BeginTransfer"
         }
       ],
       "Default": "CollectTransferResults"
     },
+    "BeginTransfer": {
+      "Type": "Pass",
+      "Comment": "Marks the run as past the point where it started changing anything, on the one edge into TransferObjects. A fault from here on can leave the run part-done, so its notice says so rather than 'try again'; a run that reaches CollectTransferResults with nothing to copy never passes here, so its faults keep today's sentences. A top-level key the seeds never read: ChangesMayHaveBegun tests it with IsPresent, which cannot raise on a run that never set it. Every verb after this echoes its event, so it survives to every later Catch, and the verbs' own failure hooks read the same key.",
+      "Result": "transfer",
+      "ResultPath": "$.stage",
+      "Next": "TransferObjects"
+    },
+
     "TransferObjects": {
       "Type": "Map",
       "Comment": "The copy, as a TOP-LEVEL Distributed Map over a flat (recipient x object) manifest — deliberately NOT nested inside the guard Map, so one fan-out covers every recipient and the nesting question never arises. Child executions are STANDARD, not EXPRESS: a batch may hold a multi-GiB object whose multipart copy would blow EXPRESS's 5-minute ceiling, and EXPRESS's at-least-once semantics would re-run whole batches. ToleratedFailurePercentage is 100 so an item failure never fails the Map Run and never aborts a sibling — the run MUST finish for collect-transfer-results to attribute it. ResultWriter exports to S3 so this state's own output is the small {MapRunArn, ResultWriterDetails} pointer rather than an array that would breach the 256 KB state limit at the scale this Map exists for. Its states:/S3 permissions belong to the STATE MACHINE role, not the Lambda execution role.",
@@ -313,7 +321,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "RequestFailureSeed"
+          "Next": "ChangesMayHaveBegun"
         }
       ],
       "Next": "CollectTransferResults"
@@ -355,7 +363,7 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "RequestFailureSeed"
+          "Next": "ChangesMayHaveBegun"
         }
       ],
       "Next": "ShapeSummary"
@@ -413,6 +421,28 @@
         }
       ],
       "Next": "Succeeded"
+    },
+    "ChangesMayHaveBegun": {
+      "Type": "Choice",
+      "Comment": "Routes a fault after the copy or the deletion began through MarkTransferBegun, and every other fault straight on. Decided by the $.stage that BeginTransfer wrote on the way in, so a run with nothing to change is not told some of it may have happened. IsPresent cannot raise on an absent key, which a Pass reading the same path would.",
+      "Choices": [
+        {
+          "And": [
+            { "Variable": "$.stage", "IsPresent": true },
+            { "Variable": "$.stage", "StringEquals": "transfer" }
+          ],
+          "Next": "MarkTransferBegun"
+        }
+      ],
+      "Default": "RequestFailureSeed"
+    },
+
+    "MarkTransferBegun": {
+      "Type": "Pass",
+      "Comment": "Writes stage:'transfer' INTO the error the Catch just placed, for a fault after BeginTransfer marked the run. notify-failure words such a fault as possibly part-delivered. It writes inside $.error rather than relying on the seed to carry $.stage, because RequestFailureSeed carries $.error whole while every other path into that seed lacks $.stage, and a Pass reading an absent path raises an uncatchable States.Runtime. Result and ResultPath only, so this state reads nothing.",
+      "Result": "transfer",
+      "ResultPath": "$.error.stage",
+      "Next": "RequestFailureSeed"
     },
     "RequestFailureSeed": {
       "Type": "Pass",

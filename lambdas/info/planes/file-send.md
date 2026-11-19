@@ -19,7 +19,10 @@ HasTransferItems → TransferObjects (Map) → CollectTransferResults → ShapeS
 
 Two Maps: one guards each recipient's inbox for collisions, one moves the bytes.
 `ValidateFailureSeed`/`RequestFailureSeed → RecordFailure → NotifyFailure → Failed` has been complete
-from day one.
+from day one. `BeginTransfer` marks `$.stage` on the only edge into the copy, and the Catches of
+`TransferObjects` and `CollectTransferResults` test it in `ChangesMayHaveBegun` and copy it into the
+caught error through `MarkTransferBegun`, so the notice says some recipients may have part of it
+(`docs/decisions/control-planes/`, *A failure after the copy began says so*).
 
 **The failure seeds read the request back from `$$.Execution.Input`.** The validate task's input is
 the Pipe's JSON *array*, so its catch cannot carry a `ResultPath` and the error replaces the state;

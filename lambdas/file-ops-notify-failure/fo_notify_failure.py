@@ -43,6 +43,16 @@ bearer at the edge and writes what it verified, and the queue is writable by no 
 timeout firing hours later reads a value that was never time-limited in the first place. The
 expiry relaxation this door used to need is gone with the thing it relaxed.
 
+**A fault after the run started changing anything is told so, from a mark the machine writes.**
+``BeginTransfer`` and ``BeginDeletion`` set the run's ``stage`` on the way into the copy and the
+deletion, and a Catch from there on passes ``MarkTransferBegun``, which copies it INTO the caught
+error — the one object every failure seed already carries whole, so no seed reads a key another
+path does not supply. An error carrying it that no verb already reported is worded
+``transfer_interrupted``: some of it may have happened, look before trying again. Without the mark
+this function cannot tell a fault in the copy from one before it, and "try again" after a partial
+copy collides with what landed. The verb's own hook reads the same mark off its event, so the two
+notices one fault produces carry one body.
+
 **Its sends wait rather than being capped** (``bounded=False``). The run has already failed, so a
 stall can fail nothing the user was told, and on the timed-out door a send held to this function's
 timeout fails the asynchronous invocation, which Lambda retries; a send abandoned at the cap would
@@ -51,6 +61,7 @@ be swallowed and never retried.
 Attributes:
   _TIMEOUT_DETAIL_TYPE: The EventBridge detail-type the timeout door matches on.
   _TIMEOUT_REASON: Reason code for a run the state machine's own timeout stopped.
+  _INTERRUPTED_REASON: The reason a fault after the copy began is worded under.
 """
 
 import json
@@ -58,7 +69,7 @@ import logging
 
 from cpcommon import actor as cpactor
 from cpcommon import events, observability
-from cpcommon.errors import TerminalError, failure_reason
+from cpcommon.errors import TerminalError, failure_reason, transfer_began
 from cpcommon.notify import is_silent
 from focommon import messages, notify
 
@@ -70,6 +81,8 @@ observability.init(service="file-ops")
 _TIMEOUT_DETAIL_TYPE = "Step Functions Execution Status Change"
 
 _TIMEOUT_REASON = "operation_timed_out"
+
+_INTERRUPTED_REASON = "transfer_interrupted"
 
 
 def _is_execution_timeout(event) -> bool:
@@ -131,7 +144,7 @@ def _on_execution_timed_out(event) -> dict:
             try:
                 parsed = json.loads(raw)
                 username = _actor_from_raw_request(parsed)
-                operation = notify.operation_of({"raw": parsed})
+                operation = notify.gesture_of({"raw": parsed})
                 payload = notify.request_payload(parsed)
             except ValueError as exc:
                 logger.info("could not attribute the timed-out execution: %s", exc)
@@ -214,8 +227,9 @@ def _verb_already_notified(error) -> bool:
     rule would have silenced exactly the class of failure this function exists to report.
 
     The price is paid deliberately: an unexpected in-verb exception notifies through the
-    decorator and again here, with the same generic sentence. A duplicate is a papercut on a
-    path that is already a bug; a guess that suppresses is unrecoverable.
+    decorator and again here. A duplicate is a papercut on a path that is already a bug; a guess
+    that suppresses is unrecoverable. After the copy began the two carry the same body, which the
+    notifications queue's content-based dedup collapses when this runs inside its window.
 
     Args:
       error: The raw Step Functions error object.
@@ -279,6 +293,7 @@ def handler(event, context) -> dict:
 
     reason = failure_reason(request.get("error"))
     logger.info("notify-failure: actor=%s reason=%s", username, reason)
+    worded = _INTERRUPTED_REASON if transfer_began(request.get("error")) else reason
 
     if _verb_already_notified(request.get("error")) and is_silent(reason):
         logger.info("reason %s is told to nobody; nothing was sent for it", reason)
@@ -312,7 +327,7 @@ def handler(event, context) -> dict:
 
     notify.emit_notification(
         username,
-        messages.failure_message(notify.operation_of(request), reason),
+        messages.failure_message(notify.gesture_of(request), worded),
         payload=notify.request_payload(request),
         bounded=False,
     )

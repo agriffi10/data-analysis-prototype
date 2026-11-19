@@ -7,7 +7,14 @@ OPERATION the user actually asked for.
 That last part is the whole reason this module is not two lines. Every other plane has one verb
 and so one prefix; this one serves three, and a user who pressed Delete must not be told that a
 copy failed. The operation rides on the verb's event, so the emitters read it from there rather
-than being bound at import.
+than being bound at import. A rename is the fourth gesture: it travels as a ``move``, and
+``gesture_of`` tells it apart from the request alone, so nothing new is sent to say so.
+
+**A failure after the run started changing anything is worded for that**, through
+``messages.after_transfer_began``: the state machine marks the run's ``stage`` on the way into the
+copy or the deletion, and a sentence written for a run that changed nothing would send the user
+straight into what the first attempt left. notify-failure reads the same mark, so the two notices
+one fault produces agree.
 
 A missed notification must never change or fail the outcome, so every emit goes through
 ``cpcommon.notify.emit_notification``, which catches, logs and never raises.
@@ -42,7 +49,7 @@ import re
 from urllib.parse import quote
 
 from cpcommon import observability
-from cpcommon.errors import TerminalError
+from cpcommon.errors import TerminalError, transfer_began
 from cpcommon.notify import (
     actor_of,
     dedup_id,
@@ -53,7 +60,7 @@ from cpcommon.notify import (
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
 
 from . import config, outcomes
-from .messages import failure_message, outcome_summary
+from .messages import after_transfer_began, failure_message, outcome_summary
 from .paths import item_name
 
 logger = logging.getLogger()
@@ -63,6 +70,7 @@ __all__ = [
     "emit_notification",
     "emit_outcomes",
     "emit_unexpected",
+    "gesture_of",
     "notifies_on_failure",
     "operation_of",
     "outcome_link",
@@ -75,6 +83,33 @@ _FILES_ROUTE = "/files"
 _SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 _LANDED = frozenset({outcomes.MOVED, outcomes.COPIED, outcomes.DUPLICATE})
+
+
+def _request_of(event) -> dict:
+    """Returns the request-shaped object an emitter can read the request's fields from.
+
+    The Pipe's raw batch carries the original request as the first record's JSON body, and that is
+    the only copy on the pre-identity and timed-out paths; every other shape is read as it stands.
+
+    Args:
+      event: The verb's event, a recorded failure, or a terminal summary.
+
+    Returns:
+      The request-shaped object, or an empty dict when none can be read.
+
+    Raises:
+      None.
+    """
+    if not isinstance(event, dict):
+        return {}
+    raw = event.get("raw")
+    if isinstance(raw, list) and raw and isinstance(raw[0], dict):
+        try:
+            body = json.loads(raw[0].get("body") or "{}")
+        except Exception:  # noqa: BLE001
+            return {}
+        return body if isinstance(body, dict) else {}
+    return event
 
 
 def operation_of(event) -> object:
@@ -102,14 +137,70 @@ def operation_of(event) -> object:
         return None
     if isinstance(event.get("operation"), str):
         return event["operation"]
-    raw = event.get("raw")
-    if isinstance(raw, list) and raw and isinstance(raw[0], dict):
-        try:
-            body = json.loads(raw[0].get("body") or "{}")
-        except Exception:  # noqa: BLE001
-            return None
-        return body.get("operation") if isinstance(body, dict) else None
-    return None
+    operation = _request_of(event).get("operation")
+    return operation if isinstance(operation, str) else None
+
+
+def _space_of(side: object) -> tuple:
+    """Returns which space one side of a request names, from any of the shapes it travels in.
+
+    Args:
+      side: A request's ``source`` or ``destination``: ``{space: {kind, name}}`` as sent, or
+        ``{kind, name, ...}`` once resolved or summarised.
+
+    Returns:
+      ``(kind, name)``, with None for whatever is missing.
+
+    Raises:
+      None.
+    """
+    if not isinstance(side, dict):
+        return (None, None)
+    space = side.get("space")
+    if not isinstance(space, dict):
+        space = side
+    return (space.get("kind"), space.get("name"))
+
+
+def gesture_of(event) -> object:
+    """Returns what the user pressed: the operation, or ``rename`` for a move that renames in place.
+
+    **A rename is a move of ONE item carrying a ``targetName``, into the folder it already sits
+    in, in the same space.** All four halves are asked. The browser sends a ``targetName`` only on
+    a rename and a same-folder copy, but a hand-built move with a new name into another folder did
+    move something, and "renamed" would hide that. The space is compared as well as the folder
+    because the same key string names a different object in another bucket.
+
+    Read from every shape the emitters see: the terminal summary (``items[].itemKey``), a verb's
+    event (``source.items[].key``), and the Pipe's raw batch, as sent.
+
+    Args:
+      event: The verb's event, a recorded failure, or a terminal summary.
+
+    Returns:
+      ``rename``, or the operation as ``operation_of`` reads it.
+
+    Raises:
+      None.
+    """
+    operation = operation_of(event)
+    if operation != "move":
+        return operation
+    request = _request_of(event)
+    source, destination = request.get("source"), request.get("destination")
+    items = request.get("items")
+    if items is None and isinstance(source, dict):
+        items = source.get("items")
+    if not isinstance(items, list) or len(items) != 1 or not isinstance(items[0], dict):
+        return operation
+    item = items[0]
+    key = item.get("itemKey") or item.get("key")
+    prefix = destination.get("prefix") if isinstance(destination, dict) else None
+    if not item.get("targetName") or not isinstance(key, str) or not isinstance(prefix, str):
+        return operation
+    same_space = _space_of(source) == _space_of(destination)
+    same_folder = _folder_of(key) == prefix.rstrip("/") + "/"
+    return "rename" if same_space and same_folder and _space_of(source)[1] else operation
 
 
 def emit_failure(event, err: TerminalError, step: str) -> None:
@@ -147,9 +238,10 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
             "not notifying %s for %s", err.reason, observability.request_id_of(event)
         )
         return
+    reason = after_transfer_began(err.reason) if transfer_began(event) else err.reason
     emit_notification(
         actor_of(event),
-        failure_message(operation_of(event), err.reason, err.tokens),
+        failure_message(gesture_of(event), reason, err.tokens),
         payload=request_payload(event),
     )
 
@@ -157,7 +249,10 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
 def emit_unexpected(event, step: str) -> None:
     """Emits the actor-addressed notification for an unexpected verb exception.
 
-    Uses the generic unexpected-error reason so no internals leak.
+    Uses the generic unexpected-error reason so no internals leak, or, once the run started
+    changing anything, the reason that says some of it may have happened. That second sentence is
+    the one notify-failure composes for the same fault from the same mark, so the two notices one
+    fault produces carry the same body.
 
     Args:
       event: The verb's event.
@@ -169,9 +264,12 @@ def emit_unexpected(event, step: str) -> None:
     Raises:
       None.
     """
+    reason = "unexpected_error"
     emit_notification(
         actor_of(event),
-        failure_message(operation_of(event), "unexpected_error"),
+        failure_message(
+            gesture_of(event), after_transfer_began(reason) if transfer_began(event) else reason
+        ),
         payload=request_payload(event),
     )
 
@@ -456,11 +554,16 @@ def emit_outcomes(event) -> None:
     """
     summary = event.get("summary") or {}
     records = [r for r in (event.get("outcomes") or []) if isinstance(r, dict)]
-    operation = summary.get("operation")
     destination = (summary.get("destination") or {}).get("prefix") or ""
 
+    items = summary.get("items") or []
+    renamed_to = items[0].get("targetName") if len(items) == 1 and isinstance(items[0], dict) else ""
     message = outcome_summary(
-        operation, records, _destination_label(destination), named=config.FILE_OPS_NOTIFIED_ITEMS
+        gesture_of(summary),
+        records,
+        _destination_label(destination),
+        named=config.FILE_OPS_NOTIFIED_ITEMS,
+        renamed_to=renamed_to or "",
     )
     emit_notification(
         actor_of(event),

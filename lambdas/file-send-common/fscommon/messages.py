@@ -25,6 +25,9 @@ Attributes:
     ``failure_message``.
   resolver: The domain-scoped resolver, carrying this plane's prefix, access-denied clause and
     fallback.
+  _AFTER_TRANSFER_BEGAN: The reason a whole-request failure is reported under once the copy has
+    begun, for the reasons whose own body asks for a retry as though nothing had arrived. Some
+    recipients may already hold part of it by then, and a resend is refused for each of them.
 """
 
 from cpcommon import messages as _cpmessages
@@ -90,6 +93,15 @@ _BODIES = {
         "the copy ran but its results could not be read, so we can't confirm what arrived. "
         "Please check before sending again."
     ),
+    "transfer_interrupted": (
+        "something went wrong part-way through, so some recipients may have received part of it. "
+        "Please check before sending again."
+    ),
+}
+
+_AFTER_TRANSFER_BEGAN = {
+    _cpmessages.UNEXPECTED_ERROR: "transfer_interrupted",
+    _cpmessages.MALFORMED_EVENT: "transfer_interrupted",
 }
 
 
@@ -210,6 +222,21 @@ def space_owner_message(sender: str, space: str, item_names, object_count: int) 
         f'{sender} sent {_things_phrase(item_names, object_count)} to your space "{space}". '
         f"You'll find them in {inbox_label(sender)}."
     )
+
+
+def after_transfer_began(reason: str) -> str:
+    """Returns the reason a failure is told under when it ended a send whose copy had begun.
+
+    Args:
+      reason: The stable reason code the failure carries.
+
+    Returns:
+      The reason to word the notice from; one with no retry advice passes through unchanged.
+
+    Raises:
+      None.
+    """
+    return _AFTER_TRANSFER_BEGAN.get(reason, reason)
 
 
 def failure_message(

@@ -19,6 +19,7 @@ os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
 os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 
+import asl_failure_path
 import fo_notify_failure as n
 from token_shapes import JWT_SHAPED
 
@@ -188,3 +189,166 @@ def test_every_door_names_the_request_id_the_browser_is_waiting_on(event):
     n.handler(event, None)
 
     assert sent == [{"requestId": "req-1"}]
+
+
+# ── A fault after the copy began ─────────────────────────────────────────────
+
+
+def _running(operation="copy", target_name=None, prefix="alice/out/", stage=None):
+    """The running request object and the execution input a fault on the failure path carries.
+
+    Args:
+      operation: The request's operation.
+      target_name: The one item's new name, for a rename-shaped request.
+      prefix: The destination folder.
+      stage: The mark ``BeginTransfer``/``BeginDeletion`` leave on a run that reached them.
+
+    Returns:
+      ``(state, execution_input)``: the request as validate-authorize shaped it, and the Pipe's
+      batch carrying the request as the browser sent it.
+    """
+    item = {"kind": "file", "key": "alice/in/a.csv"}
+    if target_name:
+        item["targetName"] = target_name
+    space = {"kind": "personal", "name": "alice"}
+    state = {
+        "traceparent": None,
+        "requestId": "req-1",
+        "actor": {"username": "alice"},
+        "operation": operation,
+        "source": {**space, "bucket": "user-bkt", "root": "alice/", "items": [item]},
+        "destination": {**space, "bucket": "user-bkt", "root": "alice/", "prefix": prefix},
+    }
+    if stage:
+        state["stage"] = stage
+    body = json.loads(_raw()[0]["body"])
+    body.update(
+        operation=operation,
+        source={"space": space, "items": [item]},
+        destination={"space": space, "prefix": prefix},
+    )
+    return state, [{"body": json.dumps(body)}]
+
+
+def _fault_in(state_name, operation="copy", target_name=None, prefix="alice/out/", stage=None):
+    """What this notifier receives when ``state_name`` fails with a fault no verb classified.
+
+    Args:
+      state_name: The state whose Catch fires.
+      operation: The request's operation.
+      target_name: The one item's new name, for a rename-shaped request.
+      prefix: The destination folder.
+      stage: The mark the run carries, as the machine left it on the way to that state.
+
+    Returns:
+      The notifier's input, walked through the plane's own failure path.
+    """
+    state, execution_input = _running(operation, target_name, prefix, stage)
+    return asl_failure_path.notify_failure_input(
+        "file-ops", state_name, state, {"Error": "RuntimeError", "Cause": "boom"}, execution_input
+    )
+
+
+@pytest.mark.parametrize(
+    "state_name", ["TransferObjects", "CollectTransferResults", "DeleteSource", "FinaliseOutcomes"]
+)
+def test_a_fault_after_the_copy_began_says_some_of_it_may_have_happened(state_name):
+    """The machine's mark reaches this notifier, and the notice stops promising a clean retry.
+
+    A retry after a partial copy collides with what landed, so the notice must say to look first.
+    """
+    sent = _capture()
+
+    n.handler(_fault_in(state_name, stage="transfer"), None)
+
+    assert sent == [
+        (
+            "alice",
+            (
+                "Couldn't copy that: something went wrong part-way through, so some of it may "
+                "have happened and some may not. Please look at the folder before trying again."
+            ),
+        )
+    ]
+
+
+@pytest.mark.parametrize("state_name", ["InspectSource", "CollectTransferResults"])
+def test_a_fault_in_a_run_that_changed_nothing_keeps_todays_sentence(state_name):
+    """Before the copy, and in a run with nothing to copy, which reaches CollectTransferResults
+    without passing BeginTransfer — every item refused, say. Nothing happened, so nothing is said
+    to have."""
+    sent = _capture()
+
+    n.handler(_fault_in(state_name), None)
+
+    assert sent == [("alice", "Couldn't copy that: something went wrong.")]
+
+
+def test_the_verb_and_this_notifier_send_one_body_for_one_fault_after_the_copy():
+    """Both doors notify an unexpected in-verb fault; after the copy began they compose the same
+    body, so the notifications queue's content dedup can collapse the pair into one."""
+    seen = []
+    n.notify.emit_notification = lambda user, message, **kw: seen.append((user, message, kw))
+    state, _ = _running(stage="transfer")
+
+    @n.notify.notifies_on_failure("collect-transfer-results")
+    def faulting(event, context):
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        faulting(state, None)
+    n.handler(_fault_in("CollectTransferResults", stage="transfer"), None)
+
+    assert len(seen) == 2
+    (verb_user, verb_message, verb_kw), (door_user, door_message, door_kw) = seen
+    assert (verb_user, verb_message, verb_kw.get("payload")) == (
+        door_user,
+        door_message,
+        door_kw.get("payload"),
+    )
+    assert "may have happened" in verb_message
+    assert verb_kw.get("link") is None and door_kw.get("link") is None
+
+
+def test_a_superseded_plan_after_the_copy_does_not_say_nothing_was_changed():
+    sent = []
+    n.notify.emit_notification = lambda user, message, **kw: sent.append(message)
+    before, _ = _running(operation="move")
+    after, _ = _running(operation="move", stage="transfer")
+
+    @n.notify.notifies_on_failure("delete-source")
+    def superseded(event, context):
+        raise n.TerminalError("plan_superseded", "another run's plan")
+
+    for state in (before, after):
+        with pytest.raises(n.TerminalError):
+            superseded(state, None)
+
+    assert sent == [
+        (
+            "Couldn't move that: another request for that space was already in flight. Nothing "
+            "was changed. Please try again."
+        ),
+        (
+            "Couldn't move that: another request for that space got in the way part-way through, so "
+            "some of it may have happened and some may not. Please look at the folder before trying "
+            "again."
+        ),
+    ]
+
+
+# ── A rename is told as a rename ─────────────────────────────────────────────
+
+
+def test_a_failed_rename_is_told_as_a_rename_and_a_move_with_a_new_name_elsewhere_is_not():
+    """A rename is a move of one item with a new name into the folder it already sits in; a
+    hand-built move that also renames into ANOTHER folder did move something."""
+    sent = _capture()
+
+    n.handler(_fault_in("InspectSource", "move", target_name="b.csv", prefix="alice/in/"), None)
+    n.handler(_fault_in("InspectSource", "move", target_name="b.csv", prefix="alice/out/"), None)
+
+    assert [message for _, message in sent] == [
+        "Couldn't rename that: something went wrong.",
+        "Couldn't move that: something went wrong.",
+    ]

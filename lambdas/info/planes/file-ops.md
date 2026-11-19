@@ -42,7 +42,16 @@ FinaliseOutcomes → ReleaseLock → NotifyOutcomes`
 `ReleaseLockOnGiveUp` and `ReleaseLockOnFailure` are the other two arms — every terminal path
 releases; there are three release states because one ASL state has one `Next`. The failure path is
 `ValidateFailureSeed`/`RequestFailureSeed`/`GiveUpFailureSeed → RecordFailure → NotifyFailure →
-Failed`.
+Failed`. `BeginTransfer` and `BeginDeletion` mark `$.stage` on the only edges into the copy and the
+deletion, and the Catches from `TransferObjects` on test it in `ChangesMayHaveBegun` and, when it
+is set, copy it into the caught error through `MarkTransferBegun`, so the notice says some of it
+may have happened; the verbs read the same mark off their event to word their own notice the same
+way (`docs/decisions/control-planes/`, *A failure after the copy began says so*).
+
+**A rename is a `move` on the wire and a rename in every sentence.** `focommon.notify.gesture_of`
+calls a move a rename when its one item carries a `targetName` and lands in the folder and space it
+already sits in, and the wording — prefix, success verb, the collision's advice — follows it. The
+payload keeps the real operation, because a re-submit needs `move`.
 
 **Every Task taken under the lock carries a `Catch`.** A Task without one has no edge to any
 terminal, so the graph walk that proves no path reaches a terminal *holding* the lock stays green

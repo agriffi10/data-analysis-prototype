@@ -1,5 +1,5 @@
 import {fileParent, folderParts, leafName} from './fileBrowser.paths';
-import type {FileOpItem, FileOpKind, FileOpRequest, FileOpSpace} from './fileOps.types';
+import type {FileOpItem, FileOpKind, FileOpRequest, FileOpSpace, FileOpVerb} from './fileOps.types';
 import type {SelectableItem} from './selectionContext';
 import type {NotificationPayload} from '../notifications';
 
@@ -24,6 +24,38 @@ export type FileOpGesture = {
   /** Defaults to `refuse`. `overwrite` is reachable only from the conflict round trip. */
   onConflict?: 'refuse' | 'overwrite';
 };
+
+/**
+ * What the toast and the in-progress row call this request.
+ *
+ * A rename and a same-folder copy are both `targetName` shapes of an ordinary verb, and the user
+ * did not press a button called "move" — saying so would be the second most confusing thing this
+ * surface could do, after claiming the work is finished. Read from the BUILT request rather than
+ * from whatever produced it, because a conflict's re-submit carries the item's `targetName` on
+ * from the first request whether or not the user typed a new one: an Overwrite on a rename is
+ * still a rename, and a new name on a same-folder copy is still a copy.
+ *
+ * **A rename is a move of ONE item with a new name, into the folder and space it already sits
+ * in** — the plane's notification asks the same four questions, so the two never disagree about
+ * what the user did. A move that also renames into another folder did move something.
+ *
+ * @param request - The request about to be sent.
+ * @returns The verb, capitalised for the head of a sentence.
+ */
+export function requestVerb(request: FileOpRequest): FileOpVerb {
+  if (request.operation === 'delete') return 'Delete';
+  if (request.operation === 'copy') return 'Copy';
+  const [only, ...others] = request.source.items;
+  const {space, prefix} = request.destination;
+  const parent = only?.key?.replace(/\/$/, '').replace(/[^/]*$/, '');
+  const renames =
+    others.length === 0 &&
+    !!only?.targetName &&
+    space.kind === request.source.space.kind &&
+    space.name === request.source.space.name &&
+    parent === prefix.replace(/\/?$/, '/');
+  return renames ? 'Rename' : 'Move';
+}
 
 /** The item's own display name — the leaf, whichever kind it is. */
 export function itemLabel(item: SelectableItem): string {
