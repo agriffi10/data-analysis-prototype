@@ -6,7 +6,7 @@ wording. Kept ASCII — no smart quotes.
 This module is the table and its wording; the resolution itself is ``cpcommon.messages``, which
 also marks these codes valid so they pass ``TerminalError``'s raise-time validation.
 
-**ONE BODY TABLE, THREE PREFIXES.** Copy, move and delete share every reason — a protected folder
+**ONE BODY TABLE, FOUR PREFIXES.** Copy, move and delete share every reason — a protected folder
 refuses all three, a lock waits for all three — but a user who pressed Delete must not read that a
 copy failed. Three tables would let one reason drift into three sentences; one resolver would word
 a delete refusal as a copy failure. So the bodies are written once, as clauses that complete any of
@@ -15,6 +15,20 @@ the three prefixes, and the caller picks the resolver by operation.
 Writing bodies that complete three different prefixes is a real constraint on the wording, not a
 formatting detail: a clause naming the operation ("...so nothing was copied") reads wrong under two
 of the three prefixes, so the bodies say what is true of the ITEM instead.
+
+**A RENAME IS A MOVE ON THE WIRE AND A FOURTH GESTURE IN THE SENTENCE.** It travels as a ``move``
+whose one item carries a ``targetName`` and lands in the folder it already sits in, and a user who
+pressed Rename must not read that something moved. So it has its own prefix and success verb, and
+the one place it leaves the shared table is the advice that sends the user to "a different
+destination": what a rename needs is a different NAME, and ``_RENAME_BODIES`` overrides just those
+bodies rather than forking the table.
+
+**AND A BODY WRITTEN FOR BEFORE THE COPY IS NOT SENT AFTER IT.** ``plan_superseded`` says nothing
+was changed, the generic fault says try again, and delete-source's ``forbidden`` reads as having no
+access; all are raised by verbs that run after the copy began, where some of it may have happened
+and a retry meets what landed. Those verbs report through
+``_AFTER_TRANSFER_BEGAN``, which re-words them the way ``operation_timed_out`` already words the one
+failure that always arrives part-way.
 
 **AND A BODY MAY NOT ASSERT THAT A COPY HAPPENED.** The two reasons a source survives —
 ``source_changed`` and ``source_delete_failed`` — arise on a ``move``, where the data now exists
@@ -74,6 +88,11 @@ Attributes:
   copy_resolver: The domain resolver under copy wording.
   move_resolver: The same table under move wording.
   delete_resolver: The same table under delete wording.
+  _RENAME_BODIES: The bodies a rename words differently, because their advice is "a different
+    destination", or none, where what a rename needs is a different name.
+  rename_resolver: The table under rename wording, with ``_RENAME_BODIES`` laid over it.
+  _AFTER_TRANSFER_BEGAN: The reason a whole-request failure is reported under once the copy has
+    begun, for the reasons whose own body was written for a run that had changed nothing yet.
   _OUTCOME_CLAUSES: The per-item clause for the outcomes whose reason code has no body — the
     three terminal successes and the no-op. Everything else resolves through the table above.
   _TURN_OVERWRITE_ON: The advice a ``refuse`` collision earns, written once because both of that
@@ -84,7 +103,7 @@ Attributes:
   _OUTCOME_ADDITIONS: The sentence an OUTCOME adds after its body, for the outcomes whose advice
     holds whatever the reason. One is left: a duplicate leaves the data in two places, which a body
     may not assert — see above.
-  _SUCCESS_VERBS: The past-tense verb each operation's summary opens with.
+  _SUCCESS_VERBS: The past-tense verb each gesture's summary opens with.
 """
 
 from cpcommon import messages as _cpmessages
@@ -206,6 +225,14 @@ _BODIES = {
         "another request for that space was already in flight. Nothing was changed. Please try "
         "again."
     ),
+    "plan_superseded_mid_transfer": (
+        "another request for that space got in the way part-way through, so some of it may have "
+        "happened and some may not. Please look at the folder before trying again."
+    ),
+    "transfer_interrupted": (
+        "something went wrong part-way through, so some of it may have happened and some may "
+        "not. Please look at the folder before trying again."
+    ),
     "operation_timed_out": (
         "it took too long and was stopped part-way, so some of it may have happened and some may "
         "not. Please look at the folder before trying again, and give it about "
@@ -268,11 +295,45 @@ delete_resolver = _cpmessages.register(
     blank_unfilled=True,
 )
 
-_RESOLVERS = {"copy": copy_resolver, "move": move_resolver, "delete": delete_resolver}
+_RENAME_BODIES = {
+    "destination_occupied": (
+        "something by that name is already there. Please choose a different name, or move what is "
+        "there first."
+    ),
+    "destination_name_reserved": (
+        "that name belongs to a folder the app manages there. Please choose a different name."
+    ),
+    "destination_name_kept_for_app": (
+        "that name is one the app keeps for its own folders. Please choose a different name."
+    ),
+}
+
+rename_resolver = _cpmessages.register(
+    {**_BODIES, **_RENAME_BODIES},
+    prefix="Couldn't rename that: ",
+    access_denied="You don't have access to rename that.",
+    fallback="something went wrong.",
+    blank_unfilled=True,
+)
+
+_RESOLVERS = {
+    "copy": copy_resolver,
+    "move": move_resolver,
+    "rename": rename_resolver,
+    "delete": delete_resolver,
+}
+
+_AFTER_TRANSFER_BEGAN = {
+    _cpmessages.UNEXPECTED_ERROR: "transfer_interrupted",
+    _cpmessages.MALFORMED_EVENT: "transfer_interrupted",
+    _cpmessages.FORBIDDEN: "transfer_interrupted",
+    "plan_unreadable": "transfer_interrupted",
+    "plan_superseded": "plan_superseded_mid_transfer",
+}
 
 
 def resolver_for(operation: object) -> _cpmessages.Resolver:
-    """Returns the resolver whose wording matches the operation the user asked for.
+    """Returns the resolver whose wording matches the gesture the user asked for.
 
     Falls back to the copy resolver for an unrecognised operation rather than raising. This is
     reached only on a request malformed enough that the operation itself was refused, and the
@@ -280,7 +341,8 @@ def resolver_for(operation: object) -> _cpmessages.Resolver:
     message with no message at all.
 
     Args:
-      operation: The request's operation, which may be anything on a malformed request.
+      operation: The request's gesture — its operation, or ``rename`` for the move that renames
+        in place — which may be anything on a malformed request.
 
     Returns:
       The matching resolver.
@@ -314,6 +376,25 @@ def failure_message(operation: object, reason: str, tokens: dict | None = None) 
     return resolver_for(operation).message(reason, **_markers(), **(tokens or {}))
 
 
+def after_transfer_began(reason: str) -> str:
+    """Returns the reason a failure is told under when it ended a run whose copy had begun.
+
+    A verb running after the copy started can still raise a reason worded for a run that changed
+    nothing — a superseded plan says so outright, and a fault says try again — and a retry then
+    meets what the first attempt left. The reasons with no such claim pass through unchanged.
+
+    Args:
+      reason: The stable reason code the failure carries.
+
+    Returns:
+      The reason to word the notice from.
+
+    Raises:
+      None.
+    """
+    return _AFTER_TRANSFER_BEGAN.get(reason, reason)
+
+
 _OUTCOME_CLAUSES = {
     outcomes.MOVED: "it was moved.",
     outcomes.COPIED: "it was copied.",
@@ -340,7 +421,7 @@ _OUTCOME_ADDITIONS = {
     ),
 }
 
-_SUCCESS_VERBS = {"copy": "Copied", "move": "Moved", "delete": "Deleted"}
+_SUCCESS_VERBS = {"copy": "Copied", "move": "Moved", "rename": "Renamed", "delete": "Deleted"}
 
 
 def item_clause(operation: object, record: dict) -> str:
@@ -396,8 +477,31 @@ def _plural(count: int, thing: str = "item") -> str:
     return f"{count} {thing}" if count == 1 else f"{count} {thing}s"
 
 
+def _renamed_phrase(done: list, new_name: str) -> str:
+    """Renders a finished rename as its old name and its new one.
+
+    The old name is the record's label, which is the item's own name for every outcome a rename
+    can succeed with; the new one is the request's ``targetName``, which no record carries.
+
+    Args:
+      done: The records that reached the rename's success outcome.
+      new_name: The name the item was renamed to.
+
+    Returns:
+      ``"old" to "new"``, or an empty string when there is not exactly one record or either name
+      is missing, so the caller falls back to a count.
+
+    Raises:
+      None.
+    """
+    old = done[0].get("label") if len(done) == 1 else None
+    if not isinstance(old, str) or not old or not isinstance(new_name, str) or not new_name:
+        return ""
+    return f'"{paths.shorten_for_display(old)}" to "{paths.shorten_for_display(new_name)}"'
+
+
 def outcome_summary(
-    operation: object, records: list, folder: str = "", named: int = 3
+    operation: object, records: list, folder: str = "", named: int = 3, renamed_to: str = ""
 ) -> str:
     """Composes THE ONE SENTENCE a finished run produces, whatever mix of outcomes it holds.
 
@@ -417,12 +521,16 @@ def outcome_summary(
     did nothing, which a denial reports as a failure. "N need your attention" is true of every
     member of the residue, which is the only thing they have in common.
 
+    **A RENAME NAMES THE TWO NAMES RATHER THAN THE FOLDER**, because the folder is the one thing
+    that did not change: "Renamed 1 item to "reports"" reads as a move into ``reports``.
+
     Args:
-      operation: The request's operation.
+      operation: The request's gesture — its operation, or ``rename``.
       records: Every item's terminal outcome record.
       folder: The destination folder's own name, as a person would say it; empty for a delete,
         which has none.
       named: How many refused items the sentence names before it says "and N more".
+      renamed_to: A rename's new name, which the finished sentence names beside the old one.
 
     Returns:
       The whole sentence.
@@ -432,14 +540,18 @@ def outcome_summary(
     """
     verb = _SUCCESS_VERBS.get(operation) if isinstance(operation, str) else None
     verb = verb or _SUCCESS_VERBS["copy"]
-    success = outcomes.TERMINAL_SUCCESS.get(operation) if isinstance(operation, str) else None
+    performed = "move" if operation == "rename" else operation
+    success = outcomes.TERMINAL_SUCCESS.get(performed) if isinstance(performed, str) else None
 
     done = [r for r in records if r.get("outcome") == success]
     rest = [r for r in records if r.get("outcome") != success]
     where = f' to "{paths.shorten_for_display(folder)}"' if folder else ""
+    if operation == "rename":
+        where = ""
 
     if not rest:
-        return f"{verb} {_plural(len(done))}{where}."
+        renamed = _renamed_phrase(done, renamed_to) if operation == "rename" else ""
+        return f"{verb} {renamed or _plural(len(done))}{where}."
     needs = "needs" if len(rest) == 1 else "need"
     if not done:
         opening = f"{_plural(len(rest))} {needs} your attention:"

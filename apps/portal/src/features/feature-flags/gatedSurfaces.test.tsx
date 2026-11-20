@@ -291,6 +291,7 @@ function SeedInFlight() {
     add({
       requestId: 'seed-1',
       operation: 'move',
+      verb: 'Move',
       itemCount: 3,
       sourceSpace: {kind: 'personal', name: 'alice'},
       submittedAt: new Date().toISOString(),

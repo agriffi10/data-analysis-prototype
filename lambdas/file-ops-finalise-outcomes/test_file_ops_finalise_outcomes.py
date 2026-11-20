@@ -124,3 +124,13 @@ def test_a_copied_item_whose_SOURCE_SURVIVED_is_a_duplicate(reason):
     assert result["outcomes"][0]["reason"] == reason
 
 
+
+
+def test_the_stage_mark_rides_through_to_the_next_catch():
+    """A later fault is told some of it may have happened only while the run still carries the mark
+    BeginTransfer or BeginDeletion left, so this verb must hand it on."""
+    _install(deletions=[{"itemKey": "alice/a/", "deleted": 3, "failed": 0, "reason": ""}])
+
+    result = m.handler({**_event([_cleared()]), "stage": "transfer"}, None)
+
+    assert result["stage"] == "transfer"

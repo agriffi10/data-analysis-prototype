@@ -16,7 +16,9 @@ os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
 os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 
+import asl_failure_path
 import fs_notify_failure as n
+import pytest
 from token_shapes import JWT_SHAPED
 
 
@@ -129,3 +131,54 @@ def test_a_timed_out_execution_notifies_the_sender():
 
     assert len(sent) == 1
     assert sent[0][0] == "alice"
+
+
+# ── A fault after the copy began ─────────────────────────────────────────────
+
+
+def _fault_in(state_name, stage=None):
+    """What this notifier receives when ``state_name`` fails with a fault no verb classified.
+
+    Args:
+      state_name: The state whose Catch fires.
+      stage: The mark ``BeginTransfer`` leaves on a run that reached it.
+
+    Returns:
+      The notifier's input, walked through the plane's own failure path.
+    """
+    state = {"traceparent": None, "requestId": "req-1", "actor": {"username": "alice"}}
+    if stage:
+        state["stage"] = stage
+    return asl_failure_path.notify_failure_input(
+        "file-send", state_name, state, {"Error": "RuntimeError", "Cause": "boom"}, _raw()
+    )
+
+
+@pytest.mark.parametrize("state_name", ["TransferObjects", "CollectTransferResults"])
+def test_a_fault_after_the_copy_began_says_some_recipients_may_have_part_of_it(state_name):
+    """The machine's marker reaches this notifier, so the notice stops reading as though nothing
+    arrived: a blind resend is refused for every recipient who already holds part of it."""
+    sent = _capture()
+
+    n.handler(_fault_in(state_name, stage="transfer"), None)
+
+    assert sent == [
+        (
+            "alice",
+            (
+                "Couldn't send: something went wrong part-way through, so some recipients may have "
+                "received part of it. Please check before sending again."
+            ),
+        )
+    ]
+
+
+@pytest.mark.parametrize("state_name", ["InspectSource", "CollectTransferResults"])
+def test_a_fault_in_a_send_that_copied_nothing_keeps_todays_sentence(state_name):
+    """Before the copy, and in a send whose every recipient was refused, which reaches
+    CollectTransferResults without passing BeginTransfer: nobody received anything."""
+    sent = _capture()
+
+    n.handler(_fault_in(state_name), None)
+
+    assert sent == [("alice", "Couldn't send: something went wrong.")]

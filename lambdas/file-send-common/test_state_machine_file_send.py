@@ -524,3 +524,25 @@ def test_the_failure_terminal_reads_only_seeded_keys(state):
     }
 
     assert _read_paths(states[state]["Parameters"]) <= seeded
+
+
+def test_the_copy_is_entered_only_through_the_pass_that_marks_the_run():
+    """A fault's notice says some recipients may have part of it only when the run carries the
+    stage mark, so an edge into the copy that skipped BeginTransfer would word a part-delivered
+    fault as though nothing had arrived."""
+    states = json.loads(re.sub(r"\$\{[^}]+\}", "1", _ASL.read_text()))["States"]
+    callers = {
+        name
+        for name, state in states.items()
+        if "TransferObjects"
+        in {
+            state.get("Next"),
+            state.get("Default"),
+            *(c.get("Next") for c in state.get("Choices", [])),
+            *(c.get("Next") for c in state.get("Catch", [])),
+        }
+    }
+
+    assert callers == {"BeginTransfer"}
+    begin = states["BeginTransfer"]
+    assert (begin["Result"], begin["ResultPath"]) == ("transfer", "$.stage")

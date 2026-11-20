@@ -208,3 +208,13 @@ def test_the_subset_guard_runs_once_per_item_IMMEDIATELY_BEFORE_its_keys_reach_S
         ("guard", ["alice/b/"]),
         ("delete", ["alice/b/1"]),
     ]
+
+
+def test_the_stage_mark_rides_through_to_the_next_catch():
+    """A later fault is told some of it may have happened only while the run still carries the mark
+    BeginDeletion left, so this verb must hand it on."""
+    _install([_item("alice/a/", "a", ["alice/a/1"])], ["alice/a/"])
+
+    result = m.handler({**_event(), "stage": "transfer"}, None)
+
+    assert result["stage"] == "transfer"

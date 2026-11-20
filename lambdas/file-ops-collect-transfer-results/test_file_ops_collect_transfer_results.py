@@ -213,3 +213,38 @@ def test_a_MOVE_with_no_export_RAISES_rather_than_marking_everything_deletable()
     assert caught.value.reason == "transfer_results_unreadable"
 
 
+
+
+# ── A fault here arrives after the copy ──────────────────────────────────────
+
+
+def test_a_fault_after_the_copy_is_told_some_of_it_may_have_happened(monkeypatch):
+    """After the copy a retry would collide with what landed, so the notice says to look first; a
+    run the machine never marked — nothing to copy — keeps the generic sentence."""
+    sent = []
+    monkeypatch.setattr(notify, "emit_notification", lambda user, message, **kw: sent.append(message))
+    monkeypatch.setattr(m.plan, "load", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")))
+    items = [_item("alice/a/", "a", 3)]
+
+    for stage in ({"stage": "transfer"}, {}):
+        with pytest.raises(RuntimeError):
+            m.handler({**_event(items, transfer=_transfer(items)), **stage}, None)
+
+    assert sent == [
+        (
+            "Couldn't move that: something went wrong part-way through, so some of it may have "
+            "happened and some may not. Please look at the folder before trying again."
+        ),
+        "Couldn't move that: something went wrong. Please try again.",
+    ]
+
+
+def test_the_stage_mark_rides_through_to_the_next_catch():
+    """A later fault is told some of it may have happened only while the run still carries the mark
+    BeginTransfer left, so this verb must hand it on."""
+    items = [_item("alice/a/", "a", 3)]
+    _install(_plan(items), _export([{"Output": json.dumps({"copied": 3, "failures": []})}]))
+
+    result = m.handler({**_event(items, transfer=_transfer(items)), "stage": "transfer"}, None)
+
+    assert result["stage"] == "transfer"

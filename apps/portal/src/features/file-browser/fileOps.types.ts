@@ -115,6 +115,9 @@ export type FileOpItemResult = {
   more?: boolean;
 };
 
+/** A gesture's verb as the user pressed it, which the wire's `operation` cannot always say. */
+export type FileOpVerb = 'Copy' | 'Move' | 'Rename' | 'Delete';
+
 /**
  * One operation this session handed to the plane. Session-scoped and NOT persisted.
  *
@@ -129,6 +132,8 @@ export type FileOpItemResult = {
 export type InFlightOperation = {
   requestId: string;
   operation: FileOpKind;
+  /** What the user pressed. A rename travels as a `move`, and the row must not call it one. */
+  verb: FileOpVerb;
   itemCount: number;
   /** The one item's name when there is one, for a surface that would rather not say "1 item". */
   label?: string;

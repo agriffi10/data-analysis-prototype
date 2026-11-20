@@ -10,6 +10,10 @@ Attributes:
   _SFN_ERROR: The key a Step Functions Catch parks the error NAME under. The only part
     guaranteed to be present — see ``failure_reason``.
   _SFN_CAUSE: The key it parks an optional Cause under.
+  STAGE_KEY: The key a plane's ``BeginTransfer``/``BeginDeletion`` states write on the running
+    state, and its ``MarkTransferBegun`` copies INTO a caught error, so a failure after the run
+    started changing anything can be told apart from one before it.
+  TRANSFER_STAGE: The value written there.
   _TRANSIENT_CODES: The retryable AWS fault codes, fleet-wide. A code not in here is
     deterministic — AccessDenied, NoSuchKey, a 403 or 404 — and retrying it just burns the
     state machine's attempts on something that cannot resolve.
@@ -21,6 +25,10 @@ from . import messages
 
 _SFN_ERROR = "Error"
 _SFN_CAUSE = "Cause"
+
+STAGE_KEY = "stage"
+
+TRANSFER_STAGE = "transfer"
 
 
 MAX_DETAIL_CHARS = 500
@@ -110,6 +118,29 @@ def failure_reason(error) -> str:
     if not isinstance(message, str) or not message:
         return name
     return message.split(":", 1)[0].strip() or name
+
+
+def transfer_began(record) -> bool:
+    """Reports whether a state machine marked this run as past the point it started changing things.
+
+    Two records carry the mark, and both are read here so the two notices one fault produces
+    agree: a verb's own event, where ``BeginTransfer``/``BeginDeletion`` wrote it on the way in,
+    and the caught error the failure notifier receives, where ``MarkTransferBegun`` copied it. It
+    rides inside that error because every failure seed carries the error whole, while a key
+    beside it would be one the other paths into the seed lack — and a Pass reading an absent path
+    raises an uncatchable States.Runtime.
+
+    Args:
+      record: A verb's event, or whatever the Step Function parked under ``$.error``; any shape
+        is tolerated.
+
+    Returns:
+      True when the record carries ``STAGE_KEY`` set to ``TRANSFER_STAGE``.
+
+    Raises:
+      None.
+    """
+    return isinstance(record, dict) and record.get(STAGE_KEY) == TRANSFER_STAGE
 
 
 class TerminalError(Exception):

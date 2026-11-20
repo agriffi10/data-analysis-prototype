@@ -7,7 +7,7 @@ import type {InFlightOperation} from './fileOps.types';
 /** What this run is doing, in the words the user's own gesture used. */
 function describe(operation: InFlightOperation): string {
   const what = operation.label ?? `${operation.itemCount} ${operation.itemCount === 1 ? 'item' : 'items'}`;
-  const verb = {copy: 'Copying', move: 'Moving', delete: 'Deleting'}[operation.operation];
+  const verb = {Copy: 'Copying', Move: 'Moving', Rename: 'Renaming', Delete: 'Deleting'}[operation.verb];
   return `${verb} ${what}`;
 }
 

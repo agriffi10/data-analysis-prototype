@@ -41,7 +41,7 @@ import re
 
 from cpcommon import registry as reg
 from cpcommon.budget import Budget
-from cpcommon.errors import TerminalError
+from cpcommon.errors import TerminalError, transfer_began
 from cpcommon.notify import (
     SEND_DEADLINE_SECONDS,
     actor_of,
@@ -53,6 +53,7 @@ from cpcommon.notify import (
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
 
 from .messages import (
+    after_transfer_began,
     failure_message,
     recipient_message,
     space_owner_message,
@@ -149,9 +150,10 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
     Raises:
       None.
     """
+    reason = after_transfer_began(err.reason) if transfer_began(event) else err.reason
     emit_notification(
         actor_of(event),
-        failure_message(err.reason, tokens=err.tokens),
+        failure_message(reason, tokens=err.tokens),
         payload=request_payload(event),
     )
 
@@ -159,7 +161,10 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
 def emit_unexpected(event, step: str) -> None:
     """Emits the sender-addressed failure notification for an unexpected verb exception.
 
-    Uses the generic unexpected-error reason so no internals leak.
+    Uses the generic unexpected-error reason so no internals leak, or, once the state machine
+    marked the copy as begun, the reason that says some recipients may have part of it. That
+    second sentence is the one notify-failure composes for the same fault from the same mark, so
+    the two notices one fault produces carry the same body.
 
     Args:
       event: The verb's event.
@@ -171,8 +176,11 @@ def emit_unexpected(event, step: str) -> None:
     Raises:
       None.
     """
+    reason = "unexpected_error"
     emit_notification(
-        actor_of(event), failure_message("unexpected_error"), payload=request_payload(event)
+        actor_of(event),
+        failure_message(after_transfer_began(reason) if transfer_began(event) else reason),
+        payload=request_payload(event),
     )
 
 

@@ -371,6 +371,7 @@ def test_the_output_supplies_every_path_the_MACHINE_reads_of_it():
         "guardPass": "SeedFirstGuardPass / SeedSecondGuardPass",
         "transfer": "BuildTransferManifest",
         "deletableCount": "CollectTransferResults",
+        "stage": "BeginTransfer / BeginDeletion, read only through IsPresent",
     }
     produced = set(_run().keys()) | set(created_later)
 

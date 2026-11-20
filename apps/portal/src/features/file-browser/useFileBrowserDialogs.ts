@@ -3,9 +3,11 @@ import {useToast} from '../../components/toastContext';
 import {useSelection, type SelectableItem} from './selectionContext';
 import {useAsyncFileOperations} from './useAsyncFileOperations';
 import {requiresControlPlane} from './fileOpRouting';
+import {lastSegment} from './fileBrowser.paths';
 import {
   buildResubmitRequest,
   containingFolder,
+  requestVerb,
   toFileOpItems,
   type FileOpDestination,
   type FileOpGesture
@@ -486,9 +488,10 @@ export function useFileBrowserDialogs({
       }
       return (
         (await submit.submitRequest(request, {
-          verb: choice.targetName ? 'Rename' : request.operation === 'move' ? 'Move' : 'Copy',
+          verb: requestVerb(request),
           itemCount: request.source.items.length,
-          label: request.source.items.length === 1 ? choice.targetName : undefined,
+          // The item's own name, as the first submit labelled it — not the name it is going to.
+          label: request.source.items.length === 1 ? lastSegment(request.source.items[0].key ?? '') : undefined,
           destinationSpace: request.destination.space
         })) === 'sent'
       );

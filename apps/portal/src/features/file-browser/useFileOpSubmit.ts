@@ -2,25 +2,9 @@ import {useRef, useState} from 'react';
 import {useToast} from '../../components/toastContext';
 import {toUserText} from '../../lib/errorMessages';
 import {submitFileOperation} from './fileOps.service';
-import {buildFileOpRequest, itemLabel, type FileOpGesture} from './fileOps.request';
+import {buildFileOpRequest, itemLabel, requestVerb, type FileOpGesture} from './fileOps.request';
 import {useFileOpsInFlight} from './fileOpsInFlightContext';
-import type {FileOpRequest, FileOpSpace} from './fileOps.types';
-
-/**
- * What the toast calls this gesture.
- *
- * A rename and a same-folder copy are both `targetName` shapes of an ordinary verb, and the user
- * did not press a button called "move" — saying so would be the second most confusing thing this
- * surface could do, after claiming the work is finished.
- *
- * @param gesture - The gesture.
- * @returns The verb, capitalised for the head of a sentence.
- */
-function requestVerb(gesture: FileOpGesture): string {
-  if (gesture.operation === 'delete') return 'Delete';
-  if (gesture.targetName) return gesture.operation === 'move' ? 'Rename' : 'Copy';
-  return gesture.operation === 'move' ? 'Move' : 'Copy';
-}
+import type {FileOpRequest, FileOpSpace, FileOpVerb} from './fileOps.types';
 
 /**
  * What an enqueue attempt did.
@@ -39,7 +23,7 @@ export type UseFileOpSubmitResult = {
   /** Enqueues a pre-built envelope (the conflict re-submit's door). Reports whether it worked. */
   submitRequest: (
     request: FileOpRequest,
-    describe: {verb: string; itemCount: number; label?: string; destinationSpace?: FileOpSpace}
+    describe: {verb: FileOpVerb; itemCount: number; label?: string; destinationSpace?: FileOpSpace}
   ) => Promise<SubmitOutcome>;
   /** Builds and enqueues one gesture. Reports what it did. */
   submitGesture: (gesture: FileOpGesture, source: FileOpSpace) => Promise<SubmitOutcome>;
@@ -77,7 +61,7 @@ export function useFileOpSubmit(): UseFileOpSubmitResult {
 
   async function send(
     request: FileOpRequest,
-    describe: {verb: string; itemCount: number; label?: string; destinationSpace?: FileOpSpace}
+    describe: {verb: FileOpVerb; itemCount: number; label?: string; destinationSpace?: FileOpSpace}
   ): Promise<SubmitOutcome> {
     if (submitting.current) return 'busy';
     submitting.current = true;
@@ -91,6 +75,7 @@ export function useFileOpSubmit(): UseFileOpSubmitResult {
       inFlight.add({
         requestId: request.requestId,
         operation: request.operation,
+        verb: describe.verb,
         itemCount: describe.itemCount,
         label: describe.label,
         sourceSpace: request.source.space,
@@ -146,7 +131,7 @@ export function useFileOpSubmit(): UseFileOpSubmitResult {
         return 'refused';
       }
       return send(request, {
-        verb: requestVerb(gesture),
+        verb: requestVerb(request),
         itemCount: gesture.items.length,
         label: gesture.items.length === 1 ? itemLabel(gesture.items[0]) : undefined,
         destinationSpace

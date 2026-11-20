@@ -134,3 +134,57 @@ def test_an_export_short_of_the_manifests_items_fails_the_whole_request():
         m.handler(_event([_cleared("user", "bob")], item_count=2), None)
 
     assert caught.value.reason == "transfer_results_unreadable"
+
+
+def test_a_fault_after_the_copy_is_told_some_recipients_may_have_part_of_it(monkeypatch):
+    """After the copy a resend is refused for every recipient who already holds part of it, so the
+    notice says to check first; a send the machine never marked keeps the generic sentence."""
+    sent = _setup(_export(_succeeded(2)))
+    monkeypatch.setattr(
+        m.results_mod, "read_failed_items", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom"))
+    )
+
+    for stage in ({"stage": "transfer"}, {}):
+        with pytest.raises(RuntimeError):
+            m.handler({**_event([_cleared("user", "bob")]), **stage}, None)
+
+    assert [message for _, message in sent] == [
+        (
+            "Couldn't send: something went wrong part-way through, so some recipients may have "
+            "received part of it. Please check before sending again."
+        ),
+        "Couldn't send: something went wrong. Please try again.",
+    ]
+
+
+def test_the_stage_mark_rides_through_to_the_next_catch():
+    """A later fault is told some recipients may have part of it only while the run still carries
+    the mark BeginTransfer left, so this verb must hand it on."""
+    _setup(_export(_succeeded(2)))
+
+    result = m.handler({**_event([_cleared("user", "bob")]), "stage": "transfer"}, None)
+
+    assert result["stage"] == "transfer"
+
+
+def test_a_malformed_event_after_the_copy_is_not_told_to_try_again(monkeypatch):
+    """The verb's own refusal is re-worded once the run is marked: a resend would be refused for
+    every recipient who already holds part of it."""
+    sent = _setup(_export(_succeeded(2)))
+    monkeypatch.setattr(
+        m.results_mod,
+        "read_failed_items",
+        lambda *a, **kw: (_ for _ in ()).throw(TerminalError("malformed_event", "bad export")),
+    )
+
+    for stage in ({"stage": "transfer"}, {}):
+        with pytest.raises(TerminalError):
+            m.handler({**_event([_cleared("user", "bob")]), **stage}, None)
+
+    assert [message for _, message in sent] == [
+        (
+            "Couldn't send: something went wrong part-way through, so some recipients may have "
+            "received part of it. Please check before sending again."
+        ),
+        "Couldn't send: the request was malformed. Please try again.",
+    ]

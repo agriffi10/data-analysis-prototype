@@ -504,6 +504,8 @@ def _validate_and_authorize(event) -> dict:
             "requestId": req.get("requestId"),
             "actor": {"username": actor},
             "operation": req.get("operation"),
+            "source": req.get("source"),
+            "destination": req.get("destination"),
         }
         notify.emit_failure(notified, err, "validate")
         raise
