@@ -1,7 +1,7 @@
-import {memo, useState} from 'react';
+import {Component, forwardRef, memo, useReducer, useState} from 'react';
 import {act, render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {expect, it} from 'vitest';
+import {expect, it, vi} from 'vitest';
 import {createRenderCounter} from './renderCounter';
 
 function Label({text}: {text: string}) {
@@ -70,6 +70,86 @@ it('reports nothing for a state set to the value it already holds', async () => 
   await user.click(screen.getByRole('button', {name: 'set the same'}));
 
   expect(counter.read()).toMatchObject({commits: 0, rendered: {}, reconciled: 0});
+});
+
+it('reports a commit and no render for a reducer that returns the state it was given', () => {
+  function Unmoved() {
+    const [state, dispatch] = useReducer((held: {n: number}) => held, {n: 0});
+    return <button onClick={() => dispatch()}>unmoved {state.n}</button>;
+  }
+  const counter = createRenderCounter();
+  render(
+    <counter.Probe>
+      <Unmoved />
+    </counter.Probe>
+  );
+  counter.reset();
+
+  act(() => screen.getByRole('button', {name: 'unmoved 0'}).click());
+
+  // React runs the function, finds nothing changed and still commits: a budget of "no commit"
+  // is not met by a reducer returning its state, only by not dispatching.
+  const tally = counter.read();
+  expect(tally.commits).toBe(1);
+  expect(tally.count('Unmoved')).toBe(0);
+});
+
+it('counts memoised, ref-forwarding and class components under the names DevTools shows', () => {
+  const Plain = memo(function PlainImpl({n}: {n: number}) {
+    return <i>{n}</i>;
+  });
+  const Titled = memo(function TitledImpl({n}: {n: number}) {
+    return <b>{n}</b>;
+  });
+  Titled.displayName = 'Titled';
+  const Forwarded = forwardRef<HTMLElement, {n: number}>(function Forwarded({n}, ref) {
+    return <em ref={ref}>{n}</em>;
+  });
+  class Classy extends Component<{n: number}> {
+    render() {
+      return <u>{this.props.n}</u>;
+    }
+  }
+  function Host() {
+    const [n, setN] = useState(0);
+    return (
+      <>
+        <button onClick={() => setN((v) => v + 1)}>bump</button>
+        <Plain n={n} />
+        <Titled n={n} />
+        <Forwarded n={n} />
+        <Classy n={n} />
+      </>
+    );
+  }
+  const counter = createRenderCounter();
+  render(
+    <counter.Probe>
+      <Host />
+    </counter.Probe>
+  );
+  counter.reset();
+
+  act(() => screen.getByRole('button', {name: 'bump'}).click());
+
+  expect(counter.read().rendered).toEqual({Host: 1, PlainImpl: 1, Titled: 1, Forwarded: 1, Classy: 1});
+});
+
+it('refuses a name no component has had, and a second probe on one counter', () => {
+  const counter = measured(true);
+
+  expect(() => counter.read().count('Lisst')).toThrow('No component named "Lisst" has been under the probe');
+  expect(counter.read().count('Label')).toBe(0);
+
+  const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+  expect(() =>
+    render(
+      <counter.Probe>
+        <List memoised />
+      </counter.Probe>
+    )
+  ).toThrow('A render counter takes one Probe');
+  quiet.mockRestore();
 });
 
 it('counts one commit for updates in one task and one each for updates in separate tasks', () => {
