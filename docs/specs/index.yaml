@@ -1813,6 +1813,13 @@ specs:
     spec_status: "Completed"
     depends_on: ["SPEC-257"]
     path: "docs/specs/SPEC-270-the-session-tables-key-names-who-may-use-it.md"
+  - id: "SPEC-271"
+    title: "An Upload Re-renders Its Own Row and Nothing Else"
+    description: "Narrows what an upload's progress costs the browser: the Files page no longer renders on a progress event, progress is coalesced and a repeat commits nothing, one row of the uploads list renders per tick, and a batch of files refreshes its folder at most once every two seconds; a render counter for tests lands with it."
+    spec_status: "Draft"
+    depends_on: []
+    arc: "render-scope"
+    path: "docs/specs/SPEC-271-an-upload-re-renders-its-own-row-and-nothing-else.md"
 arcs:
   - name: "analytics"
     order: ["SPEC-032", "SPEC-033", "SPEC-034", "SPEC-035", "SPEC-036"]
@@ -1870,6 +1877,8 @@ arcs:
     order: ["SPEC-077", "SPEC-078", "SPEC-079", "SPEC-080", "SPEC-081"]
   - name: "refresh-table"
     order: ["SPEC-143", "SPEC-144", "SPEC-149", "SPEC-145"]
+  - name: "render-scope"
+    order: ["SPEC-271"]
   - name: "responsive-and-files-ux"
     order: ["SPEC-095", "SPEC-096", "SPEC-097", "SPEC-098", "SPEC-099", "SPEC-100", "SPEC-101", "SPEC-102", "SPEC-103", "SPEC-104"]
   - name: "results-conversion"

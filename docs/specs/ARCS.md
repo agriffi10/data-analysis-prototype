@@ -50,6 +50,7 @@ always leaves an arc entry here holding the pair's build order, even when nothin
 - [Infra building-blocks arc (SPEC-252 → 253, 254)](#infra-building-blocks-arc-spec-252--253-254)
 - [Next.js arc (SPEC-255 → 263)](#nextjs-arc-spec-255--263)
 - [Carrier arc (SPEC-266 → 267 — cancelled)](#carrier-arc-spec-266--267--cancelled)
+- [Render-scope arc (SPEC-271 → 272 → 273)](#render-scope-arc-spec-271--272--273)
 
 ---
 
@@ -3740,3 +3741,42 @@ first:
   policy);
 - the end-to-end request, which gates the first route that declares the plane.
 
+## Render-scope arc (SPEC-271 → 272 → 273)
+
+**The request (Andrew, 2026-11-27).** A review of the portal after its move to Next.js found the
+conventions and the correctness sound and the performance not, in one recurring shape: no component
+under `apps/portal/src` was memoised, so wherever state that changes many times a second sat at the
+top of a large tree, the whole tree rendered each time. The first batch of that review's findings
+merged as #1050. This arc is the second: what a gesture re-renders, on the three surfaces where the
+review found it.
+
+**Why three specs, and why this order.** One spec per surface, because each surface is its own
+tree with its own suites and nothing in one depends on another:
+
+1. **SPEC-271, uploads.** A progress report redraws its own row; the Files page does not render on
+   it; a batch refreshes its folder at most once every two seconds. First because it is the
+   smallest, and because it lands the render counter (`src/test/renderCounter.tsx`) the other two
+   measure with. A counter that turned out not to work would otherwise be discovered inside the
+   largest component in the app.
+2. **SPEC-272, the Query workspace.** A keystroke, a divider drag and a column drag stop rendering
+   the result rows and the schema rail; tab persistence stops writing on every keystroke; the
+   schema reads behind autocomplete are bounded.
+3. **SPEC-273, the Data Explorer.** The same shape on the explorer's grid, plus the selection
+   model's cost per cursor move and the value picker's cost per tick.
+
+**Measured, not timed.** Every claim in the review was derived by reading. Each spec therefore
+records a baseline before it changes anything, as counts of commits, component renders and fibers
+re-walked per gesture, and its acceptance criteria are budgets on those counts. A count is the
+same on a loaded machine as on an idle one, which a duration is not.
+
+**Andrew's three decisions (2026-11-27).** The Query result grid is memoised and not windowed, and
+its 1,000-row page cap stays: once a gesture no longer re-walks the rows, what is left is the
+one-off cost of drawing a large page, and that is to be timed on the deployed build before anything
+is built for it; windowing would also take rows out of the browser's find-in-page. A batch of
+uploads refreshes its folder at most once every two seconds. The web tier stays off, so the
+signed-in pass this arc owes, and the one #1050 left owed, are rows in `docs/testing/owed.md`.
+
+**What the arc does not do.** It adds no dependency and no React Compiler. It does not move the
+upload queue or the query runs out of the signed-in shell. `features/help/helpContent.ts`, which
+every page loads so the header can decide whether a route has help, is the same review's finding
+and is not a render-scope one: it changes what the frame check measures, so it lands on its own.
