@@ -1815,11 +1815,25 @@ specs:
     path: "docs/specs/SPEC-270-the-session-tables-key-names-who-may-use-it.md"
   - id: "SPEC-271"
     title: "An Upload Re-renders Its Own Row and Nothing Else"
-    description: "Narrows what an upload's progress costs the browser: the Files page no longer renders on a progress event, progress is coalesced and a repeat commits nothing, one row of the uploads list renders per tick, and a batch of files refreshes its folder at most once every two seconds; a render counter for tests lands with it."
+    description: "Narrows what an upload's progress costs the browser: the Files page no longer renders on a progress event, progress is coalesced and a repeat commits nothing, one row of the uploads list renders per tick, and a batch of files refreshes its folder at most once every two seconds."
     spec_status: "Draft"
     depends_on: []
     arc: "render-scope"
     path: "docs/specs/SPEC-271-an-upload-re-renders-its-own-row-and-nothing-else.md"
+  - id: "SPEC-272"
+    title: "Typing and Dragging Leave the Query Results and the Rail Alone"
+    description: "Narrows what a keystroke, a divider drag and a column drag cost in the Query workspace, so none of them re-renders the result rows or the schema rail; coalesces the tabs' session storage writes; keeps the runs context stable; and bounds the parallel reads behind autocomplete and the data-quality list."
+    spec_status: "Draft"
+    depends_on: []
+    arc: "render-scope"
+    path: "docs/specs/SPEC-272-typing-and-dragging-leave-the-query-results-and-the-rail-alone.md"
+  - id: "SPEC-273"
+    title: "The Explorer's Grid Redraws the Cells a Gesture Changed"
+    description: "Narrows what a column drag, a cursor move, a presentation edit and a tick in the value picker cost in the Data Explorer: none redraws a cell it did not change, none re-renders the statement, and the tabs are written to session storage once per pause."
+    spec_status: "Draft"
+    depends_on: ["SPEC-272"]
+    arc: "render-scope"
+    path: "docs/specs/SPEC-273-the-explorers-grid-redraws-the-cells-a-gesture-changed.md"
 arcs:
   - name: "analytics"
     order: ["SPEC-032", "SPEC-033", "SPEC-034", "SPEC-035", "SPEC-036"]
@@ -1878,7 +1892,7 @@ arcs:
   - name: "refresh-table"
     order: ["SPEC-143", "SPEC-144", "SPEC-149", "SPEC-145"]
   - name: "render-scope"
-    order: ["SPEC-271"]
+    order: ["SPEC-271", "SPEC-272", "SPEC-273"]
   - name: "responsive-and-files-ux"
     order: ["SPEC-095", "SPEC-096", "SPEC-097", "SPEC-098", "SPEC-099", "SPEC-100", "SPEC-101", "SPEC-102", "SPEC-103", "SPEC-104"]
   - name: "results-conversion"
