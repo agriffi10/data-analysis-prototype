@@ -1822,7 +1822,7 @@ specs:
     path: "docs/specs/SPEC-271-an-upload-re-renders-its-own-row-and-nothing-else.md"
   - id: "SPEC-272"
     title: "Typing and Dragging Leave the Query Results and the Rail Alone"
-    description: "Narrows what a keystroke, a divider drag and a column drag cost in the Query workspace, so none of them re-renders the result rows or the schema rail; coalesces the tabs' session storage writes; keeps the runs context stable; and bounds the parallel reads behind autocomplete and the data-quality list."
+    description: "Narrows what a keystroke, a divider drag and a column drag cost in the Query workspace, so none of them re-renders the result rows or the schema rail; coalesces the tabs' session storage writes; and keeps the runs context stable."
     spec_status: "Draft"
     depends_on: []
     arc: "render-scope"
@@ -1834,6 +1834,13 @@ specs:
     depends_on: ["SPEC-272"]
     arc: "render-scope"
     path: "docs/specs/SPEC-273-the-explorers-grid-redraws-the-cells-a-gesture-changed.md"
+  - id: "SPEC-274"
+    title: "Reads That Fan Out Across Spaces Are Bounded"
+    description: "Bounds the reads the portal starts once per space: opening Query no longer starts a schema read for every database at the same moment, autocomplete's copy of a schema is re-read every five minutes rather than every thirty seconds, and the data-quality list reads at most four spaces' indexes at once."
+    spec_status: "Draft"
+    depends_on: []
+    arc: "render-scope"
+    path: "docs/specs/SPEC-274-reads-that-fan-out-across-spaces-are-bounded.md"
 arcs:
   - name: "analytics"
     order: ["SPEC-032", "SPEC-033", "SPEC-034", "SPEC-035", "SPEC-036"]
@@ -1892,7 +1899,7 @@ arcs:
   - name: "refresh-table"
     order: ["SPEC-143", "SPEC-144", "SPEC-149", "SPEC-145"]
   - name: "render-scope"
-    order: ["SPEC-271", "SPEC-272", "SPEC-273"]
+    order: ["SPEC-271", "SPEC-272", "SPEC-273", "SPEC-274"]
   - name: "responsive-and-files-ux"
     order: ["SPEC-095", "SPEC-096", "SPEC-097", "SPEC-098", "SPEC-099", "SPEC-100", "SPEC-101", "SPEC-102", "SPEC-103", "SPEC-104"]
   - name: "results-conversion"

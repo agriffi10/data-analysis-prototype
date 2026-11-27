@@ -52,6 +52,13 @@ which every count below is taken with. Nothing here needs SPEC-272 or SPEC-273.
 
 ## Functional Requirements
 
+**How every budget below is asserted.** A count of zero is also what a misspelled component name
+or a gesture that did nothing reports. So each test that asserts a zero also asserts, in the same
+test, the gesture's visible effect and one component that the gesture must render, by a count
+above zero. Every budget in this spec is mutation-tested once: the memo, the stable identity or
+the placement it rests on is reverted, the test is seen to fail on that count, and the mutation is
+recorded in the delivery doc.
+
 ### FR-001: The Files page does not render on an upload's progress
 
 #### Description:

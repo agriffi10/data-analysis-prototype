@@ -45,11 +45,18 @@ changes. Nothing a user does changes.
 - **What the renderer takes.** `renderExplorationSql(source, query)` keeps its two arguments; this
   spec changes how often it is called, never what it is given.
 - **What a selection means.** Ranges, the cursor, copy and Calc are unchanged.
-- The data-quality list's fan-out, which SPEC-272 bounds.
+- The data-quality list's fan-out, which SPEC-274 bounds.
 
 ---
 
 ## Functional Requirements
+
+**How every budget below is asserted.** A count of zero is also what a misspelled component name
+or a gesture that did nothing reports. So each test that asserts a zero also asserts, in the same
+test, the gesture's visible effect and one component that the gesture must render, by a count
+above zero. Every budget in this spec is mutation-tested once: the memo, the stable identity or
+the placement it rests on is reverted, the test is seen to fail on that count, and the mutation is
+recorded in the delivery doc.
 
 ### FR-001: A column-resize drag redraws no cell and re-renders no statement
 
@@ -112,18 +119,24 @@ visible column names and the column actions it hands the grid.
 
 #### Description:
 
-`useExplorationTabs` stores through SPEC-272's coalesced writer, `EXPLORATION_TABS_PERSIST_DELAY_MS`
-(300) after the last change, and flushes when it unmounts and on the window's `pagehide`. Every criterion below that names the delay is decided on a fake clock (`src/test/fakeTimers.ts`), and one of them runs under the harness's `strictMode`, whose doubled effects must not lose a write.
+`useExplorationTabs` stores through SPEC-272's coalesced writer with
+`EXPLORATION_TABS_PERSIST_DELAY_MS` (300). The state the hook mounts with is written at once, as
+today; every later change is coalesced. The hook flushes when it unmounts and on the window's
+`pagehide`, and after it has unmounted it writes nothing and starts no timer.
+
+Every criterion below that names the delay is decided on a fake clock (`src/test/fakeTimers.ts`).
 
 #### Acceptance Criteria:
 
-- [ ] A column drag of twenty pointer moves writes `sessionStorage` zero times while the moves are
-      delivered inside one delay, and once after it, holding the final width (before this spec:
-      once per move).
+- [ ] A column drag of twenty pointer moves inside one delay writes `sessionStorage` zero times
+      during the moves and once after the delay, holding the final width (measured before this
+      spec: one write per move).
 - [ ] Unmounting the workspace inside the delay writes the latest state before the unmount
-      completes, so the next mount restores it.
+      completes, so the next mount restores it; this criterion also runs under the harness's
+      `strictMode`, whose doubled effects must neither lose the write nor leave a timer.
 - [ ] A `pagehide` inside the delay writes the latest state.
-- [ ] A filter applied and the tab then reloaded after the delay restores the filter.
+- [ ] A filter applied, and the workspace remounted after the delay, restores the filter.
+- [ ] A tab action called after the hook has unmounted writes nothing and leaves no timer.
 
 ### FR-005: Ticking a value redraws that value's row
 
