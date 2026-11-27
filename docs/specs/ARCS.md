@@ -50,6 +50,7 @@ always leaves an arc entry here holding the pair's build order, even when nothin
 - [Infra building-blocks arc (SPEC-252 → 253, 254)](#infra-building-blocks-arc-spec-252--253-254)
 - [Next.js arc (SPEC-255 → 263)](#nextjs-arc-spec-255--263)
 - [Carrier arc (SPEC-266 → 267 — cancelled)](#carrier-arc-spec-266--267--cancelled)
+- [Render-scope arc (SPEC-271 → 274)](#render-scope-arc-spec-271--274)
 
 ---
 
@@ -3740,3 +3741,59 @@ first:
   policy);
 - the end-to-end request, which gates the first route that declares the plane.
 
+## Render-scope arc (SPEC-271 → 274)
+
+**The request (Andrew, 2026-11-27).** A review of the portal after its move to Next.js found the
+conventions and the correctness sound and the performance not, in one recurring shape: no component
+under `apps/portal/src` was memoised, so wherever state that changes many times a second sat at the
+top of a large tree, the whole tree rendered each time. The first batch of that review's findings
+merged as #1050. This arc is the second: what a gesture re-renders, on the three surfaces where the
+review found it.
+
+**Why four specs, and why this order.** One spec per surface, because each surface is its own
+tree with its own suites, and one for the reads that fan out, because that is a concurrency change
+and shares nothing with the rendering work. The arc's opening change lands the specs and the render
+counter (`src/test/renderCounter.tsx`) the three rendering specs measure with, so a counter that
+turned out not to work is discovered on a three-component fixture rather than inside the largest
+component in the app.
+
+1. **SPEC-271, uploads.** A progress report redraws its own row; the Files page does not render on
+   it; a batch refreshes its folder at most once every two seconds. The smallest of the three, and
+   independent of the others: it touches `features/file-browser/` alone.
+2. **SPEC-272, the Query workspace.** A keystroke, a divider drag and a column drag stop rendering
+   the result rows and the schema rail, and tab persistence stops writing on every keystroke.
+   Independent of SPEC-271, so the two build side by side. It is the largest and the riskiest,
+   which is why nothing waits behind SPEC-271 to start it.
+3. **SPEC-273, the Data Explorer.** The same shape on the explorer's grid, plus the selection
+   model's cost per cursor move and the value picker's cost per tick. After SPEC-272, because it
+   stores its tabs through the coalesced writer SPEC-272 builds.
+4. **SPEC-274, bounded reads.** Opening Query no longer starts one schema read per database at
+   once, and the data-quality list no longer reads one index per space at once. It began as
+   SPEC-272's sixth requirement and was cut out at that spec's review: it shares no code and no
+   harness with the rendering work, reaches two other features, and is a concurrency change, which
+   is planned with an execution harness. It shares no file with the other three, so it builds
+   beside any of them.
+
+**Measured, not timed.** Every claim in the review was derived by reading. Each spec therefore
+adds a measuring suite as its first commit and records a baseline before it changes anything, as counts of commits, component renders and fibers
+re-walked per gesture, and its acceptance criteria are budgets on those counts. A count is the
+same on a loaded machine as on an idle one, which a duration is not.
+
+**Andrew's three decisions (2026-11-27).** The Query result grid is memoised and not windowed, and
+its 1,000-row page cap stays: once a gesture no longer re-walks the rows, what is left is the
+one-off cost of drawing a large page, and that is to be timed on the deployed build before anything
+is built for it; windowing would also take rows out of the browser's find-in-page. A batch of
+uploads refreshes its folder at most once every two seconds. The web tier stays off, so the
+signed-in pass this arc owes, and the one #1050 left owed, are one row in `docs/testing/owed.md`,
+added with the arc's opening change and extended by each spec as it closes.
+
+**Three smaller trade-offs are the author's, not Andrew's.** Each is named in its spec, each is
+reversible in a line, and Andrew has not ruled on any: a result's column widths reset when the
+window crosses below `tablet` and back (SPEC-272); text typed in the last 300 ms before the browser
+is killed without a `pagehide` is not restored (SPEC-272, SPEC-273); and a colleague's new table
+reaches autocomplete's suggestions up to five minutes later, the rail being unchanged (SPEC-274).
+
+**What the arc does not do.** It adds no dependency and no React Compiler. It does not move the
+upload queue or the query runs out of the signed-in shell. `features/help/helpContent.ts`, which
+every page loads so the header can decide whether a route has help, is the same review's finding
+and is not a render-scope one: it changes what the frame check measures, so it lands on its own.
