@@ -9,6 +9,9 @@ arc: render-scope
 arc_order: 1
 ---
 
+**Dependency notes:** the arc's opening change landed `apps/portal/src/test/renderCounter.tsx`,
+which every count below is taken with. Nothing here needs SPEC-272 or SPEC-273.
+
 ## Overview
 
 While a file uploads, the browser reports progress many times a second, and today every one of
@@ -19,9 +22,6 @@ makes an upload cost what it changes: a progress report redraws the one row it b
 arriving faster than a person can read are merged, and a batch refreshes its folder at most once
 every two seconds. Nothing a user does changes, and the one thing they can see is that during a
 burst of small files the listing fills in every two seconds rather than file by file.
-
-**Dependency notes:** the arc's opening change landed `apps/portal/src/test/renderCounter.tsx`,
-which every count below is taken with. Nothing here needs SPEC-272 or SPEC-273.
 
 ## Scope
 
@@ -51,6 +51,9 @@ which every count below is taken with. Nothing here needs SPEC-272 or SPEC-273.
 ---
 
 ## Functional Requirements
+
+**A criterion is a condition, not a test case.** One scenario settles several, and each suite stays
+within the testing rules' scenario budget for its unit.
 
 **How every budget below is asserted.** A count of zero is also what a misspelled component name
 or a gesture that did nothing reports. So each test that asserts a zero also asserts, in the same
@@ -238,5 +241,5 @@ apps/portal/src/features/file-browser/
 - Turn the render-scope suite's measurements into asserted budgets and mutation-test FR-001's
   and FR-003's.
 - Completion ritual: the delivery doc carries the before and after counts, each anchored to its
-  commit; the signed-in pass this arc and PR #1050 both owe goes to `docs/testing/owed.md`, since
-  the web tier stays off by Andrew's decision of 2026-11-27.
+  commit; the arc's row in `docs/testing/owed.md` gains this spec's lines, since the web tier
+  stays off by Andrew's decision of 2026-11-27.

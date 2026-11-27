@@ -1,5 +1,5 @@
 import {Component, forwardRef, memo, useReducer, useState} from 'react';
-import {act, render, screen} from '@testing-library/react';
+import {act, cleanup, render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {expect, it, vi} from 'vitest';
 import {createRenderCounter} from './renderCounter';
@@ -45,22 +45,31 @@ function measured(memoised: boolean) {
   return counter;
 }
 
-it('counts a parent and not the memoised children it left alone, and counts them once the memo is gone', async () => {
+it('counts a parent and not the memoised children it left alone', async () => {
   const user = userEvent.setup();
+  const counter = measured(true);
 
+  await user.click(screen.getByRole('button', {name: 'count 0'}));
+
+  const tally = counter.read();
+  expect(tally.commits).toBe(1);
+  expect(tally.rendered).toEqual({List: 1});
+});
+
+it('counts the children once the memo is gone, and the nodes re-walked beneath them', async () => {
+  const user = userEvent.setup();
   const withMemo = measured(true);
   await user.click(screen.getByRole('button', {name: 'count 0'}));
-  const skipped = withMemo.read();
-  expect(skipped.commits).toBe(1);
-  expect(skipped.rendered).toEqual({List: 1});
-
-  document.body.innerHTML = '';
+  const skipped = withMemo.read().reconciled;
+  cleanup();
   const without = measured(false);
+
   await user.click(screen.getByRole('button', {name: 'count 0'}));
+
   const walked = without.read();
   expect(walked.rendered).toEqual({List: 1, Row: 2, Label: 2});
-  // The two rows and their list items are cloned beside the parent's own nodes.
-  expect(walked.reconciled).toBeGreaterThan(skipped.reconciled);
+  // The two rows, their labels and their host elements are cloned beside the parent's own nodes.
+  expect(walked.reconciled).toBeGreaterThan(skipped);
 });
 
 it('reports nothing for a state set to the value it already holds', async () => {

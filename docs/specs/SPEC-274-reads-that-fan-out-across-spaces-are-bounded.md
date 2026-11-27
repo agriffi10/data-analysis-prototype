@@ -9,8 +9,10 @@ arc: render-scope
 arc_order: 4
 ---
 
-**Dependency notes:** none. This spec shares no file with SPEC-271, SPEC-272 or SPEC-273 and can
-be built beside any of them.
+**Dependency notes:** none. This spec shares no source or test file with SPEC-271, SPEC-272 or
+SPEC-273 and can be built beside any of them; the files every completion ritual edits (the
+generated indexes, the component inventory, `docs/testing/owed.md`) are shared, and conflict by
+addition only.
 
 ## Overview
 
@@ -24,8 +26,11 @@ account's concurrency by opening one page, and the failure shows up somewhere el
 unrelated request. This spec bounds both fan-outs at four reads in flight, and stops autocomplete
 re-reading every schema each time Query is opened more than thirty seconds after the last time.
 
-Nothing a user does changes. With many spaces, the last databases' tables reach autocomplete, and
-the last spaces' checks reach the list, a little later than the first.
+What a user does is unchanged. Two things they could notice are accepted, by the author at
+authoring and not yet ruled on by Andrew: with many spaces, the last databases' tables reach
+autocomplete, and the last spaces' checks reach the list, a little later than the first; and a
+table a colleague creates reaches autocomplete's suggestions up to five minutes later, though the
+rail shows it as soon as it does today.
 
 ## Scope
 
@@ -172,14 +177,17 @@ apps/portal/src/
 ├── lib/limitConcurrency.ts                              (+ limitConcurrency.test.ts)
 ├── features/catalog/useSchema.ts                        (the shared limiter, autocomplete's staleTime)
 ├── features/catalog/catalog.constants.ts
-├── features/catalog/schemaReads.test.tsx                (new: FR-002 and FR-003, through the Query workspace)
+├── features/query/schemaReads.test.tsx                  (new: FR-002 and FR-003, through the Query workspace)
+├── test/deferredReads.ts                                (new: the hand-settled reads the harness counts)
 ├── features/data-quality/dataQuality.constants.ts       (new)
 ├── features/data-quality/useDataQualityRuns.ts
 └── features/data-quality/dataQualityRunsFanOut.test.tsx (new: FR-004)
 ```
 
-The Query-level cases go in a new file so this spec edits none of the Query workspace's existing
-suites, which SPEC-272 is changing.
+The Query-level cases go in a new file under `features/query/`, since lint refuses a file under
+`features/catalog/` that imports the workspace, and so this spec edits none of the Query
+workspace's existing suites or `src/test/queryWorkspaceSupport.tsx`, which are SPEC-272's while it
+is in flight. The deferred reads have a file of their own for the same reason.
 
 ## Implementation Phases
 

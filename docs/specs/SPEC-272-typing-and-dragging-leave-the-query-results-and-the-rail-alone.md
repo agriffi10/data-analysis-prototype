@@ -55,6 +55,9 @@ What a user does is unchanged, with one accepted exception that FR-003 names. An
 
 ## Functional Requirements
 
+**A criterion is a condition, not a test case.** One scenario settles several, and each suite stays
+within the testing rules' scenario budget for its unit.
+
 **How every budget below is asserted.** A count of zero is also what a misspelled component name
 or a gesture that did nothing reports. So each test that asserts a zero also asserts, in the same
 test, the gesture's visible effect and one component that the gesture must render, by a count
@@ -135,12 +138,14 @@ widths still survive all three. The rows do not read the widths, which reach the
       Crossing below `tablet` and back now does too. That is new and accepted: there is no table
       below `tablet`, and the region that holds the widths is not mounted there.
 
-### FR-004: The tabs are written to session storage once per pause, not once per keystroke
+### FR-004: The tabs are written to session storage at most once per delay, not once per keystroke
 
 #### Description:
 
 A reusable coalesced writer, `lib/coalescedWrite.ts`, holds the latest value to store and writes it
-a fixed delay after the last change, or at once when asked to flush. `useQueryTabs` stores through
+a fixed delay after the first change it has not yet written, or at once when asked to flush. The
+wait is not restarted by later changes, so continuous typing still writes once per delay and what
+is unwritten is never older than the delay. `useQueryTabs` stores through
 it with `TAB_PERSIST_DELAY_MS` (300). The state the hook mounts with is written at once, as today,
 so a fresh session's first tab keeps its id across a remount and its run is not dropped as an
 orphan. Every later change is coalesced. The hook flushes when it unmounts and on the window's
@@ -149,7 +154,8 @@ that outlived the page, changes no storage and starts no timer. The reads at mou
 
 What this costs: text typed in the last 300 ms before the browser is killed without a `pagehide`
 is not restored. A reload, a closed tab, a navigation and a sign-out all fire `pagehide` or
-unmount the hook first.
+unmount the hook first. This, and FR-003's reset of widths below `tablet`, are accepted by the
+author at authoring and not yet ruled on by Andrew.
 
 Every criterion below that names the delay is decided on a fake clock (`src/test/fakeTimers.ts`).
 
@@ -164,6 +170,8 @@ every such assertion flushes before it reads.
 
 - [ ] Twenty changes to a tab's SQL inside one delay cause one `sessionStorage` write, holding the
       last text (measured before this spec: one per change).
+- [ ] Changes arriving every 100 ms for a second cause no fewer than three writes: the wait runs
+      from the first unwritten change, and is not pushed back by the ones after it.
 - [ ] A fresh session's first tab is in storage before any timer runs, and a remount restores it
       under the same tab id.
 - [ ] Unmounting the workspace inside the delay writes the last text before the unmount completes,
@@ -200,7 +208,7 @@ identity for the life of the provider.
 ```ts
 // src/lib/coalescedWrite.ts
 export type CoalescedWrite<T> = {
-  /** Holds `value` and writes it `delayMs` after the last call. */
+  /** Holds `value`, and writes the latest held value `delayMs` after the first unwritten call. */
   set: (value: T) => void;
   /** Writes what is held now, if anything, and clears the timer. */
   flush: () => void;
@@ -225,8 +233,12 @@ apps/portal/src/
     ├── useTableActions.tsx          (the inline rail's actions keep their identity)
     ├── useTabRuns.ts                (a stable submitBatch and handleStop)
     ├── QueryRunsProvider.tsx, useQueryRunsEngine.tsx, useQueryTabs.ts
+    ├── query.constants.ts           (the delay)
     └── queryRenderScope.test.tsx    (the budgets)
 ```
+
+`src/test/queryWorkspaceSupport.tsx` and the workspace's existing suites are this spec's to edit
+while it is in flight; SPEC-274 adds files beside them and changes none.
 
 ## Implementation Phases
 
@@ -247,5 +259,6 @@ apps/portal/src/
 - The coalesced writer and the tabs' use of it (FR-004).
 - Turn the suite's measurements into asserted budgets and mutation-test each.
 - Completion ritual: the delivery doc carries the before and after counts, each anchored to its
-  commit. The signed-in pass stays owed in `docs/testing/owed.md`; it gains the timing of a
-  1,000-row page arriving, which is what Andrew's decision on windowing waits on.
+  commit. The arc's row in `docs/testing/owed.md` gains this spec's lines: the feel of typing and
+  of both drags over a large result, and the timing of a 1,000-row page arriving, which is what
+  Andrew's decision on windowing waits on.

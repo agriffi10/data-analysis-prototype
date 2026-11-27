@@ -19,8 +19,9 @@ The Data Explorer keeps a tab's whole description, the query and the way its res
 at the top of the workspace and writes every tab to session storage whenever any of it changes. A
 column's width is part of that description, so dragging a column's edge redraws the workspace,
 re-renders the statement and writes storage on every pointer move. The grid's cells are drawn by
-one component, so moving the cursor one cell redraws all of them. Measured before this spec on a
-100-row by 10-column page with five tabs open, one pointer move of a column drag re-walked 3,516
+one component, so moving the cursor one cell redraws all of them. Measured at `91f97fe60` with the suite this
+spec's first commit adds, and re-recorded by Phase 1 at its own commit, on a 100-row by 10-column
+page with five tabs open, one pointer move of a column drag re-walked 3,516
 fibers, rendered all 1,000 cells and wrote 2,382 characters to session storage; one Arrow key
 re-walked 3,485 fibers and rendered all 1,000 cells. This spec makes each gesture cost the cells it
 changes. Nothing a user does changes.
@@ -50,6 +51,15 @@ changes. Nothing a user does changes.
 ---
 
 ## Functional Requirements
+
+**A criterion is a condition, not a test case.** One scenario settles several, and each suite stays
+within the testing rules' scenario budget for its unit.
+
+**Counting the renderer's calls is an exception to mocking the service seam alone.** Two criteria
+count calls to `renderExplorationSql`, which is not a service. The statement it returns is the
+same string whether it ran once or twenty times, so nothing on screen can show the difference; the
+call count is the only place the cost is visible. The suite therefore wraps that one export
+through `importOriginal`, calling the real renderer, and says so in a one-line comment.
 
 **How every budget below is asserted.** A count of zero is also what a misspelled component name
 or a gesture that did nothing reports. So each test that asserts a zero also asserts, in the same
@@ -125,7 +135,7 @@ close over the tab's query, and they may render on any edit.
 - [ ] Two tabs opened in one task still both open, and the third past the cap is still refused:
       the existing tab suites pass with no assertion weakened.
 
-### FR-004: The tabs are written to session storage once per pause
+### FR-004: The tabs are written to session storage at most once per delay
 
 #### Description:
 
@@ -212,6 +222,7 @@ apps/portal/src/features/data-explorer/
 ├── DataExplorerWorkspace.tsx        (a stable onPresentationChange)
 ├── ExplorationResultsRegion.tsx     (memoised visible names; formatting from the width-free list)
 ├── FilterValuePicker.tsx            (a memoised ValueRow, a set for membership)
+├── dataExplorer.constants.ts        (the delay)
 └── explorerRenderScope.test.tsx     (the budgets)
 ```
 
@@ -233,4 +244,4 @@ apps/portal/src/features/data-explorer/
 - The memoised value row and set membership (FR-005).
 - Turn the suite's measurements into asserted budgets and mutation-test FR-001's.
 - Completion ritual: the delivery doc carries the before and after counts, each anchored to its
-  commit; the signed-in pass stays owed in `docs/testing/owed.md`.
+  commit; the arc's row in `docs/testing/owed.md` gains this spec's lines.

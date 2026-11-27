@@ -3775,7 +3775,7 @@ component in the app.
    beside any of them.
 
 **Measured, not timed.** Every claim in the review was derived by reading. Each spec therefore
-records a baseline before it changes anything, as counts of commits, component renders and fibers
+adds a measuring suite as its first commit and records a baseline before it changes anything, as counts of commits, component renders and fibers
 re-walked per gesture, and its acceptance criteria are budgets on those counts. A count is the
 same on a loaded machine as on an idle one, which a duration is not.
 
@@ -3784,7 +3784,14 @@ its 1,000-row page cap stays: once a gesture no longer re-walks the rows, what i
 one-off cost of drawing a large page, and that is to be timed on the deployed build before anything
 is built for it; windowing would also take rows out of the browser's find-in-page. A batch of
 uploads refreshes its folder at most once every two seconds. The web tier stays off, so the
-signed-in pass this arc owes, and the one #1050 left owed, are rows in `docs/testing/owed.md`.
+signed-in pass this arc owes, and the one #1050 left owed, are one row in `docs/testing/owed.md`,
+added with the arc's opening change and extended by each spec as it closes.
+
+**Three smaller trade-offs are the author's, not Andrew's.** Each is named in its spec, each is
+reversible in a line, and Andrew has not ruled on any: a result's column widths reset when the
+window crosses below `tablet` and back (SPEC-272); text typed in the last 300 ms before the browser
+is killed without a `pagehide` is not restored (SPEC-272, SPEC-273); and a colleague's new table
+reaches autocomplete's suggestions up to five minutes later, the rail being unchanged (SPEC-274).
 
 **What the arc does not do.** It adds no dependency and no React Compiler. It does not move the
 upload queue or the query runs out of the signed-in shell. `features/help/helpContent.ts`, which
