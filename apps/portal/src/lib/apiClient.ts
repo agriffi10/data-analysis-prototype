@@ -83,7 +83,8 @@ export function resetApiClientForTests(): void {
 /**
  * Whether a route may be retried above this client.
  *
- * The ONLY source of a TanStack Query `retry` value for an API-backed hook. Idempotency is a
+ * The ONLY source of a `retry` value an API-backed hook sets for itself; a hook that sets none
+ * takes the query client's default, which reads the failure's code. Idempotency is a
  * property of the route, declared in the contract, so a hook cannot decide it locally and be
  * wrong — the Data Explorer once carried `retry: 1` on a billed, stateful `StartQueryExecution`
  * because it looked like a read.

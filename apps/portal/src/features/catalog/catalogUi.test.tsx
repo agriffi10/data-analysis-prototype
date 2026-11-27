@@ -18,8 +18,8 @@ describe('ColumnResizeHandle', () => {
       onReset: vi.fn(),
       ...over
     };
-    render(<ColumnResizeHandle {...props} />);
-    return props;
+    const {unmount} = render(<ColumnResizeHandle {...props} />);
+    return {...props, unmount};
   }
 
   it('is an accessible vertical separator naming its column', () => {
@@ -48,6 +48,57 @@ describe('ColumnResizeHandle', () => {
     onResize.mockClear();
     fireEvent.pointerMove(window, {clientX: 300});
     expect(onResize).not.toHaveBeenCalled();
+  });
+
+  it('stops resizing when the browser takes the gesture over, which fires no pointerup', () => {
+    const {onResize} = renderHandle();
+    fireEvent.pointerDown(screen.getByRole('separator'), {clientX: 100});
+    fireEvent.pointerMove(window, {clientX: 140});
+    expect(onResize).toHaveBeenCalledTimes(1);
+
+    fireEvent.pointerCancel(window);
+    fireEvent.pointerMove(window, {clientX: 300});
+
+    expect(onResize).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops resizing when the grid goes mid-drag, so a stale handle writes no width', () => {
+    const {onResize, unmount} = renderHandle();
+    fireEvent.pointerDown(screen.getByRole('separator'), {clientX: 100});
+    fireEvent.pointerMove(window, {clientX: 140});
+    expect(onResize).toHaveBeenCalledTimes(1);
+
+    unmount();
+    fireEvent.pointerMove(window, {clientX: 300});
+
+    expect(onResize).toHaveBeenCalledTimes(1);
+  });
+
+  it('ends a drag still in flight when another starts, so one gesture writes one width', () => {
+    const onResize = vi.fn();
+    const {unmount} = renderHandle({column: 2, width: 180, onResize});
+    const handle = screen.getByRole('separator');
+    fireEvent.pointerDown(handle, {clientX: 100});
+    fireEvent.pointerDown(handle, {clientX: 200});
+
+    fireEvent.pointerMove(window, {clientX: 240});
+    expect(onResize.mock.calls).toEqual([[2, 220]]);
+
+    unmount();
+    fireEvent.pointerMove(window, {clientX: 300});
+    expect(onResize).toHaveBeenCalledTimes(1);
+  });
+
+  it('follows the pointer that started the drag, and no other finger on the screen', () => {
+    const onResize = vi.fn();
+    renderHandle({column: 2, width: 180, onResize});
+    fireEvent.pointerDown(screen.getByRole('separator'), {clientX: 100, pointerId: 1});
+
+    fireEvent.pointerMove(window, {clientX: 400, pointerId: 2});
+    fireEvent.pointerUp(window, {pointerId: 2});
+    fireEvent.pointerMove(window, {clientX: 140, pointerId: 1});
+
+    expect(onResize.mock.calls).toEqual([[2, 220]]);
   });
 
   it('double-click resets the column', () => {

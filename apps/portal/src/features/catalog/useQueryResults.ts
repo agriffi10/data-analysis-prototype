@@ -53,6 +53,11 @@ export type UseQueryResultsResult = {
  * `pageSize` is the workspace-global "Rows per page" value. The
  * query is keyed by it, so a size change drops stale-sized cached pages and
  * refetches page 1 at the new size for every result tab.
+ *
+ * The pages never go stale: an execution's rows cannot change, and a stale infinite query reads
+ * every page it holds again each time the result is shown, eight requests to come back to page
+ * eight. A read that failed is still read again, since a failed query is refetched whatever its
+ * stale time.
  */
 export function useQueryResults(queryExecutionId: string | null, pageSize: number): UseQueryResultsResult {
   // The page position is kept PER execution id (each result
@@ -85,6 +90,7 @@ export function useQueryResults(queryExecutionId: string | null, pageSize: numbe
   const query = useInfiniteQuery({
     queryKey: catalogKeys.results(queryExecutionId ?? NO_KEY, pageSize),
     enabled: queryExecutionId !== null,
+    staleTime: Infinity,
     queryFn: async ({pageParam}): Promise<QueryResultPage> => {
       const result = await getQueryResults({
         queryExecutionId: queryExecutionId as string,

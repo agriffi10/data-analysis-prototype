@@ -27,7 +27,9 @@ root layout's `src/index.css` is one today.
 written yet, at the top of `src/`, is refused without anyone naming it. `src/types/` is allowed
 because `src/lib/` reads runtime constants from it (`REQUIRED_CONFIG`, `API_ROUTES`), and
 `src/assets/` because it is media, not code: a page importing `hero.png` was refused before it was
-allowed. Packages and Turbopack's runtime are not judged. Code placed under `src/app/` itself is
+allowed. Turbopack's runtime is not judged; packages were not either until the frame check named
+the two a page hydrates with (`HYDRATION_PACKAGES`), after `zod` imported through `src/lib/` reached
+every page's hydration with this check green. Code placed under `src/app/` itself is
 allowed by definition; the rule is a directory rule, and that is its edge.
 
 **The module list leaves out merged modules.** Measured on the catch-all: the analysis listed five
@@ -74,6 +76,11 @@ binary format and its fingerprints, and stops on a mismatch, possibly after writ
 output; that is why the check refuses an export that did not exit 0.
 
 ## History
+
+### 2026-11-27
+
+- **Changed:** a package in a hydration chunk is judged, by the frame check's allowlist. It was not
+  judged at all.
 
 ### 2026-11-15
 

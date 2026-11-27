@@ -215,9 +215,24 @@ function FileBrowserContent({
   // throwing. The hidden marker is filtered out, so it never exposes this action.
   const dl = useFileDownload(bucket);
 
+  // Every selectable row in the current view: the header's "select all", and what a refused
+  // operation may put back.
+  const allItems: SelectableItem[] = [
+    ...folders.map((f) => ({type: 'folder' as const, prefix: f.prefix})),
+    ...files.map((f) => ({type: 'file' as const, key: f.key}))
+  ];
   // Every dialog/drawer flag, and the handlers that turn one
   // into an operation (including who clears the selection).
-  const dialogs = useFileBrowserDialogs({bucket, currentPrefix, space, destinations, del, move, copy});
+  const dialogs = useFileBrowserDialogs({
+    bucket,
+    currentPrefix,
+    visibleItems: allItems,
+    space,
+    destinations,
+    del,
+    move,
+    copy
+  });
   // A deep link into the items one run could not place. Resolves to nothing for an id nobody
   // wrote a notification for, and for a run that conflicted with nothing — both render no view
   // rather than an empty one, because the id arrives in a URL anyone can type.
@@ -239,11 +254,6 @@ function FileBrowserContent({
   const isEmpty = !isLoading && error === null && loadedFiles.length === 0 && loadedVisibleFolders.length === 0;
   const hasContent = !isLoading && error === null && (loadedFiles.length > 0 || loadedVisibleFolders.length > 0);
 
-  // Every selectable row in the current view, for the header "select all".
-  const allItems: SelectableItem[] = [
-    ...folders.map((f) => ({type: 'folder' as const, prefix: f.prefix})),
-    ...files.map((f) => ({type: 'file' as const, key: f.key}))
-  ];
   const selectedItems = [...selection.selected.values()];
 
   // Same data + handlers for both list surfaces; the caller

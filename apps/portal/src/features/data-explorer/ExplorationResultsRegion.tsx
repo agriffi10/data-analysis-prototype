@@ -705,6 +705,7 @@ export function ExplorationResultsRegion({
 
           {groupingOpen && (
             <GroupingPanel
+              tabId={tabId}
               // The SOURCE's columns while grouping is in force, because the result's are
               // the grouping columns and the aggregate aliases by then — offering those
               // would let a user group by `count_all`.

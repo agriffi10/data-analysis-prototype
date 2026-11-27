@@ -1,6 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
 import {useToast} from '../../components/toastContext';
-import {useSelection, type SelectableItem} from './selectionContext';
+import {itemId, useSelection, type SelectableItem} from './selectionContext';
 import {useAsyncFileOperations} from './useAsyncFileOperations';
 import {requiresControlPlane} from './fileOpRouting';
 import {lastSegment} from './fileBrowser.paths';
@@ -121,6 +121,8 @@ type Params = {
   bucket: string;
   /** The folder currently being viewed. */
   currentPrefix: string;
+  /** Every selectable row on the page now on screen. */
+  visibleItems: SelectableItem[];
   /** The space being browsed — what the plane's request names as its source. Null in dev-unauth. */
   space: FileOpSpace | null;
   /** Every space move/copy can target, for resolving a chosen destination bucket to a space. */
@@ -164,11 +166,12 @@ const PLANE_UNAVAILABLE =
  * enqueued with the probed name.
  *
  * @example
- * const dialogs = useFileBrowserDialogs({bucket, currentPrefix, space, destinations, del, move, copy});
+ * const dialogs = useFileBrowserDialogs({bucket, currentPrefix, visibleItems, space, destinations, del, move, copy});
  */
 export function useFileBrowserDialogs({
   bucket,
   currentPrefix,
+  visibleItems,
   space,
   destinations,
   del,
@@ -190,13 +193,12 @@ export function useFileBrowserDialogs({
   const [copying, setCopying] = useState<SelectableItem[] | null>(null);
   const [checkingQuality, setCheckingQuality] = useState<SelectableItem | null>(null);
 
-  // WHERE THE USER IS NOW, not where they were when the handler was made. An enqueue resolves long
-  // after the dialog closed, and both values below are captured per render — comparing a handler's
-  // own `currentPrefix` against itself is a comparison that is true forever. Written from an
-  // effect, which runs after every commit.
-  const live = useRef({prefix: currentPrefix, selectionCount: selection.count});
+  // WHAT THE USER SEES NOW, not what they saw when the handler was made. An enqueue resolves long
+  // after the dialog closed, and a handler's own render-time values compared against themselves
+  // are equal forever. Written from an effect, which runs after every commit.
+  const live = useRef({onScreen: new Set<string>(), selectionCount: 0});
   useEffect(() => {
-    live.current = {prefix: currentPrefix, selectionCount: selection.count};
+    live.current = {onScreen: new Set(visibleItems.map(itemId)), selectionCount: selection.count};
   });
 
   // The chosen destination bucket, as a space. A move or copy across connections names another
@@ -299,14 +301,15 @@ export function useFileBrowserDialogs({
    * synchronous paths always had. A refused enqueue — a selection over the plane's caps, a queue
    * that is not configured — would otherwise cost the user every tick they made.
    */
-  function restoreOnFailure(outcome: Dispatched, items: SelectableItem[], from: string) {
+  function restoreOnFailure(outcome: Dispatched, items: SelectableItem[]) {
     if (outcome !== 'refused' || items.length === 0) return;
-    // Only back into the folder they came from, and only over an empty selection. The enqueue
-    // resolves long after the dialog closed, so the user may have navigated — and putting these
-    // rows back then is the ghost selection this browser clears on every prefix change to avoid,
-    // pointing at objects that are not in the listing. Ticks made in the meantime win outright:
-    // `selectAll` replaces, so restoring over them would discard the newer choice.
-    if (from !== live.current.prefix || live.current.selectionCount > 0) return;
+    // Only while every one of them is still on screen, and only over an empty selection. The
+    // enqueue resolves long after the dialog closed, so the user may have changed folder or turned
+    // the page, and putting these rows back then is the ghost selection this browser clears on
+    // both to avoid: the toolbar would act on rows nobody can see. Ticks made in the meantime win
+    // outright: `selectAll` replaces, so restoring over them would discard the newer choice.
+    if (live.current.selectionCount > 0) return;
+    if (!items.every((item) => live.current.onScreen.has(itemId(item)))) return;
     selection.selectAll(items);
   }
 
@@ -383,12 +386,11 @@ export function useFileBrowserDialogs({
     cancelMove: () => setMoving(null),
     confirmMove: (destPrefix, destBucket) => {
       const items = moving ?? [];
-      const from = currentPrefix;
       setMoving(null);
       selection.clear();
       void dispatch({operation: 'move', items, destination: destinationSpaceFor(destBucket, destPrefix)}, () =>
         move.moveItems(items, destPrefix, destBucket)
-      ).then((outcome) => restoreOnFailure(outcome, items, from));
+      ).then((outcome) => restoreOnFailure(outcome, items));
     },
 
     copying,
@@ -413,19 +415,17 @@ export function useFileBrowserDialogs({
         if (items.length > 0) copy.startSameFolderCopy(items[0], destPrefix);
         return;
       }
-      const from = currentPrefix;
       setCopying(null);
       selection.clear();
       void dispatch({operation: 'copy', items, destination: destinationSpaceFor(destBucket, destPrefix)}, () =>
         copy.copyItems(items, destPrefix, destBucket)
-      ).then((outcome) => restoreOnFailure(outcome, items, from));
+      ).then((outcome) => restoreOnFailure(outcome, items));
     },
 
     sameFolderPrompt: copy.sameFolderPrompt && {
       ...copy.sameFolderPrompt,
       onConfirm: (name) => {
         const item = copying?.[0];
-        const from = currentPrefix;
         const targetName = name.trim();
         copy.clearSameFolderPrompt();
         setCopying(null);
@@ -439,7 +439,7 @@ export function useFileBrowserDialogs({
             targetName
           },
           () => copy.runSameFolderCopy(item, currentPrefix, targetName)
-        ).then((outcome) => restoreOnFailure(outcome, [item], from));
+        ).then((outcome) => restoreOnFailure(outcome, [item]));
       },
       onCancel: () => {
         copy.clearSameFolderPrompt();

@@ -371,6 +371,26 @@ describe('useQueryResults', () => {
    * only it can, is the split the rulebook asks for.
    */
   describe('useQueryResults', () => {
+    it('reads a page once however often its result is shown, since an execution’s rows cannot change', async () => {
+      // Keeps the cache and treats everything as stale, as the app does after thirty seconds: a
+      // client that collected the page on unmount would read it again whatever the hook said.
+      const queryClient = createTestQueryClient();
+      queryClient.setDefaultOptions({queries: {...queryClient.getDefaultOptions().queries, gcTime: Infinity}});
+      try {
+        const first = renderHookWithProviders(() => useQueryResults('q-1', 2), {queryClient});
+        await waitFor(() => expect(first.result.current.rows).toEqual([['1'], ['2']]));
+        first.unmount();
+
+        const again = renderHookWithProviders(() => useQueryResults('q-1', 2), {queryClient});
+        await waitFor(() => expect(again.result.current.rows).toEqual([['1'], ['2']]));
+        await act(async () => undefined);
+
+        expect(mockGetQueryResults).toHaveBeenCalledTimes(1);
+      } finally {
+        queryClient.clear();
+      }
+    });
+
     it('loads the first page and reports that more is available', async () => {
       const {result} = renderHookWithProviders(() => useQueryResults('q-1', 2));
 

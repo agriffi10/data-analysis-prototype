@@ -71,11 +71,15 @@ function render() {
   return {user};
 }
 
-function seedTab() {
-  const exploration = newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'}, 't1');
+/** Seeds one ungrouped tab on `orders` per label, the first one active. */
+function seedTab(labels: string[] = ['orders']) {
   const state: ExplorationTabsState = {
     version: 1,
-    tabs: [{id: 't1', label: 'orders', exploration, scannedByExecution: {}, history: {past: [], future: []}}],
+    tabs: labels.map((label, index) => {
+      const id = `t${index + 1}`;
+      const exploration = newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'}, id);
+      return {id, label, exploration, scannedByExecution: {}, history: {past: [], future: []}};
+    }),
     activeTabId: 't1'
   };
   sessionStorage.setItem(`${EXPLORATION_TABS_STORAGE_PREFIX}alice`, JSON.stringify(state));
@@ -228,6 +232,43 @@ describe('the Grouping panel', () => {
     await user.selectOptions(within(panel).getByRole('combobox', {name: 'Aggregate function'}), 'MIN');
     // `MIN(*)` is not SQL. The renderer refuses it; the picker never offers it.
     expect(within(column).queryByRole('option', {name: 'All rows (*)'})).not.toBeInTheDocument();
+  });
+
+  it('drops a staged draft when the tab changes, so Apply cannot run one tab’s grouping on another', async () => {
+    seedTab(['orders', 'second look']);
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    const panel = await openGrouping(user);
+    await addColumn(user, panel, 'status');
+    expect(within(panel).getByRole('button', {name: 'Remove status from grouping'})).toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', {name: 'second look'}));
+
+    await waitFor(() =>
+      expect(screen.getByRole('tab', {name: 'second look'})).toHaveAttribute('aria-selected', 'true')
+    );
+    const shown = screen.getByRole('complementary', {name: 'Grouping'});
+    expect(within(shown).queryByRole('button', {name: 'Remove status from grouping'})).not.toBeInTheDocument();
+  });
+
+  it('still gives Escape to the panel opened last after a tab change', async () => {
+    // Starting the Grouping panel over on a tab change must not put it ahead of a panel opened
+    // after it: Escape closes the newest layer, and a remounted panel would become the newest.
+    seedTab(['orders', 'second look']);
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    await openGrouping(user);
+    await chooseExplorationOption(user, 'Calc');
+    expect(screen.getByRole('complementary', {name: 'Calc'})).toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', {name: 'second look'}));
+    await waitFor(() =>
+      expect(screen.getByRole('tab', {name: 'second look'})).toHaveAttribute('aria-selected', 'true')
+    );
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(screen.queryByRole('complementary', {name: 'Calc'})).not.toBeInTheDocument());
+    expect(screen.getByRole('complementary', {name: 'Grouping'})).toBeInTheDocument();
   });
 
   it('hands focus to the next ✕ when a grouped column is removed', async () => {
