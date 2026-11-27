@@ -18,8 +18,12 @@ one forced refresh and one retry, which was then the browser's only refresh path
 Whether a call may be retried *above* the client is a property of the **route**, declared in the
 contract and never derived from the method: a `POST` that resolves a free name is a read, and a `PUT`
 that appends is not. `apiRetryPolicy(routeId)` is the only source of a TanStack Query `retry` value
-for an API-backed hook, and the test enumerates the generated table so a route added later is covered
-without the test being edited. The reason it is a rule rather than a habit: a failing apply in the
+an API-backed hook sets for itself, and the test enumerates the generated table so a route added later
+is covered without the test being edited. A hook that sets none takes the query client's default,
+which is for reads alone (mutations inherit no retry) and reads the failure's **code**: one more send
+for a failure that may pass, none for a refusal that cannot (`AccessDenied`, `NotFound`, an invalid
+request, a document too large to read). A route's policy does not read the code, so a hook that takes
+it still re-sends a `NotFound`. The reason it is a rule rather than a habit: a failing apply in the
 Data Explorer once issued **two** `StartQueryExecution` calls 1.1 s apart, because `retry: 1` had been
 set on something that looked like a read and was a billed, stateful action.
 
@@ -33,6 +37,11 @@ the API, which itself answers inside API Gateway's 30-second ceiling: 46 seconds
 fails if the client's timeout is not above their sum.
 
 ## History
+
+### 2026-11-27
+
+- **Changed:** the query client's default retry reads the failure's code. It was a flat one retry,
+  so every read that set no policy sent a refusal twice, a second apart.
 
 ### 2026-11-15
 

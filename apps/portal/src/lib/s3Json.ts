@@ -190,9 +190,9 @@ function basicUtcTimestamp(now: Date): string {
  * A `parse` that throws anyway is caught and wrapped in `fallbackMessage`, but no caller
  * should rely on that: interpreting the body is the parser's whole job.
  * Follows the enqueue services' conventions: one options object and the user-safe wording
- * supplied by the caller. The credential retry that used to wrap the send is gone from here: an
- * expired session is now re-assumed server-side, and an expired ID token is a 401 the transport
- * answers with one forced refresh. Neither is this module's business any more.
+ * supplied by the caller. The credential retry that used to wrap the send is gone from here: the
+ * portal's server refreshes the token before it forwards a request, and a 401 that reaches the
+ * browser anyway is `SessionExpired`, sent once. Neither is this module's business any more.
  *
  * @example
  * return readJsonDocument({
