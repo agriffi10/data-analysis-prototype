@@ -1,4 +1,4 @@
-import {useCallback} from 'react';
+import {useCallback, useEffect, useRef} from 'react';
 import {COLUMN_RESIZE_STEP_PX, MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH} from './catalog.constants';
 
 type ColumnResizeHandleProps<K extends string | number> = {
@@ -38,24 +38,42 @@ export function ColumnResizeHandle<K extends string | number>({
   onResize,
   onReset
 }: ColumnResizeHandleProps<K>) {
+  // How to end the drag in flight, or null between drags. The grid can unmount mid-drag (a
+  // result swapped under the pointer), and a handle that outlived it would go on writing widths.
+  const endDrag = useRef<(() => void) | null>(null);
+  useEffect(() => () => endDrag.current?.(), []);
+
   // The drag's window listeners are self-contained in the closure below so the
   // move handler always sees the gesture origin (not a stale prop between
-  // events) and the up handler can unbind both without a forward-reference.
+  // events) and the end handler can unbind all three without a forward-reference.
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       e.preventDefault(); // don't start a text selection / steal header focus
+      endDrag.current?.();
       const startX = e.clientX;
       const startWidth = width;
+      // The drag belongs to the pointer that started it. The listeners are on the window, where a
+      // second finger anywhere on the screen would otherwise move the column and, lifting, end it.
+      const pointer = e.pointerId;
 
       const onMove = (move: PointerEvent) => {
-        onResize(column, startWidth + (move.clientX - startX));
+        if (move.pointerId === pointer) onResize(column, startWidth + (move.clientX - startX));
       };
-      const onUp = () => {
+      const end = () => {
         window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointerup', onEnd);
+        window.removeEventListener('pointercancel', onEnd);
+        endDrag.current = null;
       };
+      const onEnd = (last: PointerEvent) => {
+        if (last.pointerId === pointer) end();
+      };
+      endDrag.current = end;
       window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointerup', onEnd);
+      // A gesture the browser or OS takes over fires this INSTEAD of pointerup, and an unbound
+      // move handler then resizes on every pointer move with no button held.
+      window.addEventListener('pointercancel', onEnd);
     },
     [column, width, onResize]
   );

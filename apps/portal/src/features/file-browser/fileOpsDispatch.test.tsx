@@ -445,6 +445,74 @@ describe('in-flight state', () => {
     await waitFor(() => expect(screen.getByText('2 selected')).toBeInTheDocument());
   });
 
+  it('does NOT put the selection back on a page the user has since left', async () => {
+    // The refusal lands after the dialog closed, so the user may have turned the page. Restoring
+    // then would select rows that are not on screen, and the toolbar acts on the selection.
+    const refusal = 'That selection is too large to move in one go. Select fewer items and try again.';
+    mock.listFiles.mockImplementation(async (_bucket, prefix, token) => {
+      if (prefix !== 'alice/') return ok(page({files: [], folders: []}));
+      return token === 'page-2'
+        ? ok(page({files: [file('march.csv'), file('april.csv')], folders: []}))
+        : ok(page({isTruncated: true, nextContinuationToken: 'page-2'}));
+    });
+    let refuse = (): void => undefined;
+    mockSubmit.mockReturnValue(
+      new Promise((resolve) => {
+        refuse = () => resolve({success: false, error: {message: refusal, code: 'SelectionTooLarge'}});
+      })
+    );
+    const {user} = render();
+    await screen.findByText('report.csv');
+    await user.click(screen.getByRole('button', {name: 'Next'}));
+    await user.click(await screen.findByRole('checkbox', {name: 'Select march.csv'}));
+    await user.click(screen.getByRole('checkbox', {name: 'Select april.csv'}));
+    await user.click(screen.getByRole('button', {name: 'Move selected items'}));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', {name: 'Open folder docs'}));
+    await user.click(within(dialog).getByRole('button', {name: 'Move here'}));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole('button', {name: 'Prev'}));
+    await screen.findByRole('checkbox', {name: 'Select report.csv'});
+
+    await act(async () => refuse());
+
+    expect(await screen.findByText(refusal)).toBeInTheDocument();
+    await act(async () => undefined);
+    expect(screen.queryByText('2 selected')).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', {name: 'Select report.csv'})).not.toBeChecked();
+  });
+
+  it('does NOT put the selection back when one of its rows has left the listing meanwhile', async () => {
+    // EVERY item must still be on screen. Restoring the rest would select a row the user ticked
+    // as part of a pair, beside one that is gone.
+    const refusal = 'That selection is too large to move in one go. Select fewer items and try again.';
+    let refuse = (): void => undefined;
+    mockSubmit.mockReturnValue(
+      new Promise((resolve) => {
+        refuse = () => resolve({success: false, error: {message: refusal, code: 'SelectionTooLarge'}});
+      })
+    );
+    const {user, queryClient} = render();
+    await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
+    await user.click(screen.getByRole('checkbox', {name: 'Select notes.txt'}));
+    await user.click(screen.getByRole('button', {name: 'Move selected items'}));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', {name: 'Open folder docs'}));
+    await user.click(within(dialog).getByRole('button', {name: 'Move here'}));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalledTimes(1));
+    mock.listFiles.mockResolvedValue(ok(page({files: [file('notes.txt')]})));
+    await act(async () => {
+      await queryClient.invalidateQueries();
+    });
+    await waitFor(() => expect(screen.queryByRole('checkbox', {name: 'Select report.csv'})).not.toBeInTheDocument());
+
+    await act(async () => refuse());
+
+    expect(await screen.findByText(refusal)).toBeInTheDocument();
+    await act(async () => undefined);
+    expect(screen.getByRole('checkbox', {name: 'Select notes.txt'})).not.toBeChecked();
+  });
+
   it('keeps the selection when a DELETE enqueue is refused', async () => {
     mockSubmit.mockResolvedValue({
       success: false,

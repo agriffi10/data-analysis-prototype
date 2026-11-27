@@ -26,6 +26,8 @@ export type GroupingPanelProps = {
    * added to. The region resolves this; below `table` sources it is Glue's list.
    */
   columns: {name: string}[];
+  /** The tab the panel is open over. A draft belongs to the tab it was staged on. */
+  tabId: string;
   /** The applied description: the draft's starting point, and what the refusal reads. */
   query: ExplorationQuery;
   /** The column a header drag is carrying, read at drop time — see the region for why it is a ref. */
@@ -57,7 +59,7 @@ const removeKey = (list: 'column' | 'aggregate', name: string) => `${list}:${nam
  * Column references reach the SQL through `sqlIdentifier` in the renderer and the function
  * is chosen from a closed list here — nothing in this panel is assembled from user text.
  */
-export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClose}: GroupingPanelProps) {
+export function GroupingPanel({tabId, columns, query, draggedColumnRef, onApply, onClose}: GroupingPanelProps) {
   useEscapeKey(onClose, true);
   const applied = query.grouping;
   const [draft, setDraft] = useState<Grouping>(applied ?? emptyGrouping());
@@ -66,8 +68,8 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
   const [error, setError] = useState<string | null>(null);
 
   // Re-seeded during render when the APPLIED grouping changes underneath the panel, React's
-  // "adjust state when a prop changes" pattern: a history step, Clear all or a second tab
-  // rewrites the grouping without going through this draft, and a panel still showing the
+  // "adjust state when a prop changes" pattern: a history step or Clear all rewrites the
+  // grouping without going through this draft, and a panel still showing the
   // grouping the user has just stepped away from would re-apply it on the next Apply.
   // Compared on the applied value's identity — an apply from THIS panel replaces the object
   // too, and re-seeding from it is a no-op because the two agree.
@@ -75,6 +77,18 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
   if (previousApplied !== applied) {
     setPreviousApplied(applied);
     setDraft(applied ?? emptyGrouping());
+    setError(null);
+  }
+  // A change of TAB starts the panel over, by the same pattern. The applied value cannot stand in
+  // for it: two ungrouped tabs agree on none, and one tab's draft would be applied to the other.
+  // Not a `key` on the panel: a remount registers its Escape layer again, ahead of a panel opened
+  // after it, and Escape would close this one first.
+  const [previousTab, setPreviousTab] = useState(tabId);
+  if (previousTab !== tabId) {
+    setPreviousTab(tabId);
+    setDraft(applied ?? emptyGrouping());
+    setPendingFn('COUNT');
+    setPendingColumn(ALL_ROWS);
     setError(null);
   }
 
