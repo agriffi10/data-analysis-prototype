@@ -22,10 +22,18 @@
 // `.next/diagnostics` across builds, so a plain build after an analysed one leaves an analysis of
 // code that is gone, and `next analyze` writes one of code that was never built.
 //
+// THE FRAME. The same analysis says what every page loads before its own view: the boot's lazy group
+// and the one it loads from `src/AppFrame.tsx`, judged together. A package, a folder of `src/` or a
+// feature the shell is not known to use fails at any size, the portal's own source there has a
+// budget and a floor, and what cannot be measured is a finding. The set is closed over its lazy
+// loads: the only one the boot and the frame may hold is the frame, the only ones every route's
+// hydration may hold are the boot and the not-found page, and hydration's packages are named. The
+// measure is printed on a passing build.
+//
 // A MISSING OR STALE ANALYSIS IS A FAILURE, NOT A SKIP. "Did not run" is never "clean".
 import {run} from './page-hydration.mjs';
 
-const {findings, routes, chunks} = run(process.cwd());
+const {findings, routes, chunks, frameBytes} = run(process.cwd());
 if (findings.length > 0) {
   for (const finding of findings) console.error(`[pages] ${finding}`);
   if (findings.some((finding) => / hydrates /.test(finding))) {
@@ -39,3 +47,4 @@ if (findings.length > 0) {
   process.exit(1);
 }
 console.log(`[pages] ${routes} route(s), ${chunks} hydration chunk(s) checked: none carries the application graph.`);
+console.log(`[pages] every page loads ${frameBytes} bytes of the portal's own source before its view.`);

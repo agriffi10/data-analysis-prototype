@@ -3,6 +3,13 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "sideEffects": [
+    "**/*.css",
+    "./src/app/**",
+    "./src/instrumentation.ts",
+    "./src/proxy.ts",
+    "./src/features/query/SqlEditor.tsx"
+  ],
   "scripts": {
     "dev": "NEXT_TELEMETRY_DISABLED=1 next dev --hostname localhost --port 5173",
     "dev:session-env": "node scripts/dev-session-env.mjs",
