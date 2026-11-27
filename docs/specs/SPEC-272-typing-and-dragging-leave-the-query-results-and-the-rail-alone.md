@@ -152,6 +152,13 @@ unmount the hook first.
 
 Every criterion below that names the delay is decided on a fake clock (`src/test/fakeTimers.ts`).
 
+**Existing suites change in how they read storage, and in nothing they assert.** A suite that reads
+`QUERY_TABS_STORAGE_PREFIX` after a gesture now reads it after a flush: the fake clock advanced
+past the delay, or the workspace unmounted. `openSqlHandoff.test.tsx` is known to; every other
+suite that reads the key is checked the same way. **A negative read flushes first.** An assertion
+that something was not stored passes for the wrong reason while a write is merely pending, so
+every such assertion flushes before it reads.
+
 #### Acceptance Criteria:
 
 - [ ] Twenty changes to a tab's SQL inside one delay cause one `sessionStorage` write, holding the

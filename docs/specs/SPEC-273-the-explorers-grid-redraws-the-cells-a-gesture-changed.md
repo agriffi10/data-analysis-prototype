@@ -62,10 +62,17 @@ recorded in the delivery doc.
 
 #### Description:
 
-The grid's rows are memoised, and a row's props do not change when an unpinned column's width
-does: widths reach the table through its `<colgroup>`. `useExploration` memoises the rendered
-statement on the exploration's source and query, the renderer's two arguments, so an edit to the
-presentation alone renders nothing.
+The grid's rows are memoised, and nothing a row receives changes when an unpinned column's width
+does. That is not true of anything the geometry returns today: `useColumnGeometry` rebuilds every
+column object on a width change, and the row's columns, the page's formatting, the selection's
+column names and the pinned offsets are all derived from those objects. So the geometry also
+returns a width-free list of the columns, hidden ones included, whose identity survives a
+width-only change. The rows, the page formatting and the selection are computed from that list.
+Widths go to the `<colgroup>` and the header alone. The pinned offsets keep their identity unless
+a pinned column's width changes.
+
+`useExploration` memoises the rendered statement on the exploration's source and query, the
+renderer's two arguments, so an edit to the presentation alone renders nothing.
 
 #### Acceptance Criteria:
 
@@ -81,10 +88,12 @@ presentation alone renders nothing.
 
 #### Description:
 
-A row receives only what it needs to draw itself: its values, the columns, its formatting, and its
-own share of the selection, in a form that keeps its identity when that share does not change. The
-selection model answers whether a cell is selected from a map of column positions built once per
-column set, not by searching the column list for every cell.
+A row receives only what it needs to draw itself: its values, the width-free columns, its
+formatting, and its own share of the selection. The share is passed as primitives, a string naming
+the row's selected positions and the cursor's position as a number, so two equal shares compare
+equal with no object identity carried from one render to the next. The selection model answers
+whether a cell is selected from a map of column positions built once per column set, not by
+searching the column list for every cell.
 
 #### Acceptance Criteria:
 
@@ -105,13 +114,13 @@ column set, not by searching the column list for every cell.
 
 `useExplorationTabs` returns actions whose identity is stable for the life of the hook. The
 workspace hands the results region a stable `onPresentationChange`, and the region memoises the
-visible column names and the column actions it hands the grid.
+visible column names. The column header and its menus are not part of this spec: their actions
+close over the tab's query, and they may render on any edit.
 
 #### Acceptance Criteria:
 
 - [ ] Opening the Value panel, a presentation edit that changes no column and no row, renders
-      `CellValue` zero times and calls `renderExplorationSql` zero times.
-- [ ] Recording an execution's scanned bytes against a tab renders `CellValue` zero times.
+      `CellValue` zero times and calls `renderExplorationSql` zero times, and renders the panel.
 - [ ] Two tabs opened in one task still both open, and the third past the cap is still refused:
       the existing tab suites pass with no assertion weakened.
 
@@ -125,6 +134,15 @@ today; every later change is coalesced. The hook flushes when it unmounts and on
 `pagehide`, and after it has unmounted it writes nothing and starts no timer.
 
 Every criterion below that names the delay is decided on a fake clock (`src/test/fakeTimers.ts`).
+
+**Existing suites change in how they read storage, and in nothing they assert.** A suite that reads
+the tabs' storage after a gesture now reads it after a flush: the fake clock advanced past the
+delay, or the workspace unmounted. `useExplorationTabs.test.ts`, `heldTab.test.tsx`,
+`filterBuilder.test.tsx` and `formattingUi.test.tsx` are known to; every other suite that reads
+`EXPLORATION_TABS_STORAGE_PREFIX` is checked the same way. **A negative read flushes first.** An
+assertion that something was not stored passes for the wrong reason while a write is merely
+pending, so `exploreHandoff.test.tsx`, `savedViewRefusal.test.tsx` and any other such assertion
+flush before they read.
 
 #### Acceptance Criteria:
 
@@ -143,7 +161,10 @@ Every criterion below that names the delay is decided on a fake clock (`src/test
 #### Description:
 
 A listed value is drawn by a memoised row component, `ValueRow`, and whether a value is ticked is
-answered from a set built once per selection, not by searching the selection for every row.
+answered from a set built once per selection, not by searching the selection for every row. The
+set is keyed so that it agrees with `sameValue`, which compares numbers by value: two spellings of
+one number are one member. The handler a row is given keeps its identity across a tick, and reads
+the selection as it stands when it is called.
 
 #### Acceptance Criteria:
 
@@ -163,14 +184,19 @@ answered from a set built once per selection, not by searching the selection for
 export const EXPLORATION_TABS_PERSIST_DELAY_MS = 300;
 
 // src/features/data-explorer/useCellSelection.ts
-export type RowSelection = {
-  /** Positions, in display order, of this row's selected cells. */
-  selected: ReadonlySet<number>;
+// Returned by the hook. Primitives, so equal shares are equal props.
+rowSelection: (row: number) => {
+  /** The row's selected positions in display order, joined; '' when none. */
+  selected: string;
   /** Position of the cursor in this row, or -1. */
   cursor: number;
 };
-// Returned by the hook: the row's share, the SAME object while that share is unchanged.
-rowSelection: (row: number) => RowSelection;
+
+// src/features/data-explorer/useColumnGeometry.ts
+/** A column without its width. */
+export type RowColumn = Pick<GridColumn, 'name' | 'type' | 'index' | 'pinned' | 'hidden'>;
+// Added to UseColumnGeometryResult: the same array while only widths change.
+rowColumns: RowColumn[];
 ```
 
 ## File & Folder Structure
@@ -178,11 +204,12 @@ rowSelection: (row: number) => RowSelection;
 ```
 apps/portal/src/features/data-explorer/
 ├── ExplorationGrid.tsx              (rows drawn by a memoised row component)
+├── useColumnGeometry.ts             (a width-free column list)
 ├── useCellSelection.ts              (per-row selection, a position map)
 ├── useExploration.ts                (the statement memoised on source and query)
 ├── useExplorationTabs.ts            (stable actions, coalesced storage)
 ├── DataExplorerWorkspace.tsx        (a stable onPresentationChange)
-├── ExplorationResultsRegion.tsx     (memoised visible names and actions)
+├── ExplorationResultsRegion.tsx     (memoised visible names; formatting from the width-free list)
 ├── FilterValuePicker.tsx            (a memoised ValueRow, a set for membership)
 └── explorerRenderScope.test.tsx     (the budgets)
 ```
@@ -192,12 +219,13 @@ apps/portal/src/features/data-explorer/
 ### Phase 1: Baseline, then the drag
 
 - Add the render-scope suite in its measuring form and record the baseline at that commit.
-- Memoised rows, the statement memoised on its two inputs, coalesced storage (FR-001, FR-004).
+- The width-free column list, memoised rows, the statement memoised on its two inputs, coalesced
+  storage (FR-001, FR-004).
 
 ### Phase 2: The selection and the memo chains
 
 - Per-row selection and the position map (FR-002).
-- Stable tab actions, `onPresentationChange`, visible names and column actions (FR-003).
+- Stable tab actions, `onPresentationChange` and visible names (FR-003).
 
 ### Phase 3: The value picker, budgets, close-out
 

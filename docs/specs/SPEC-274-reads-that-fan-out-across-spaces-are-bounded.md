@@ -84,9 +84,14 @@ read is one task: it asks Glue for the database and then for its tables, a page 
 call after the last, so one task has one request in flight. Four tasks are therefore at most four
 Lambda invocations, under half the account's ten.
 
-A database the user expands in the rail while autocomplete's reads are queued waits its turn
-behind them. That is accepted: the wait is bounded by the reads ahead of it, and a second limiter
-for the rail would put the total back above four.
+On the editor's surface a database expanded in the rail costs no read of its own: the rail and
+autocomplete observe the same query, so the rail joins the read autocomplete already asked for.
+Below `tablet`, where autocomplete reads nothing, the rail's reads are the only ones and take
+their places like any other. `useRefreshLink` and the Data Explorer's `useSourceColumns` and
+`SourcePicker` read through the same function, so they are limited with no change of their own.
+
+The limiter is module-level, so it outlives a test. The harness settles every read it started
+before a test ends, and a test that leaves one pending fails.
 
 #### Acceptance Criteria:
 
@@ -95,8 +100,6 @@ for the rail would put the total back above four.
       spec: twelve in flight).
 - [ ] A schema read that fails frees its place: the databases behind it still load, and the failed
       one is omitted from autocomplete as today.
-- [ ] A database expanded in the rail while reads are queued shows its tables once its read has
-      run.
 - [ ] `invalidateSchema` still re-reads a database's schema, and still tells every registered
       listener.
 
@@ -116,10 +119,12 @@ everything, and on a fake clock.
 
 #### Acceptance Criteria:
 
-- [ ] Leaving Query and returning two minutes after its schemas loaded reads one schema: that of
-      the database the rail expands by default (measured before this spec: every database).
-- [ ] Returning six minutes after they loaded reads every usable database's schema, at most four
-      at once.
+- [ ] Leaving Query one minute after its schemas loaded and returning at two minutes reads one
+      schema: that of the database the rail expands by default (measured before this spec: every
+      database).
+- [ ] Leaving at four minutes and returning at six reads every usable database's schema, at most
+      four at once. The entries are still cached at six minutes, since the client keeps an
+      unobserved query for five, so it is the `staleTime` that causes the re-read.
 - [ ] A DDL statement run two minutes after the schemas loaded re-reads that database's schema at
       once, and autocomplete offers the new table.
 
@@ -127,8 +132,10 @@ everything, and on a fake clock.
 
 #### Description:
 
-`useDataQualityRuns` reads its per-space indexes through a limiter of
-`DATA_QUALITY_INDEX_CONCURRENCY` (4), created per query run. Everything else about the list is
+`useDataQualityRuns` reads its per-space indexes through one module-level limiter of
+`DATA_QUALITY_INDEX_CONCURRENCY` (4). Module-level, not one per run of the query: **Refresh**
+starts a second run while the first one's reads are still in flight, and a limiter per run would
+allow eight. Everything else about the list is
 unchanged: spaces settle independently, an unreadable space is skipped and logged, and the query
 fails only when every space did.
 
@@ -139,6 +146,8 @@ fails only when every space did.
 - [ ] With one space's read failing for a reason a retry could clear, the list shows the other
       eleven and names that space as unreachable.
 - [ ] With every space's read failing, the list shows its error and not an empty history.
+- [ ] **Refresh** pressed while the first run's reads are in flight never has more than four index
+      reads in flight across both runs.
 
 ---
 
@@ -152,7 +161,7 @@ export function limitConcurrency(max: number): <T>(task: () => Promise<T>) => Pr
 export const SCHEMA_READ_CONCURRENCY = 4;
 export const COMPLETION_SCHEMA_STALE_MS = 5 * 60_000;
 
-// src/features/data-quality/dataQuality.constants.ts (or the feature's existing constants module)
+// src/features/data-quality/dataQuality.constants.ts (new)
 export const DATA_QUALITY_INDEX_CONCURRENCY = 4;
 ```
 
@@ -160,11 +169,17 @@ export const DATA_QUALITY_INDEX_CONCURRENCY = 4;
 
 ```
 apps/portal/src/
-├── lib/limitConcurrency.ts                         (+ test)
-├── features/catalog/useSchema.ts                   (the shared limiter, autocomplete's staleTime)
+├── lib/limitConcurrency.ts                              (+ limitConcurrency.test.ts)
+├── features/catalog/useSchema.ts                        (the shared limiter, autocomplete's staleTime)
 ├── features/catalog/catalog.constants.ts
-└── features/data-quality/useDataQualityRuns.ts
+├── features/catalog/schemaReads.test.tsx                (new: FR-002 and FR-003, through the Query workspace)
+├── features/data-quality/dataQuality.constants.ts       (new)
+├── features/data-quality/useDataQualityRuns.ts
+└── features/data-quality/dataQualityRunsFanOut.test.tsx (new: FR-004)
 ```
+
+The Query-level cases go in a new file so this spec edits none of the Query workspace's existing
+suites, which SPEC-272 is changing.
 
 ## Implementation Phases
 
